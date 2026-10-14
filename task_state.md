@@ -3,38 +3,50 @@
 > The handoff file for cross-session work. Read this first after `/clear`; update it after every sub-task.
 
 ## Current objective
-Build the first runnable slice of **The Voidlit Tome**, a text-first sci-fi horror RPG where a
-monolithic voxel Tome acts as the Dungeon Master. The work covers:
-1. The rules engine (an original d6-pool system inspired by Voidlight, Mothership and Escape the Dark Sector).
-2. The "split brain" Tome mind:
-   - **Limbic (BindsNET):** per-NPC online R-STDP brains with dendritic plateaus, winner-take-all plots, structural plasticity and gossip grafting.
-   - **Cortex (SpikingJelly):** a Director SNN trained with surrogate gradients that picks the DM's pacing beats.
-   - **Transducer/Voice (llama.cpp):** a GBNF-constrained sensory pass and a narration/dialogue pass, with an offline fallback.
-3. A WebSocket protocol and an Unreal Engine 5.8 plugin that renders the Tome's voxel surface.
+First runnable slice of **The Voidlit Tome**, a text-first sci-fi horror RPG whose Dungeon Master is a voxel
+monolith. **Status: v0.1 done and pushed** on branch `claude/determined-maxwell-5j79pa`.
 
 ## Decisions (do not re-litigate)
-- The brain is a **Python sidecar** (`brain/`) because SpikingJelly and BindsNET are PyTorch libraries. Unreal is only the body and talks to it over a localhost WebSocket. This departs from the Gemini spec, which called for a C++ SNN.
-- The LLM never decides mechanics. Dice and the rules decide; the SNNs choose strategy and pacing; the LLM only writes the words.
-- The full game must run offline (heuristic senses + template narrator) so tests run without a GPU or LLM.
-- Mechanics and text are original. Inspirations are credited in `docs/RULES.md`.
+- The brain is a **Python sidecar** (`brain/`) because SpikingJelly and BindsNET are PyTorch libraries; Unreal is
+  the body over a localhost WebSocket (`docs/PROTOCOL.md`). This departs from the Gemini spec's C++ SNN. The
+  mapping is in `docs/ARCHITECTURE.md`.
+- **BindsNET = limbic** (per-NPC online R-STDP, dendritic plateaus, structural plasticity, gossip).
+  **SpikingJelly = cortex** (the Director, trained offline with surrogate gradients).
+- The LLM never decides mechanics; there is a full offline fallback (heuristic senses, phrase banks).
+- Mechanics and text are original; inspirations are credited in `docs/RULES.md`.
+- Voxel glyphs come from DejaVu Sans Mono Bold (permissive license). Unifont was rejected because the installed
+  package is GPL-2+.
+
+## Done
+- [x] rules/: d6 pools, Grit/Guile/Insight, obstacles as approach pips (off-approach: 2 hits = 1 pip), Stress/Panic
+      (2d6 + Insight vs Stress; panicking discharges 2), Lumen (interval 5), clocks, sector deck, Last Light
+- [x] senses/: SensoryState, per-scene GBNF, strict parser, heuristic transducer
+- [x] limbic/: BindsNET NPC brain (custom DendriticBranchNodes, LIF WTA plots, MSTDPET + retroactive consolidation),
+      prune/split/trauma, gossip grafting, save/load. An ally NPC gives +1 die (the brains matter mechanically).
+- [x] cortex/: Director SNN plus weights (`voidlit/cortex/director.pt`, KL ~0.09). Retrain after teacher changes:
+      `python -m voidlit train-director`.
+- [x] voice/: llama-server bridge (grammar pass, narration pass), prompt compilers, offline narrator with variants
+- [x] tome/: engine turn loop, frames, `content/hollow_lantern.toml`; DM fair-play masks (hazards only on a clear
+      scene with a cooldown, one twist per obstacle)
+- [x] server + CLI (`python -m voidlit play|serve|train-director|gbnf`), `tools/balance.py`
+- [x] 50 pytest tests passing (~8 s on CPU); CI workflow `.github/workflows/brain-tests.yml` with a balance report
+- [x] Unreal 5.8 plugin `unreal/VoidlitTome` (voxel ISM surface, GPU-animated via TomeVoxel.ush, typesetter,
+      glyphs, WebSocket client, monolith actor, Slate keyboard capture, material-building editor script)
+
+## Balance snapshot (40 seeded runs)
+- Smart bot escapes ~60%; naive bot ~7%. Most deaths are at the final boss (the Conductor).
+
+## Known gaps / next steps (priority order)
+1. **Compile the Unreal plugin** in a real UE 5.8 project. It has never been built (no UE in CI); expect small
+   API fixes. Then run `Content/Python/create_tome_material.py`.
+2. Package the sidecar (PyInstaller) and have `ATomeMonolithActor` spawn it by default.
+3. Fine-tune the Director on playtest logs; add more sectors (TOML only).
+4. Try the LLM path against a real `llama-server` (only mocked in tests so far).
 
 ## Environment notes
-- download.pytorch.org is blocked by the network policy, so torch comes from PyPI (CUDA build, large).
-- The scratch venv lives in the session scratchpad and is not committed. CI installs from `brain/pyproject.toml`.
-- farirpgs.com and figcat.com are blocked; the Voidlight and FigCat details came from web search summaries.
-
-## Steps
-- [ ] Repo skeleton, docs, CI
-- [x] rules/ (dice pools, character, lumen, clocks, panic, sector deck, obstacles)
-- [x] senses/ (SensoryState, dynamic GBNF, parser, heuristic extractor)
-- [x] limbic/ (BindsNET NPC brain, dendritic nodes, R-STDP consolidation, structural plasticity, contagion, persistence). Constants were calibrated by a scripted run; see the npc_brain.py header.
-- [x] cortex/ (SpikingJelly Director, teacher, training). Weights are in voidlit/cortex/director.pt (KL ~0.09). Retrain after any teacher change.
-- [x] voice/ (llama-server bridge, prompt compilers, offline narrator with variants)
-- [x] tome/ (engine turn loop, frames protocol, hollow_lantern.toml). A scripted offline playthrough works.
-- [ ] server + CLI
-- [ ] tests passing
-- [ ] Unreal plugin (voxel surface, glyph font, typesetter, brain client, monolith actor, material script)
-- [ ] commit + push
+- download.pytorch.org is blocked here; torch came from PyPI (CUDA build, ~6 GB venv in the scratchpad, not
+  committed). CI uses CPU torch from download.pytorch.org.
+- farirpgs.com and figcat.com are blocked; Voidlight and FigCat details came from web search summaries.
 
 ## Next immediate action
-Write server.py (websockets), cli.py (ANSI terminal play), and __main__.py, then the pytest suite.
+None pending in this session. Next session: step 1 above (needs a machine with UE 5.8).

@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "Voidlit Tome",
+	"Description": "The Voidlit Tome's body: a monolith whose voxel surface rises into glowing text, driven by the spiking-neural Tome brain over a localhost WebSocket.",
+	"Category": "Gameplay",
+	"CreatedBy": "The Voidlit Tome",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"EngineVersion": "5.8.0",
+	"Modules": [
+		{
+			"Name": "VoidlitTome",
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit"
+		}
+	],
+	"Plugins": [
+		{ "Name": "PythonScriptPlugin", "Enabled": true, "Optional": true },
+		{ "Name": "EditorScriptingUtilities", "Enabled": true, "Optional": true }
+	]
+}

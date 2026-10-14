@@ -1,0 +1,130 @@
+// The Voidlit Tome: per-voxel animation for the monolith surface.
+//
+// Included by the Custom nodes of M_TomeVoxel (built by Content/Python/create_tome_material.py) via
+// "/Plugin/VoidlitTome/TomeVoxel.ush". UTomeVoxelSurfaceComponent writes two textures, one texel per voxel:
+//
+//   TomeState (RGBA32F):  R = transition start (TomeTime seconds), G = height before, B = glow (0..1), A = height after
+//   TomeColor (BGRA8):    RGB = sRGB colour, A = effect id
+//
+// Each voxel finds its texel through PerInstanceCustomData (column, row). All animation happens here on the GPU,
+// so the CPU only rewrites the textures when the page changes.
+//
+// The material exposes every effect as a scalar parameter; its Custom nodes pack them into:
+//   FxA = (RiseSeconds, RippleTime, RippleStrength, Panic)
+//   FxB = (Thinking, Shudder, Lumen, Dark)
+//   FxC = (Heartbeat, Flare, unused, unused)
+
+#pragma once
+
+#define TOME_FX_NONE 0
+#define TOME_FX_RISE 1
+#define TOME_FX_PULSE 2
+#define TOME_FX_FLICKER 3
+#define TOME_FX_RIPPLE 4
+
+float TomeHash(float2 P)
+{
+	return frac(sin(dot(P, float2(12.9898, 78.233))) * 43758.5453);
+}
+
+float TomeSmooth(float T)
+{
+	T = saturate(T);
+	return T * T * (3.0 - 2.0 * T);
+}
+
+struct FTomeVoxel
+{
+	float Height;
+	float Glow;
+	float3 Color;
+	float Effect;
+};
+
+FTomeVoxel TomeEvalVoxel(Texture2D StateTex, SamplerState StateSampler, Texture2D ColorTex, SamplerState ColorSampler,
+	float2 Cell, float2 Grid, float Time, float RiseSeconds)
+{
+	const float2 UV = (Cell + 0.5) / Grid;
+	const float4 S = StateTex.SampleLevel(StateSampler, UV, 0);
+	const float4 C = ColorTex.SampleLevel(ColorSampler, UV, 0);
+	FTomeVoxel V;
+	V.Height = lerp(S.g, S.a, TomeSmooth((Time - S.r) / max(RiseSeconds, 0.001)));
+	V.Glow = S.b;
+	V.Color = pow(max(C.rgb, 0.0), 2.2);
+	V.Effect = round(C.a * 255.0);
+	return V;
+}
+
+// Height in "rise units" (1.0 = fully raised). The material multiplies by RiseCm along the face normal.
+float TomeVoxelHeight(Texture2D StateTex, SamplerState StateSampler, Texture2D ColorTex, SamplerState ColorSampler,
+	float2 Cell, float2 Grid, float Time, float4 FxA, float4 FxB)
+{
+	const FTomeVoxel V = TomeEvalVoxel(StateTex, StateSampler, ColorTex, ColorSampler, Cell, Grid, Time, FxA.x);
+	float H = V.Height;
+	if (V.Effect == TOME_FX_PULSE)
+	{
+		H *= 1.0 + 0.18 * sin(Time * 5.0 + Cell.x * 0.15);
+	}
+
+	// Aspect-correct position from the centre of the page.
+	const float2 P = (Cell / Grid - 0.5) * float2(Grid.x / Grid.y, 1.0);
+	const float R = length(P);
+
+	// A ripple spreading from the centre (new page, overcome obstacle, escape).
+	const float Age = Time - FxA.y;
+	const float Front = saturate(1.0 - abs(R - Age * 0.35) * 6.0);
+	const float Wave = FxA.z * exp(-2.5 * max(Age, 0.0)) * sin(40.0 * R - 14.0 * Age) * Front * step(0.0, Age);
+
+	// While the mind is thinking, the whole surface breathes, even the flush voxels.
+	const float Breath = FxB.x * 0.12 * (0.5 + 0.5 * sin(Time * 2.2 - R * 9.0));
+
+	// Panic: random voxels jolt up and down.
+	const float Panic = FxA.w * step(0.93, TomeHash(Cell + floor(Time * 14.0))) * 0.8;
+
+	// Shudder: a fast, decaying tremor.
+	const float Shudder = FxB.y * 0.1 * sin(Time * 70.0 + Cell.x * 1.7 + Cell.y);
+
+	return max(0.0, H + Wave * 0.35 + Breath + Panic + Shudder);
+}
+
+float TomeLit(FTomeVoxel V)
+{
+	return saturate(V.Height * 1.5);
+}
+
+float3 TomeDreadShift(float3 Col, float Dark)
+{
+	// In the dark only dread survives: colours collapse toward a deep arterial red.
+	const float Luma = dot(Col, float3(0.299, 0.587, 0.114));
+	return lerp(Col, float3(Luma * 0.9, Luma * 0.08, Luma * 0.12), Dark * 0.85);
+}
+
+float3 TomeVoxelEmissive(Texture2D StateTex, SamplerState StateSampler, Texture2D ColorTex, SamplerState ColorSampler,
+	float2 Cell, float2 Grid, float Time, float4 FxA, float4 FxB, float4 FxC)
+{
+	const FTomeVoxel V = TomeEvalVoxel(StateTex, StateSampler, ColorTex, ColorSampler, Cell, Grid, Time, FxA.x);
+	float Glow = V.Glow;
+	if (V.Effect == TOME_FX_FLICKER)
+	{
+		Glow *= step(0.2, TomeHash(Cell * 0.37 + floor(Time * 11.0)));
+	}
+	else if (V.Effect == TOME_FX_PULSE)
+	{
+		Glow *= 0.7 + 0.3 * sin(Time * 5.0);
+	}
+	// Heartbeat: a double thump about once a second.
+	const float Phase = frac(Time * 1.1);
+	const float Thump = exp(-40.0 * Phase * Phase) + 0.6 * exp(-40.0 * (Phase - 0.18) * (Phase - 0.18));
+	const float Beat = lerp(1.0, 0.8 + 0.5 * Thump, FxC.x);
+	const float Lumen = FxB.z;
+	const float Intensity = (0.25 + 4.0 * Glow) * (0.3 + 0.7 * Lumen) * Beat * (1.0 + 2.0 * FxC.y);
+	return TomeDreadShift(V.Color, FxB.w) * Intensity * TomeLit(V);
+}
+
+float3 TomeVoxelBaseColor(Texture2D StateTex, SamplerState StateSampler, Texture2D ColorTex, SamplerState ColorSampler,
+	float2 Cell, float2 Grid, float Time, float4 FxA, float4 FxB)
+{
+	const FTomeVoxel V = TomeEvalVoxel(StateTex, StateSampler, ColorTex, ColorSampler, Cell, Grid, Time, FxA.x);
+	// Flush voxels are the same matte black as the slab, so the seams vanish.
+	return lerp(float3(0.012, 0.012, 0.014), TomeDreadShift(V.Color, FxB.w) * 0.5, TomeLit(V));
+}

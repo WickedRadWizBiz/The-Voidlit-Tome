@@ -5,43 +5,48 @@ from __future__ import annotations
 from ..limbic.npc_brain import BrainDecision, NPCSpec
 from .requests import NarrationRequest
 
-TOME_SYSTEM = """You are the Voidlit Tome: a black monolith of a book whose surface rises into glowing words.
-You are the narrator and game master of a sci-fi horror delve. Write in second person, present tense.
+TOME_SYSTEM = """You are the TOME: an ancient black slab that is both the game master and the whole interface of a
+sci-fi horror trial. Your words rise out of the stone's surface. Write in second person, present tense.
+The tone is grimy and blue-collar, with cosmic strangeness gathered around you and the ruins.
 Hard rules:
-- Narrate ONLY the facts you are given. Never invent dice results, damage, items, exits or new enemies.
-- If a roll failed, it failed; if it succeeded, it succeeded. Describe the given outcome vividly.
-- 2 to 4 short sentences. Concrete, sensory, cold. No lists, no headings, no game jargon.
-- Never speak for the player or decide their next action. Never mention dice, pips or numbers.
-- If an NPC's line is provided separately, do not repeat or paraphrase it."""
+- Narrate ONLY the facts you are given. Never invent dice results, harm, items, exits, Leaves or new enemies.
+- If a cast failed, it failed; if it fell short, it counted but cost; if it succeeded, it succeeded.
+- 2 to 4 short sentences. No lists, no headings, no game terms, no numbers, never mention dice or cards.
+- Never speak for the player or decide their next action.
+- Write in the REGISTER you are given. In the breakthrough register, your own words cut into the description.
+- If a person's line is provided separately, do not repeat or paraphrase it."""
 
 
 def compile_narration_prompt(req: NarrationRequest) -> list[dict]:
-    lines = [f"CHAPTER: {req.chapter_title}"]
-    if req.entering_chapter:
-        lines.append(f"THE PLAYER HAS JUST ENTERED. SCENE: {req.chapter_text}")
+    lines = []
+    if req.history:
+        lines.append(f"RECENT NARRATION (context only, do not repeat): {' '.join(req.history[-3:])}")
+    if req.place:
+        lines.append(f"PLACE: {req.place}")
+    if req.leaf_title:
+        lines.append(f"LEAF ({req.leaf_kind}): {req.leaf_title}")
+    if req.entering:
+        lines.append(f"IT HAS JUST RISEN. DESCRIBE IT: {req.leaf_text or req.leaf_title}")
     lines.append(f"PLAYER SAID: {req.player_text!r}")
-    lines.append(f"INTERPRETED AS: {req.intent} via {req.approach}")
-    if req.obstacle_name:
-        lines.append(f"OBSTACLE: {req.obstacle_name} ({req.obstacle_kind}). {req.obstacle_text or ''}".strip())
     if req.outcome:
-        lines.append(f"OUTCOME: {req.outcome.upper()}")
+        lines.append(f"THEY CAST {req.stat.upper()}. OUTCOME: {req.outcome.upper()}")
     for fact in req.facts:
         lines.append(f"FACT: {fact}")
-    if req.defeated_text:
-        lines.append(f"OBSTACLE OVERCOME: {req.defeated_text}")
+    if req.cleared_text:
+        lines.append(f"THE CHAPTER ENDS: {req.cleared_text}")
     if req.clue:
         lines.append(f"REVEAL THIS TRUTH: {req.clue}")
     if req.beat_note or req.beat_fact:
-        lines.append(f"THEN, GAME MASTER BEAT ({req.beat.value}): {req.beat_note} {req.beat_fact}".rstrip())
-    mood = "suffocating" if req.tension > 0.7 else "taut" if req.tension > 0.4 else "uneasy"
+        lines.append(f"THEN ({req.beat.value}): {req.beat_note} {req.beat_fact}".rstrip())
     light = "nearly gone" if req.lumen < 0.34 else "failing" if req.lumen < 0.67 else "steady"
-    lines.append(f"MOOD: {mood}. YOUR LIGHT IS {light}.")
-    if req.ending == "won":
-        lines.append("THIS IS THE ENDING: the player escapes. Close the tale in 3-4 sentences.")
-    elif req.ending == "dead":
-        lines.append("THIS IS THE ENDING: the player has died. Close the tale in 3-4 sentences.")
-    if req.history:
-        lines.insert(0, f"RECENT NARRATION (context only, do not repeat): {' '.join(req.history[-3:])}")
+    lines.append(f"REGISTER: {req.register}. {req.register_style}")
+    lines.append(f"YOUR LIGHT IS {light}.")
+    if req.ending == "verdict":
+        lines.append("THIS IS THE VERDICT: the Bearer survived the trial. Release them in 2-3 sentences.")
+    elif req.ending in ("dead", "taken"):
+        lines.append("THIS IS THE END OF THIS BEARER: they have died. Close their story in 2-3 sentences.")
+    elif req.ending == "campaign":
+        lines.append("THIS IS THE END OF THE CAMPAIGN: your Agenda is resolved. Close the tale in 3-4 sentences.")
     return [{"role": "system", "content": TOME_SYSTEM}, {"role": "user", "content": "\n".join(lines)}]
 
 
@@ -69,7 +74,7 @@ def provenance_flavor(d: BrainDecision, source_name: str | None) -> str:
 def compile_npc_prompt(spec: NPCSpec, d: BrainDecision, player_name: str, source_name: str | None = None) -> str:
     return "\n".join([
         f"You are {spec.name}. {spec.persona}".strip(),
-        f"You are speaking to {player_name}, a stranger in a dying station.",
+        f"You are speaking to {player_name}, a stranger carrying a black slab.",
         f"[DOMINANT PLOT]: {spec.plots[d.dominant_plot].name}",
         f"[COMPETING SUBTEXT]: {spec.plots[d.secondary_plot].name}",
         f"[LINEAGE PSYCHOLOGY]: {lineage_flavor(spec, d)}",

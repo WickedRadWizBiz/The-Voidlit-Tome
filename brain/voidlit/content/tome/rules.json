@@ -1,0 +1,15 @@
+{
+  "collection": "rules",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "opening-roll",
+      "name": "Opening roll",
+      "die": "d6",
+      "text": "Rolled stat +1 and another stat of the player's choice -1 (min 1); no change if the rolled stat is already 3. First Threshold = the class opening for that stat.",
+      "detail": "1 = might, 2 = grace, 3 = wits, 4 = nerve, 5 = signature, 6 = signature",
+      "notes": "From the lore thread's classes.json",
+      "order": 1
+    }
+  ]
+}

@@ -90,10 +90,10 @@ struct VOIDLITTOME_API FTomeStatus
 	GENERATED_BODY()
 
 	UPROPERTY(BlueprintReadOnly, Category = "Tome")
-	int32 Hull = 0;
+	int32 Grit = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Tome")
-	int32 HullMax = 0;
+	int32 GritMax = 5;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Tome")
 	int32 Stress = 0;

@@ -3,7 +3,8 @@
 Protocol (JSON text messages; see docs/PROTOCOL.md):
 
 client -> server
-    {"type": "hello", "protocol": 1, "options": {"seed": 7, "background": "medic", "name": "Ash"}}
+    {"type": "hello", "protocol": 2, "options": {"seed": 7, "class": "breacher", "name": "Ash",
+                                                "place": "hollow_lantern", "length": "short"}}
     {"type": "input", "text": "I pry the door open"}
     {"type": "command", "name": "new" | "save" | "load", "args": {...}}
     {"type": "ping"}
@@ -52,16 +53,21 @@ class TomeSession:
         await self.send(frame.to_dict(include_debug=self.debug))
 
     async def new_game(self, options: dict) -> None:
+        def opt(key: str) -> str | None:
+            v = options.get(key)
+            return str(v)[:32] if v is not None else None
+
+        length = "long" if options.get("length") == "long" else "short"
         engine, llm = await asyncio.to_thread(
-            build_engine, int(options.get("seed", 0)), options.get("background"),
-            str(options.get("name", "Wanderer"))[:32], options.get("scenario", "hollow_lantern"),
-            self.voice_llm, self.senses_llm,
+            build_engine, int(options.get("seed", 0)), opt("class"), opt("name") or "Bearer", opt("place"),
+            self.voice_llm, self.senses_llm, lower=opt("lower"), length=length,
         )
         self.engine = engine
         await self.send({
-            "type": "welcome", "protocol": PROTOCOL_VERSION, "scenario": engine.scenario.title,
-            "backgrounds": {k: v.name for k, v in engine.scenario.backgrounds.items()},
-            "character": engine.state.character.to_dict(), "llm": llm,
+            "type": "welcome", "protocol": PROTOCOL_VERSION,
+            "classes": {k: v["name"] for k, v in engine.codex.classes.items()},
+            "places": {k: v.name for k, v in engine.places.items()},
+            "bearer": engine.bearer.to_dict(), "opening": engine.state.opening, "llm": llm,
         })
         await self.send_frame(await asyncio.to_thread(engine.start))
 

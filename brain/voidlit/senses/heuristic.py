@@ -11,8 +11,8 @@ import math
 import re
 from collections.abc import Mapping, Sequence
 
-from ..rules.character import Approach
-from .state import DEFAULT_APPROACH, Intent, SensoryState
+from ..rules.bearer import Stat
+from .state import DEFAULT_STAT, Intent, SensoryState
 
 _WORD = re.compile(r"[a-z']+")
 
@@ -38,13 +38,15 @@ INTENT_CUES: dict[Intent, tuple[str, ...]] = {
     Intent.LOOK: ("look", "look around", "where am i", "describe", "what do i see", "survey", "observe"),
 }
 
-APPROACH_CUES: dict[Approach, tuple[str, ...]] = {
-    Approach.GRIT: ("brute", "with force", "hard as", "strength", "muscle", "headfirst", "charge", "smash",
-                    "tackle", "power through"),
-    Approach.GUILE: ("carefully", "precisely", "quietly", "quickly", "aim", "trick", "feint", "nimbly",
-                     "sleight", "dodge", "snipe"),
-    Approach.INSIGHT: ("analyze", "analyse", "think", "study", "figure", "calculate", "hack", "reason",
-                       "weak point", "weakness", "pattern", "focus"),
+STAT_CUES: dict[Stat, tuple[str, ...]] = {
+    Stat.MIGHT: ("might", "brute", "with force", "hard as", "strength", "muscle", "headfirst", "charge", "smash",
+                 "tackle", "power through", "melee", "fists", "carry", "lift", "endure"),
+    Stat.GRACE: ("grace", "carefully", "precisely", "quietly", "quickly", "aim", "nimbly", "dodge", "snipe",
+                 "shoot", "fire", "pilot", "steer", "stealth", "slip", "dash", "ranged"),
+    Stat.WITS: ("wits", "analyze", "analyse", "think", "study", "figure", "calculate", "hack", "reason",
+                "weak point", "weakness", "pattern", "repair", "read the", "decode", "see through"),
+    Stat.NERVE: ("nerve", "steel myself", "stare", "stand my ground", "pray", "command", "order", "lie", "bluff",
+                 "resist", "face it", "don't flinch", "hold my ground", "speak to the tome", "convince"),
 }
 
 AGGRESSION = ("kill", "hurt you", "i'll hurt", "hurt them", "threaten", "shoot", "die", "or else", "gun", "knife", "blade", "shut up",
@@ -102,13 +104,11 @@ class HeuristicTransducer:
         best = max(scores.items(), key=lambda kv: kv[1])
         intent = best[0] if best[1] > 0 else (Intent.TALK if target != "none" else Intent.OTHER)
 
-        approach = Approach.NONE
-        a_scores = {a: _count(low, tokens, cues) for a, cues in APPROACH_CUES.items()}
+        stat = Stat.NONE
+        a_scores = {a: _count(low, tokens, cues) for a, cues in STAT_CUES.items()}
         a_best = max(a_scores.items(), key=lambda kv: kv[1])
         if a_best[1] > 0:
-            approach = a_best[0]
-        elif intent is Intent.FIGHT and tokens & {"shoot", "fire", "snipe", "aim", "blast"}:
-            approach = Approach.GUILE
+            stat = a_best[0]
 
         letters = [c for c in raw if c.isalpha()]
         caps = sum(c.isupper() for c in letters) / len(letters) if len(letters) > 6 else 0.0
@@ -124,13 +124,11 @@ class HeuristicTransducer:
         rapport = math.tanh(0.6 * (warm - cold - 0.8 * (aggression > 0.6)))
         boldness = min(1.0, INTENT_BOLDNESS[intent] + 0.6 * _saturate(_count(low, tokens, BOLD)))
 
-        if approach is Approach.NONE and intent is Intent.TALK:
-            approach = Approach.GRIT if aggression > 0.6 else (Approach.GUILE if deception > 0.3 else Approach.NONE)
-        if approach is Approach.NONE:
-            approach = DEFAULT_APPROACH[intent]
+        if stat is Stat.NONE:
+            stat = DEFAULT_STAT[intent]
 
         return SensoryState(
-            intent=intent, approach=approach, target=target, aggression=aggression,
+            intent=intent, stat=stat, target=target, aggression=aggression,
             deception=deception, leverage=leverage, exposure=exposure, rapport=rapport,
             boldness=boldness,
         ).clamped()

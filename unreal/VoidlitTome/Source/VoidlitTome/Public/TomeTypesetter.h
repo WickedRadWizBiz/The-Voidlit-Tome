@@ -32,7 +32,7 @@ public:
 
 /**
  * Lays frames out as a scrolling log of character lines, then composes the visible page:
- *   row 0      status bar (hull, stress, lumen, chapter)
+ *   row 0      status bar (grit, stress, lumen, chapters cleared)
  *   row 1      rule
  *   ...        the tail of the log
  *   Rows-2     the current prompt (obstacle pips, "What do you do?")

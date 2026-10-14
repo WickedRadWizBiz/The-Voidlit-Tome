@@ -1,0 +1,48 @@
+{
+  "collection": "crucible_forms",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "crucible-1",
+      "roll": "1",
+      "form": "The thing that killed the last Bearer",
+      "notes": "",
+      "order": 1
+    },
+    {
+      "id": "crucible-2",
+      "roll": "2",
+      "form": "The trial's location come alive",
+      "notes": "",
+      "order": 2
+    },
+    {
+      "id": "crucible-3",
+      "roll": "3",
+      "form": "A version of you who refused the TOME",
+      "notes": "",
+      "order": 3
+    },
+    {
+      "id": "crucible-4",
+      "roll": "4",
+      "form": "A choir of every Witness you abandoned",
+      "notes": "",
+      "order": 4
+    },
+    {
+      "id": "crucible-5",
+      "roll": "5",
+      "form": "The TOME's original maker",
+      "notes": "",
+      "order": 5
+    },
+    {
+      "id": "crucible-6",
+      "roll": "6",
+      "form": "The Threshold's goal itself, which does not want to be taken",
+      "notes": "",
+      "order": 6
+    }
+  ]
+}

@@ -20,10 +20,10 @@ surface and talks to the brain over a localhost WebSocket ([PROTOCOL.md](PROTOCO
  │ Unreal 5.8   │ ──── input ───────────▶ │ voidlit serve  (Python sidecar)              │
  │ ATomeMonolith│ ◀─── frame ──────────── │                                              │
  └──────────────┘                         │ 1 senses   llama.cpp GBNF pass → SensoryState│
-                                          │ 2 rules    dice pools, obstacles, items      │
+                                          │ 2 rules    Core Rules 0.2: cast, Leaf, Bite  │
                                           │ 3 limbic   BindsNET NPC brains (R-STDP)      │
-                                          │ 4 pressure panic, the Lumen gutters          │
-                                          │ 5 cortex   SpikingJelly Director → beat      │
+                                          │ 4 pressure Stress, Panic, the Lumen dims     │
+                                          │ 5 cortex   SpikingJelly Director → draw/beat │
                                           │ 6 voice    llama.cpp narration + dialogue    │
                                           │ 7 frame    semantic blocks → Unreal          │
                                           └──────────────────────────────────────────────┘
@@ -67,24 +67,28 @@ senses (Input, 6 ch) ──MSTDPET, masked spines──▶ branches (DendriticBr
 * **Gossip** (`limbic/contagion.py`): between chapters, NPCs who have met the player talk. Plot momentum resonates
   by `0.25·C·trust`, and the speaker's most salient branch is *grafted* into the listener, attenuated by
   `|trust|` and tagged with `source_npc`. Coming from a hated rival, a betrayal branch inverts into a warning.
-* **Mechanical teeth:** an NPC whose dominant plot is *alliance* lends +1 die to the player's rolls. Attacking them
-  drives them off. The brains matter to survival, not just to flavour.
+* **Mechanical teeth:** NPCs live in place packs and appear on Witness Leaves. One whose dominant plot is
+  *alliance* lends +1 die to the player's casts (an app rule, offered to the Core Rules). Attacking them drives them
+  off. The brains matter to survival, not just to flavour.
 * **Prompt compilation** (`voice/prompts.py`): dominant plot, subtext plot, tactic, lineage ("turning on you
   because you broke their trust") and provenance ("Marcus told you things about them") become a system prompt.
   Offline, the tactic's authored lines are used instead.
 
 ## The cortex: the Director (`cortex/director.py`)
 
-A SpikingJelly multi-step network: Poisson-encoded 18-feature game state → `Linear→LIF→Linear→LIF→Linear`, averaged
+A SpikingJelly multi-step network: Poisson-encoded 17-feature game state → `Linear→LIF→Linear→LIF→Linear`, averaged
 over 16 timesteps. It is trained with surrogate gradients (ATan) to imitate a hand-written pacing teacher
-(`cortex/teacher.py`), with KL ≈ 0.09. The engine masks the beats the rules forbid right now, then samples one:
+(`cortex/teacher.py`), with KL ≈ 0.06. The Core Rules already escalate on their own (Depth, Abyssal Leaves, the
+Lumen, the Crucible), so the Director never changes a roll, a Leaf or the deck. It decides only presentation:
 
-`calm · escalate · clue · npc · hazard · respite · twist · advance`
+* **how the next draw is offered**: `dot` (one pulsing point), `shapes` (two or three; the player picks one and the
+  rest are lost), or `dark` (nothing appears and the TOME waits);
+* **the narrative beat** of a turn: `calm`, `foreshadow`, `clue` (a truth of this place), `npc` (someone present
+  acts on their own agenda).
 
-Each beat has a concrete rules effect: clocks tick, hazards spawn, an obstacle adapts, an NPC acts unprompted,
-and so on. The teacher encodes the designer's instincts: target tension rises with the act, a struggling player
-gets air, a stalled scene gets a push. Playtest logs can fine-tune the network later without touching rules code.
-`python -m voidlit train-director` retrains it in about 30 seconds on a CPU.
+The teacher's instincts: tension should climb through a trial, a struggling Bearer is offered the shapes, a
+comfortable one is met with the dark, and success invites a revealed truth. Playtest logs can fine-tune the network
+later. `python -m voidlit train-director` retrains it in about 30 seconds on a CPU.
 
 ## The voice: llama.cpp as a transducer, never a decider
 
@@ -127,7 +131,7 @@ The language model never leaves this machine, and nothing reaches the network to
 
 | Spec item | Where it lives now |
 |---|---|
-| §3 Stage 1 sensory extraction (5 floats) | `senses/state.py`, extended with intent, approach, target and boldness for a DM |
+| §3 Stage 1 sensory extraction (5 floats) | `senses/state.py`, extended with intent, stat, target and boldness for a DM |
 | §4 GBNF grammar | `senses/grammar.py`, dynamic per scene; `grammars/sensory.gbnf` is the static reference. The spec's multi-line rule does not parse in llama.cpp (a rule ends at a newline outside parentheses), so the body is wrapped in `( … )`. |
 | §3 Stage 2 retroactive R-STDP | `NPCBrain.consolidate`, using BindsNET `MSTDPET` traces |
 | §3 Stage 3 Poisson / NMDA plateau / WTA / tactics | `NPCBrain.simulate`, `DendriticBranchNodes`, LIF plots with lateral inhibition |
@@ -144,9 +148,10 @@ threshold, eligibility gain). The rationale is in the header of `limbic/npc_brai
 
 ## Balance snapshot
 
-`tests/test_engine.py` contains two scripted players. Over 40 seeded runs of *The Hollow Lantern*, a sensible bot
-escapes about 60% of the time and a naive bot about 7%. Most deaths come at the final boss. Re-measure after
-content changes (see `task_state.md`).
+`tools/balance.py` plays seeded short trials per class through the whole app. With a sensible bot, short-trial
+survival is about 87–100% by class (30 seeds each); a bot that never pushes and ignores its best stat survives
+about 20%. The project's playtest simulator reports 93–97% for the same rules; the main known difference is how
+Panic 7 in the Crucible is read (see `docs/RULES.md`). Re-measure after content changes.
 
 ## Roadmap
 
@@ -154,4 +159,4 @@ content changes (see `task_state.md`).
    `Content/Python/create_tome_material.py`.
 2. Spawn and supervise the sidecar from `ATomeMonolith`, and package it with PyInstaller (bundling llama.cpp).
 3. Fine-tune the Director on playtest logs (designer-labelled good and bad beats).
-4. More sectors (TOML only), NPC-to-NPC scenes on screen, and multiple crew members (Escape the Dark Sector style).
+4. More place packs (TOML only), NPC-to-NPC scenes on screen, and group play from the Core Rules.

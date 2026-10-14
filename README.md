@@ -1,8 +1,9 @@
 # The Voidlit Tome
 
-A text-first sci-fi horror RPG whose Dungeon Master is a **monolith**: a dense black slab, like the one in
-*2001: A Space Odyssey*, whose surface is a field of machined voxels. Flush, they vanish into the matte black.
-Raised a millimetre, they glow in brilliant colour and become words, dice and the faces of the things hunting you.
+A text-first sci-fi horror RPG whose game master is **the TOME**: an ancient slab of matte black stone, shaped
+like a book, that opens with no seams and no pages. Its surface is a field of voxels. Flush, they vanish into the
+black; raised or sunken a millimetre, they glow in vivid colour and become words, dice and the things hunting you.
+You are its Bearer, and it runs you through trials.
 
 The Tome's mind is a **split brain**:
 
@@ -15,9 +16,10 @@ The Tome's mind is a **split brain**:
   no URLs, no downloads. A GBNF-locked pass reads your intent and tone; a second pass gives the Tome and its NPCs
   words. It never decides what happens: the dice do.
 
-The rules are original, in the spirit of **Voidlight**, **Mothership** and **Escape the Dark Sector**: d6 pools
-where 5–6 hit, Stress and Panic, obstacles as rows of approach symbols, a chapter deck that escalates by act, and
-the **Lumen**, a dying light that is both the run's clock and the brightness of the voxels.
+The rules are **TOME: Core Rules (Draft 0.2)**, the project's rules document, in the spirit of **Voidlight**,
+**Mothership** and **Escape the Dark Sector**: d6 pools where 5–6 hit, Stress and Panic, a hidden deck of Leaves
+that ends in the Crucible, and the **Lumen**, a dying light that is both the trial's clock and the brightness of
+the voxels. See [docs/RULES.md](docs/RULES.md) for what the app implements and adds.
 
 ## Quick start (terminal, no GPU or LLM needed)
 
@@ -25,8 +27,8 @@ the **Lumen**, a dying light that is both the run's clock and the brightness of 
 cd brain
 pip install torch --index-url https://download.pytorch.org/whl/cpu   # or a CUDA build
 pip install -e ".[dev]"
-python -m voidlit play --background medic --name Ash
-python -m voidlit play --debug          # watch the NPC brains and the Director think
+python -m voidlit play --class breacher --name Ash
+python -m voidlit play --place hollow_lantern --debug   # watch the NPC brains and the Director think
 ```
 
 With a local language model (llama.cpp compiled into the brain's own process by llama-cpp-python):
@@ -51,16 +53,18 @@ Then copy `unreal/VoidlitTome` into your project's `Plugins/` folder (see [unrea
 
 ```
 brain/                      Python sidecar: the Tome's mind
-  voidlit/rules/            dice pools, characters, obstacles, panic, Lumen, clocks, sector deck
+  voidlit/rules/            Core Rules 0.2: casting, the Bearer, the deck, Panic, Lumen, Pages, campaign
   voidlit/senses/           SensoryState, per-scene GBNF grammar, offline heuristic transducer
   voidlit/limbic/           BindsNET NPC brains, dendritic nodes, R-STDP, structural plasticity, gossip
   voidlit/cortex/           SpikingJelly Director (+ trained weights) and its pacing teacher
   voidlit/voice/            local in-process llama.cpp (llama-cpp-python), prompt compilers, offline narrator
-  voidlit/tome/             the turn engine, render frames, scenario loader
-  voidlit/content/          sectors as TOML ("The Hollow Lantern")
-  tests/                    73 tests: rules, senses, BindsNET plasticity, Director, full runs, WebSocket,
+  voidlit/tome/             the turn engine, render frames, content loader
+  voidlit/content/tome/     the TOME Forge's content (JSON snapshot; refresh with tools/sync_content.py)
+  voidlit/content/places/   place packs as TOML ("The Hollow Lantern")
+  tests/                    rules, senses, BindsNET plasticity, Director, full trials and campaigns, WebSocket,
                             local-only guards, real llama.cpp on a generated tiny GGUF
-  tools/balance.py          seeded bot playthroughs → win rates
+  tools/balance.py          seeded bot trials → survival by class
+  tools/sync_content.py     copy the Forge's content into the app
 unreal/VoidlitTome/         UE 5.8 plugin: voxel surface, glyph typesetter, brain client, monolith actor
 docs/                       ARCHITECTURE.md · RULES.md · PROTOCOL.md
 grammars/sensory.gbnf       reference sensory grammar

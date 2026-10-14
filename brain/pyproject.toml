@@ -28,7 +28,7 @@ voidlit = "voidlit.cli:main"
 include = ["voidlit*"]
 
 [tool.setuptools.package-data]
-voidlit = ["content/*.toml", "cortex/director.pt"]
+voidlit = ["content/places/*.toml", "content/tome/*.json", "cortex/director.pt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

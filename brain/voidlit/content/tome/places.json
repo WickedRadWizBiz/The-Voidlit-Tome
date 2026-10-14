@@ -1,0 +1,15 @@
+{
+  "collection": "places",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "last-altar",
+      "name": "the Last Altar",
+      "faction": "choir",
+      "description": "Where the Choir sends its Pilgrims. No one in the Choir has seen it. A Pilgrim's Atlas starts with it as one flickering Rumor point.",
+      "status": "proposed",
+      "notes": "Workshop: when the Agenda is revealed, the Last Threshold is the Altar.",
+      "order": 1
+    }
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "collection": "pages",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "ward",
+      "roll": "1",
+      "name": "Ward",
+      "use": "Ignore all Harm from one source",
+      "cost": "1 Stress",
+      "notes": "",
+      "order": 1
+    },
+    {
+      "id": "unlock",
+      "roll": "2",
+      "name": "Unlock",
+      "use": "Clear a Relic chapter instantly",
+      "cost": "1 Lumen die",
+      "notes": "",
+      "order": 2
+    },
+    {
+      "id": "read",
+      "roll": "3",
+      "name": "Read",
+      "use": "See the shapes of the next 3 Leaves",
+      "cost": "none, once per trial",
+      "notes": "",
+      "order": 3
+    },
+    {
+      "id": "mend",
+      "roll": "4",
+      "name": "Mend",
+      "use": "Heal one Wound fully",
+      "cost": "2 Stress",
+      "notes": "",
+      "order": 4
+    },
+    {
+      "id": "unmake",
+      "roll": "5",
+      "name": "Unmake",
+      "use": "Deal 4 progress to any enemy",
+      "cost": "1 Lumen die",
+      "notes": "",
+      "order": 5
+    },
+    {
+      "id": "quiet",
+      "roll": "6",
+      "name": "Quiet",
+      "use": "Remove 3 Stress",
+      "cost": "1 Harm",
+      "notes": "",
+      "order": 6
+    },
+    {
+      "id": "kindle",
+      "roll": "7",
+      "name": "Kindle",
+      "use": "Add 1 Lumen die",
+      "cost": "2 Stress",
+      "notes": "",
+      "order": 7
+    },
+    {
+      "id": "command",
+      "roll": "8",
+      "name": "Command",
+      "use": "A living Witness obeys one order",
+      "cost": "1 Stress",
+      "notes": "",
+      "order": 8
+    },
+    {
+      "id": "step",
+      "roll": "9",
+      "name": "Step",
+      "use": "Skip a chapter you just drew; draw again",
+      "cost": "1 Lumen die",
+      "notes": "",
+      "order": 9
+    },
+    {
+      "id": "borrow",
+      "roll": "10",
+      "name": "Borrow",
+      "use": "Reroll any roll, keeping the better",
+      "cost": "1 Stress",
+      "notes": "",
+      "order": 10
+    },
+    {
+      "id": "speak",
+      "roll": "11",
+      "name": "Speak",
+      "use": "The TOME answers any one question truthfully and fully",
+      "cost": "2 Stress",
+      "notes": "",
+      "order": 11
+    },
+    {
+      "id": "become",
+      "roll": "12",
+      "name": "Become",
+      "use": "For one chapter, every roll gains 2 dice",
+      "cost": "Roll on Panic table afterward",
+      "notes": "",
+      "order": 12
+    }
+  ]
+}

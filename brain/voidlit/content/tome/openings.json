@@ -1,0 +1,246 @@
+{
+  "collection": "openings",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "breacher-might",
+      "class": "breacher",
+      "stat": "might",
+      "threshold": "The ship you walked out of is still silent. Your squad is still aboard. Bring back their tags, or stay with them.",
+      "crucible": "The squad, moving wrong",
+      "status": "proposed",
+      "notes": "",
+      "order": 1
+    },
+    {
+      "id": "breacher-grace",
+      "class": "breacher",
+      "stat": "grace",
+      "threshold": "A Hush team is boarding a ship where another slab sleeps. Get there first, and do not be seen.",
+      "crucible": "The team leader who trained you",
+      "status": "proposed",
+      "notes": "",
+      "order": 2
+    },
+    {
+      "id": "breacher-wits",
+      "class": "breacher",
+      "stat": "wits",
+      "threshold": "Your after-action report sits on a Hush relay. It says you died. Find out who wrote it.",
+      "crucible": "The officer who signed your death",
+      "status": "proposed",
+      "notes": "",
+      "order": 3
+    },
+    {
+      "id": "breacher-nerve",
+      "class": "breacher",
+      "stat": "nerve",
+      "threshold": "One of your squad is broadcasting. They are asking for you by name. They should not be able to.",
+      "crucible": "The squadmate, and what speaks through them",
+      "status": "proposed",
+      "notes": "",
+      "order": 4
+    },
+    {
+      "id": "archivist-wits",
+      "class": "archivist",
+      "stat": "wits",
+      "threshold": "They sealed the dig. Go back down. There was always a second vault.",
+      "crucible": "The vault's other occupant",
+      "status": "proposed",
+      "notes": "",
+      "order": 5
+    },
+    {
+      "id": "archivist-might",
+      "class": "archivist",
+      "stat": "might",
+      "threshold": "The Stratum is collapsing your dig with charges. Something down there is still breathing. Dig it out, or bury it properly.",
+      "crucible": "Whatever was breathing",
+      "status": "proposed",
+      "notes": "",
+      "order": 6
+    },
+    {
+      "id": "archivist-grace",
+      "class": "archivist",
+      "stat": "grace",
+      "threshold": "A Stratum archive ship holds every page your name was struck from. Take them back.",
+      "crucible": "The curator, who has read too much",
+      "status": "proposed",
+      "notes": "",
+      "order": 7
+    },
+    {
+      "id": "archivist-nerve",
+      "class": "archivist",
+      "stat": "nerve",
+      "threshold": "Your old mentor is opening a ruin that matches my surface. Stop them, or help them finish.",
+      "crucible": "The mentor, finished",
+      "status": "proposed",
+      "notes": "",
+      "order": 8
+    },
+    {
+      "id": "vessel-wits",
+      "class": "vessel",
+      "stat": "wits",
+      "threshold": "A foundry moon is still running. It is building something with your face. Stop it, or finish it.",
+      "crucible": "The newest unit of your model",
+      "status": "proposed",
+      "notes": "",
+      "order": 9
+    },
+    {
+      "id": "vessel-might",
+      "class": "vessel",
+      "stat": "might",
+      "threshold": "A salvage crew has your predecessor in a cargo net. Take it back, or let it be sold.",
+      "crucible": "The predecessor, switched back on",
+      "status": "proposed",
+      "notes": "",
+      "order": 10
+    },
+    {
+      "id": "vessel-grace",
+      "class": "vessel",
+      "stat": "grace",
+      "threshold": "A signal written in your own code is coming from a derelict. Follow it before it follows you.",
+      "crucible": "The source, which bears your serial number",
+      "status": "proposed",
+      "notes": "",
+      "order": 11
+    },
+    {
+      "id": "vessel-nerve",
+      "class": "vessel",
+      "stat": "nerve",
+      "threshold": "A colony believes you are their god's messenger. Tell them the truth, or let them keep you.",
+      "crucible": "The colony's prophet",
+      "status": "proposed",
+      "notes": "",
+      "order": 12
+    },
+    {
+      "id": "hauler-might",
+      "class": "hauler",
+      "stat": "might",
+      "threshold": "The consignee has been found. Deliver me, or make sure they never sign for me.",
+      "crucible": "The consignee",
+      "status": "proposed",
+      "notes": "",
+      "order": 13
+    },
+    {
+      "id": "hauler-grace",
+      "class": "hauler",
+      "stat": "grace",
+      "threshold": "Your old rig is impounded at a Hush checkpoint, and the manifest still carries my name. Get it back before they read it.",
+      "crucible": "The checkpoint, waking",
+      "status": "proposed",
+      "notes": "",
+      "order": 14
+    },
+    {
+      "id": "hauler-wits",
+      "class": "hauler",
+      "stat": "wits",
+      "threshold": "A Lanes freighter went silent on your old route. Its logs say it carried a crate like mine.",
+      "crucible": "What was in the other crate",
+      "status": "proposed",
+      "notes": "",
+      "order": 15
+    },
+    {
+      "id": "hauler-nerve",
+      "class": "hauler",
+      "stat": "nerve",
+      "threshold": "The Lanes are holding a hearing about the missing cargo. Speak for yourself, or let me speak for you.",
+      "crucible": "The tribunal, all wearing one face",
+      "status": "proposed",
+      "notes": "",
+      "order": 16
+    },
+    {
+      "id": "pilgrim-nerve",
+      "class": "pilgrim",
+      "stat": "nerve",
+      "threshold": "A shrine of your order went dark three days ago. They prayed to a different book. Find out what answered.",
+      "crucible": "The other book's Bearer",
+      "status": "proposed",
+      "notes": "",
+      "order": 17
+    },
+    {
+      "id": "pilgrim-might",
+      "class": "pilgrim",
+      "stat": "might",
+      "threshold": "Raiders hold the Choir's reliquary moon. They are breaking open the saints. Stop them, or see what is inside.",
+      "crucible": "The saint they opened",
+      "status": "proposed",
+      "notes": "",
+      "order": 18
+    },
+    {
+      "id": "pilgrim-grace",
+      "class": "pilgrim",
+      "stat": "grace",
+      "threshold": "A pilgrim road crosses a dead world, every step pointing to the Last Altar. Walk it before the light fails.",
+      "crucible": "The keeper of the road",
+      "status": "proposed",
+      "notes": "",
+      "order": 19
+    },
+    {
+      "id": "pilgrim-wits",
+      "class": "pilgrim",
+      "stat": "wits",
+      "threshold": "The Choir's oldest hymn is a set of coordinates. Sing it to a navigation core.",
+      "crucible": "What the hymn was calling",
+      "status": "proposed",
+      "notes": "",
+      "order": 20
+    },
+    {
+      "id": "fence-grace",
+      "class": "fence",
+      "stat": "grace",
+      "threshold": "Your buyer is aboard this station. So is the thief. Only one of them leaves.",
+      "crucible": "Whichever one you did not choose",
+      "status": "proposed",
+      "notes": "",
+      "order": 21
+    },
+    {
+      "id": "fence-might",
+      "class": "fence",
+      "stat": "might",
+      "threshold": "The thief came back for it, with friends. Hold the shop.",
+      "crucible": "The thief, wearing something of mine",
+      "status": "proposed",
+      "notes": "",
+      "order": 22
+    },
+    {
+      "id": "fence-wits",
+      "class": "fence",
+      "stat": "wits",
+      "threshold": "A forger can make a second TOME good enough to fool your buyer. Steal what she needs. Do not look at what it is.",
+      "crucible": "The forgery, which wakes",
+      "status": "proposed",
+      "notes": "",
+      "order": 23
+    },
+    {
+      "id": "fence-nerve",
+      "class": "fence",
+      "stat": "nerve",
+      "threshold": "The buyer wants to meet face to face about the debt. Bring nothing. I will be listening.",
+      "crucible": "The buyer, who already holds a slab",
+      "status": "proposed",
+      "notes": "",
+      "order": 24
+    }
+  ]
+}

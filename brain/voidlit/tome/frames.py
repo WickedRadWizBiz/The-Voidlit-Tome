@@ -9,29 +9,34 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
+# The TOME's voxel language (TOME: Core Rules 0.2, "The voxel language"). Colors have fixed meanings: amber is
+# light (the Lumen), cyan a Hit, crimson harm and Stress, violet the TOME's own will (Echoes, Interventions, the
+# Agenda), gold a Page. Everything else is matte black, read by relief: raised for the TOME's words and glyphs,
+# sunken for absence (what is missing, Depth still to clear, a Wound). The hex values for black relief are what a
+# flat screen (the terminal) shows instead; the voxel client renders them as black stone.
 PALETTE: dict[str, str] = {
-    "title": "#ffe9a8",
-    "narration": "#c9d1e0",
-    "echo": "#7f8796",
-    "system": "#6f7a8f",
-    "grit": "#ff6a3d",
-    "guile": "#b26bff",
-    "insight": "#3dd6ff",
-    "none": "#c9d1e0",
-    "fail": "#ff3d5a",
-    "mixed": "#ffd23d",
-    "success": "#7dffb2",
-    "critical": "#ffffff",
-    "hull": "#9fe6a0",
-    "stress": "#ff4d6d",
-    "lumen": "#ffe9a8",
-    "clue": "#e8d9ff",
-    "dread": "#9a1f40",
+    "lumen": "#ffb23d",     # amber
+    "hit": "#3de0ff",       # cyan
+    "harm": "#d8213b",      # crimson
+    "stress": "#d8213b",    # crimson
+    "tome": "#9b5cff",      # violet
+    "page": "#e8c547",      # gold
+    "stone": "#d9d4c7",     # raised black: the TOME's words
+    "absence": "#5c5a57",   # sunken black
+    "title": "#d9d4c7",
+    "narration": "#c9c4b8",
+    "echo": "#6f6c66",
+    "system": "#6f6c66",
 }
+# Relief per tone: raised (words, offers), sunken (absence, cost, danger) or flush (silence).
+RELIEF: dict[str, str] = {"absence": "sunken", "harm": "sunken", "stress": "sunken", "echo": "flush"}
+# Color-on-black tones: everything else is matte black.
+COLORED = {"lumen", "hit", "harm", "stress", "tome", "page"}
 
-APPROACH_GLYPH = {"grit": "▲", "guile": "◆", "insight": "●"}  # ▲ ◆ ●
+STAT_GLYPH = {"might": "▲", "grace": "◆", "wits": "●", "nerve": "✦", "none": "·"}
+SHAPE_GLYPH = {"spines": "✶", "fracture": "⟋", "facets": "◇", "ring": "○", "smooth": "◯"}
 
 
 @dataclass
@@ -40,14 +45,17 @@ class Span:
     color: str = PALETTE["narration"]
     glow: float = 0.0       # 0 = matte; 1 = brilliant emissive
     effect: str = "rise"    # rise | flicker | pulse | ripple | none
+    relief: str = "raised"  # raised | sunken | flush (voxels about 1 mm up, 1 mm down, or level)
+    tone: str = "stone"     # the voxel-language meaning: lumen | hit | harm | stress | tome | page | stone | absence
 
     def to_dict(self) -> dict:
-        return {"text": self.text, "color": self.color, "glow": round(self.glow, 3), "effect": self.effect}
+        return {"text": self.text, "color": self.color, "glow": round(self.glow, 3), "effect": self.effect,
+                "relief": self.relief, "tone": self.tone}
 
 
 @dataclass
 class Block:
-    role: str               # title | narration | echo | dice | npc | event | clue | status | prompt
+    role: str               # title | narration | echo | dice | npc | event | clue | leaf | draw | prompt
     spans: list[Span] = field(default_factory=list)
     speaker: str | None = None
     data: dict = field(default_factory=dict)
@@ -90,22 +98,35 @@ class TomeFrame:
         return "\n".join(b.text for b in self.blocks)
 
 
-def text_block(role: str, text: str, color_key: str | None = None, glow: float = 0.0,
-               effect: str = "rise", speaker: str | None = None, color: str | None = None) -> Block:
-    c = color or PALETTE.get(color_key or role, PALETTE["narration"])
-    return Block(role=role, spans=[Span(text=text, color=c, glow=glow, effect=effect)], speaker=speaker)
+def span(text: str, tone: str = "stone", glow: float | None = None, effect: str = "rise",
+         color: str | None = None) -> Span:
+    if glow is None:
+        glow = 0.7 if tone in COLORED else 0.0
+    return Span(text=text, color=color or PALETTE.get(tone, PALETTE["stone"]), glow=glow, effect=effect,
+                relief=RELIEF.get(tone, "raised"), tone=tone if tone in PALETTE else "stone")
 
 
-def dice_block(dice: list[int], pool: int, hits: int, outcome: str, approach: str, notes: list[str]) -> Block:
+def text_block(role: str, text: str, tone: str | None = None, glow: float | None = None, effect: str = "rise",
+               speaker: str | None = None, color: str | None = None) -> Block:
+    t = tone or (role if role in PALETTE else "stone")
+    s = span(text, t, glow, effect, color)
+    if tone is None and role in ("narration", "title", "echo", "system"):
+        s.color = color or PALETTE[role]
+    return Block(role=role, spans=[s], speaker=speaker)
+
+
+def dice_block(dice: list[int], pool: int, hits: int, difficulty: int, result: str, stat: str,
+               notes: list[str], label: str = "") -> Block:
     zero = pool == 0
-    spans: list[Span] = [Span(f"{APPROACH_GLYPH.get(approach, '')} {approach.upper()} ",
-                              color=PALETTE.get(approach, PALETTE["none"]), glow=0.6)]
+    spans: list[Span] = [span(f"{STAT_GLYPH.get(stat, '')} {label or stat.upper()} ", "stone", 0.2)]
     for d in dice:
         hit = d == 6 if zero else d >= 5
-        spans.append(Span(f"[{d}]", color=PALETTE[outcome] if hit else PALETTE["system"],
-                          glow=0.9 if hit else 0.05, effect="pulse" if hit else "rise"))
-    spans.append(Span(f"  {outcome.upper()}", color=PALETTE[outcome], glow=0.8))
+        spans.append(span(f"[{d}]", "hit" if hit else "absence", 0.9 if hit else 0.0,
+                          "pulse" if hit else "rise"))
+    tone = {"success": "hit", "short": "stress", "fail": "absence"}.get(result, "stone")
+    spans.append(span(f"  {hits}/{difficulty} {result.upper()}", tone))
     if notes:
-        spans.append(Span(f"  ({', '.join(notes)})", color=PALETTE["system"]))
+        spans.append(span(f"  ({', '.join(notes)})", "system", 0.0))
     return Block(role="dice", spans=spans,
-                 data={"dice": dice, "pool": pool, "hits": hits, "outcome": outcome, "approach": approach})
+                 data={"dice": dice, "pool": pool, "hits": hits, "difficulty": difficulty, "result": result,
+                       "stat": stat})

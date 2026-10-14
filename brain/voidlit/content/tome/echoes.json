@@ -1,0 +1,54 @@
+{
+  "collection": "echoes",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "echo-1",
+      "roll": "1",
+      "name": "Lore",
+      "effect": "A Fragment of the TOME's Agenda.",
+      "notes": "",
+      "order": 1
+    },
+    {
+      "id": "echo-2",
+      "roll": "2",
+      "name": "Warning",
+      "effect": "The TOME shows the shapes of the next two Leaves; choose their order.",
+      "notes": "",
+      "order": 2
+    },
+    {
+      "id": "echo-3",
+      "roll": "3",
+      "name": "Bargain",
+      "effect": "Gain 2 Lumen dice now; the next chapter's Depth rises by 2.",
+      "notes": "",
+      "order": 3
+    },
+    {
+      "id": "echo-4",
+      "roll": "4",
+      "name": "Temptation",
+      "effect": "You may open a Page for free; Hunger rises by 1.",
+      "notes": "",
+      "order": 4
+    },
+    {
+      "id": "echo-5",
+      "roll": "5",
+      "name": "Judgment",
+      "effect": "Answer your Bond Question again; if the answer changed, remove 2 Stress.",
+      "notes": "",
+      "order": 5
+    },
+    {
+      "id": "echo-6",
+      "roll": "6",
+      "name": "Silence",
+      "effect": "The TOME says nothing. Gain 1 Stress.",
+      "notes": "",
+      "order": 6
+    }
+  ]
+}

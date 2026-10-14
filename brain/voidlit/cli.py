@@ -41,9 +41,12 @@ def render_ansi(frame: TomeFrame | dict) -> str:
         if block["role"] in ("title", "narration"):
             out.append("")
     st = d["status"]
-    hull, lumen = st["hull"], st["lumen"]
-    bar = (f"HULL {hull[0]}/{hull[1]}  STRESS {st['stress']}  LUMEN {'#' * lumen[0]}{'.' * (lumen[1] - lumen[0])}"
-           f"  [{st['chapter']['index'] + 1}/{st['chapter']['total']}] {st['chapter']['title']}")
+    grit, lumen, chap = st["grit"], st["lumen"], st["chapter"]
+    wounds = len([w for w in st["bearer"]["wounds"] if not w.get("stabilized")])
+    where = f"  [{chap['index']}/{chap['total']}] {chap['title']}" if chap["total"] else ""
+    ring = f" {chap['progress']}/{chap['depth']}" if chap["depth"] else ""
+    bar = (f"GRIT {grit[0]}/{grit[1]}  STRESS {st['stress']}  WOUNDS {wounds}  "
+           f"LUMEN {'#' * lumen[0]}{'.' * max(0, lumen[1] - lumen[0])}{where}{ring}")
     out.append(_ansi(bar, "#6f7a8f", 0.0))
     return "\n".join(out)
 
@@ -66,10 +69,12 @@ def cmd_play(args: argparse.Namespace) -> int:
     models = _load_models(args)
     if models is None:
         return 2
-    engine, llm = build_engine(args.seed, args.background, args.name, args.scenario, *models)
-    ch = engine.state.character
-    print(_ansi(f"[{'local llama.cpp' if llm else 'offline voice'}]  {ch.name}, {ch.background}  "
-                f"GRIT {ch.grit}  GUILE {ch.guile}  INSIGHT {ch.insight}", "#6f7a8f", 0.0))
+    engine, llm = build_engine(args.seed, args.cls, args.name, args.place, *models, lower=args.lower,
+                               length=args.length, codex=args.content)
+    b = engine.bearer
+    stats = "  ".join(f"{k.upper()} {v}" for k, v in b.stats().items())
+    print(_ansi(f"[{'local llama.cpp' if llm else 'offline voice'}]  {b.name}, the {b.class_name}  {stats}",
+                "#6f7a8f", 0.0))
     print(render_ansi(engine.start()))
     while True:
         try:
@@ -94,6 +99,8 @@ def cmd_play(args: argparse.Namespace) -> int:
         if args.debug:
             dbg = frame.debug
             print(_ansi(f"  beat={dbg['beat']} probs={dbg['beat_probs']}", "#555c6a", 0.0))
+            for e in dbg["events"]:
+                print(_ansi(f"  event {e['kind']}: {e['text']}", "#555c6a", 0.0))
             for nid, dec in dbg["decisions"].items():
                 print(_ansi(f"  {nid}: plot={dec['dominant_plot']} tactic={dec['tactic']} C={dec['momentum']} "
                             f"R={dec['reward']} events={dec['events']}", "#555c6a", 0.0))
@@ -154,9 +161,13 @@ def main(argv: list[str] | None = None) -> int:
 
     play = sub.add_parser("play", help="play in this terminal")
     play.add_argument("--seed", type=int, default=0)
-    play.add_argument("--background", default=None)
-    play.add_argument("--name", default="Wanderer")
-    play.add_argument("--scenario", default="hollow_lantern")
+    play.add_argument("--class", dest="cls", default=None,
+                      help="breacher, archivist, vessel, hauler, pilgrim or fence (default: the TOME chooses)")
+    play.add_argument("--name", default="Bearer")
+    play.add_argument("--place", default=None, help="start in a place pack, e.g. hollow_lantern")
+    play.add_argument("--lower", default=None, help="the stat the Opening roll lowers (default: your weakest)")
+    play.add_argument("--length", default="short", choices=("short", "long"), help="trial length")
+    play.add_argument("--content", default=None, help="a TOME Forge content folder or export bundle")
     _model_args(play)
     play.add_argument("--debug", action="store_true", help="show the brains' decisions each turn")
     play.set_defaults(fn=cmd_play)

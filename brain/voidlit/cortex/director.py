@@ -1,4 +1,9 @@
-"""The Director: a SpikingJelly network that chooses the Dungeon Master's next beat.
+"""The Director: a SpikingJelly network that paces the TOME.
+
+The deck decides what happens (TOME: Core Rules 0.2). The Director only decides how the TOME presents it: which
+way the TOME asks to be touched when a Leaf is ready (the dot, the shapes or the dark), and what narrative beat
+follows a moment (quiet, a foreshadowing, a revealed truth, or a person acting on their own). It never rolls a
+die, changes the deck or touches a number.
 
 Architecture (multi-step mode, T timesteps per decision)::
 
@@ -28,7 +33,7 @@ from .teacher import sample_states, teacher_distribution
 DEFAULT_WEIGHTS = Path(__file__).with_name("director.pt")
 TIMESTEPS = 16
 HIDDEN = 64
-WEIGHTS_VERSION = 1
+WEIGHTS_VERSION = 2
 
 
 class DirectorSNN(torch.nn.Module):

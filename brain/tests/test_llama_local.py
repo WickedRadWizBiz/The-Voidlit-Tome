@@ -138,23 +138,23 @@ def test_local_llama_grammar_pass_always_parses(tiny_model):
         assert 0.0 <= s.aggression <= 1.0 and -1.0 <= s.rapport <= 1.0
 
 
-def test_local_llama_loads_once_and_speaks(tiny_model, scenario):
+def test_local_llama_loads_once_and_speaks(tiny_model, lantern):
     from voidlit.voice import LocalLlama
 
     assert LocalLlama.load(tiny_model.path, n_ctx=4096) is tiny_model
     out = tiny_model.chat([{"role": "user", "content": "Say something."}], max_tokens=8, seed=1)
     assert isinstance(out, str)
-    voice = LocalVoice(tiny_model, OfflineVoice(scenario.narration))
+    voice = LocalVoice(tiny_model, OfflineVoice(lantern.narration))
     from voidlit.voice import NarrationRequest
 
-    text = voice.narrate(NarrationRequest(player_text="look", intent="look", approach="none",
-                                          chapter_title="T", chapter_text="A room.", entering_chapter=True,
-                                          facts=["The player looks."]))
+    text = voice.narrate(NarrationRequest(player_text="look", intent="look", stat="none",
+                                          leaf_title="T", leaf_text="A room.", entering=True,
+                                          facts=["You look."]))
     assert isinstance(text, str) and text
 
 
 @pytest.mark.parametrize("template_name", ["GEMMA2_TEMPLATE", "STRICT_TEMPLATE"])
-def test_strict_chat_templates_still_reach_the_model(tmp_path, template_name, scenario):
+def test_strict_chat_templates_still_reach_the_model(tmp_path, template_name, lantern):
     """Templates that reject a system role or a leading assistant turn must not push us onto the fallbacks."""
     pytest.importorskip("llama_cpp", reason="llama-cpp-python not installed")
     pytest.importorskip("gguf", reason="gguf not installed")
@@ -179,9 +179,9 @@ def test_strict_chat_templates_still_reach_the_model(tmp_path, template_name, sc
     LocalTransducer(llm, NoFallback()).extract("I smash the door", {"elara": ["elara"]})
     voice = LocalVoice(llm, Refuse())
     history = ["The iris grinds open.", "Frost creeps across a viewport."]
-    voice.narrate(NarrationRequest(player_text="look", intent="look", approach="none", chapter_title="T",
-                                   chapter_text="A room.", entering_chapter=False, facts=["x"], history=history))
-    spec = scenario.npcs["elara"]
+    voice.narrate(NarrationRequest(player_text="look", intent="look", stat="none", leaf_title="T",
+                                   leaf_text="A room.", entering=False, facts=["x"], history=history))
+    spec = lantern.npcs["elara"]
     decision = BrainDecision(dominant_plot=0, secondary_plot=1, tactic=0, branch_id=1, branch_origin="ally",
                              branch_source_npc=0, branch_parent=0, plot_spikes=[0, 0, 0], tactic_spikes=[0, 0, 0, 0],
                              momentum=[0.5, 0.3, 0.1])
@@ -206,4 +206,4 @@ def test_model_text_is_cleaned_of_control_characters():
 
 def test_parse_rejects_truncated_output():
     with pytest.raises(SensoryParseError):
-        parse_sensory_json('{"intent": "look", "approach": "none", "target": "none", "aggression": 0.')
+        parse_sensory_json('{"intent": "look", "stat": "none", "target": "none", "aggression": 0.')

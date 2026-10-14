@@ -12,26 +12,27 @@ from ..limbic.npc_brain import BrainDecision, NPCSpec
 class NarrationRequest:
     player_text: str
     intent: str
-    approach: str
-    chapter_title: str
-    chapter_text: str
-    entering_chapter: bool
+    stat: str
+    register: str                      # plain | uneasy | eldritch | breakthrough (from the Bearer's Stress)
+    register_style: str                # the register's style note, from content
     facts: list[str]                   # mechanical truths, already resolved, in order
-    outcome: str | None = None         # fail | mixed | success | critical | None (no roll)
-    variant: str | None = None         # special case of the intent: blocked, denied, light, heal, npc, ...
-    npc_name: str | None = None        # who answered, when the player was talking to someone
-    obstacle_name: str | None = None
-    obstacle_kind: str | None = None
-    obstacle_text: str | None = None
-    defeated_text: str | None = None
+    place: str = ""
+    leaf_title: str = ""
+    leaf_kind: str = ""                # hostile | hazard | relic | witness | crucible | ""
+    leaf_text: str = ""                # the Leaf's own prose in this register, when it has one
+    entering: bool = False             # a Leaf just rose: describe it
+    outcome: str | None = None         # fail | short | success | None (no cast)
+    variant: str | None = None         # special cases: lost, refused, npc, alone, look, wait, ...
+    npc_name: str | None = None
+    cleared_text: str | None = None    # what the place says when the ring fills
     beat: Beat = Beat.CALM
-    beat_fact: str = ""                # a concrete in-world event caused by the beat (both voices use it)
-    beat_note: str = ""                # what the beat means, for the LLM only
+    beat_fact: str = ""
+    beat_note: str = ""
     clue: str | None = None
     tension: float = 0.0
     lumen: float = 1.0
     history: list[str] = field(default_factory=list)  # last few narrated lines, oldest first
-    ending: str | None = None          # "won" | "dead" | None
+    ending: str | None = None          # verdict | dead | taken | campaign | None
 
 
 @dataclass

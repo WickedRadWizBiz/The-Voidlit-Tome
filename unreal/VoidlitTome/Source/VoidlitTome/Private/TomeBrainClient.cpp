@@ -7,7 +7,7 @@
 #include "VoidlitTomeModule.h"
 #include "WebSocketsModule.h"
 
-static constexpr int32 TomeProtocolVersion = 1;
+static constexpr int32 TomeProtocolVersion = 2;
 
 void UTomeBrainClient::Connect(const FString& Url, const FTomeSessionOptions& Options)
 {
@@ -112,9 +112,13 @@ void UTomeBrainClient::SendCommand(const FString& Name, const FString& Slot)
 	{
 		Args->SetNumberField(TEXT("seed"), SessionOptions.Seed);
 		Args->SetStringField(TEXT("name"), SessionOptions.PlayerName);
-		if (!SessionOptions.Background.IsEmpty())
+		if (!SessionOptions.BearerClass.IsEmpty())
 		{
-			Args->SetStringField(TEXT("background"), SessionOptions.Background);
+			Args->SetStringField(TEXT("class"), SessionOptions.BearerClass);
+		}
+		if (!SessionOptions.Place.IsEmpty())
+		{
+			Args->SetStringField(TEXT("place"), SessionOptions.Place);
 		}
 	}
 	const TSharedRef<FJsonObject> Msg = MakeShared<FJsonObject>();
@@ -133,9 +137,13 @@ void UTomeBrainClient::HandleConnected()
 		const TSharedRef<FJsonObject> Options = MakeShared<FJsonObject>();
 		Options->SetNumberField(TEXT("seed"), SessionOptions.Seed);
 		Options->SetStringField(TEXT("name"), SessionOptions.PlayerName);
-		if (!SessionOptions.Background.IsEmpty())
+		if (!SessionOptions.BearerClass.IsEmpty())
 		{
-			Options->SetStringField(TEXT("background"), SessionOptions.Background);
+			Options->SetStringField(TEXT("class"), SessionOptions.BearerClass);
+		}
+		if (!SessionOptions.Place.IsEmpty())
+		{
+			Options->SetStringField(TEXT("place"), SessionOptions.Place);
 		}
 		const TSharedRef<FJsonObject> Msg = MakeShared<FJsonObject>();
 		Msg->SetStringField(TEXT("type"), TEXT("hello"));
@@ -191,7 +199,13 @@ void UTomeBrainClient::HandleMessage(const FString& Message)
 	{
 		bool bLlm = false;
 		Obj->TryGetBoolField(TEXT("llm"), bLlm);
-		OnWelcome.Broadcast(Obj->GetStringField(TEXT("scenario")), bLlm);
+		FString BearerClass;
+		const TSharedPtr<FJsonObject>* Bearer = nullptr;
+		if (Obj->TryGetObjectField(TEXT("bearer"), Bearer))
+		{
+			(*Bearer)->TryGetStringField(TEXT("class_name"), BearerClass);
+		}
+		OnWelcome.Broadcast(BearerClass, bLlm);
 	}
 	else if (Type == TEXT("error"))
 	{

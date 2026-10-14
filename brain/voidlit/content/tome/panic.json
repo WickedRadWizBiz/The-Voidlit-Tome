@@ -1,0 +1,94 @@
+{
+  "collection": "panic",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "panic-2",
+      "roll": "2",
+      "name": "Flinch",
+      "effect": "Lose your next action.",
+      "notes": "",
+      "order": 1
+    },
+    {
+      "id": "panic-3",
+      "roll": "3",
+      "name": "Shaking hands",
+      "effect": "Your next roll is one die smaller.",
+      "notes": "",
+      "order": 2
+    },
+    {
+      "id": "panic-4",
+      "roll": "4",
+      "name": "Tunnel vision",
+      "effect": "You cannot help allies until the chapter ends.",
+      "notes": "",
+      "order": 3
+    },
+    {
+      "id": "panic-5",
+      "roll": "5",
+      "name": "Drop it",
+      "effect": "Drop whatever you are holding.",
+      "notes": "",
+      "order": 4
+    },
+    {
+      "id": "panic-6",
+      "roll": "6",
+      "name": "Hear it",
+      "effect": "The TOME whispers. It slips an extra Leaf into this trial.",
+      "notes": "",
+      "order": 5
+    },
+    {
+      "id": "panic-7",
+      "roll": "7",
+      "name": "Run",
+      "effect": "Flee the scene by the nearest exit, even into danger.",
+      "notes": "",
+      "order": 6
+    },
+    {
+      "id": "panic-8",
+      "roll": "8",
+      "name": "Lash out",
+      "effect": "Attack the nearest creature, friend or not.",
+      "notes": "",
+      "order": 7
+    },
+    {
+      "id": "panic-9",
+      "roll": "9",
+      "name": "Gutted",
+      "effect": "Your minimum Stress rises by 1 permanently.",
+      "notes": "",
+      "order": 8
+    },
+    {
+      "id": "panic-10",
+      "roll": "10",
+      "name": "Freeze",
+      "effect": "Take 1 Harm and lose your next two actions.",
+      "notes": "",
+      "order": 9
+    },
+    {
+      "id": "panic-11",
+      "roll": "11",
+      "name": "Phobia",
+      "effect": "Gain a permanent phobia tied to this moment; facing it costs 1 Stress each time.",
+      "notes": "",
+      "order": 10
+    },
+    {
+      "id": "panic-12",
+      "roll": "12",
+      "name": "The slab answers",
+      "effect": "The TOME takes control of you for one chapter. Remove 2 Lumen dice.",
+      "notes": "",
+      "order": 11
+    }
+  ]
+}

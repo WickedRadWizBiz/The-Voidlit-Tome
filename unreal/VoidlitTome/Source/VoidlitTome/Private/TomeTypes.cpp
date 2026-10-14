@@ -108,10 +108,10 @@ namespace TomeJson
 		if (Obj->TryGetObjectField(TEXT("status"), Status))
 		{
 			const TArray<TSharedPtr<FJsonValue>>* Pair = nullptr;
-			if ((*Status)->TryGetArrayField(TEXT("hull"), Pair) && Pair->Num() == 2)
+			if ((*Status)->TryGetArrayField(TEXT("grit"), Pair) && Pair->Num() == 2)
 			{
-				Out.Status.Hull = static_cast<int32>((*Pair)[0]->AsNumber());
-				Out.Status.HullMax = static_cast<int32>((*Pair)[1]->AsNumber());
+				Out.Status.Grit = static_cast<int32>((*Pair)[0]->AsNumber());
+				Out.Status.GritMax = static_cast<int32>((*Pair)[1]->AsNumber());
 			}
 			if ((*Status)->TryGetArrayField(TEXT("lumen"), Pair) && Pair->Num() == 2)
 			{

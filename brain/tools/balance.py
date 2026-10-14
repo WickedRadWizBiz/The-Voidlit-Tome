@@ -1,6 +1,10 @@
-"""Balance report: play N seeded runs with each scripted player and summarise outcomes.
+"""Balance report: play N seeded short trials per class with each scripted player and summarise survival.
 
     python tools/balance.py --runs 40
+
+The project's playtest simulator (tome_sim.py) reports 93-97% short-trial survival by class with a smart bot.
+Two known differences: this bot plays through the full app (senses, Director, NPCs, place packs), and the app
+reads Panic 7 ("Run") in the Crucible as a lost action, where the simulator ends the trial as survived.
 """
 
 from __future__ import annotations
@@ -13,27 +17,28 @@ warnings.filterwarnings("ignore")
 
 from voidlit.cortex.director import Director, load_director  # noqa: E402
 from voidlit.playtest import bot_command  # noqa: E402
-from voidlit.tome import TomeEngine, load_scenario  # noqa: E402
+from voidlit.tome import Codex, TomeEngine  # noqa: E402
 
 
-def run(smart: bool, runs: int, max_turns: int = 200) -> str:
-    sc, model = load_scenario(), load_director()
-    outcomes, deaths, beats, turns = collections.Counter(), collections.Counter(), collections.Counter(), []
-    for seed in range(runs):
-        e = TomeEngine(sc, director=Director(model, seed=seed), seed=seed)
-        e.start()
-        for n in range(1, max_turns + 1):
-            f = e.turn(bot_command(e, smart=smart))
-            beats[f.debug["beat"]] += 1
-            if f.over:
-                break
-        outcomes["escaped" if e.state.won else "died" if e.state.character.dead else "timeout"] += 1
-        if e.state.character.dead:
-            deaths[e.state.deck.index] += 1
-        turns.append(n)
-    rate = outcomes["escaped"] / runs
-    return (f"{'smart' if smart else 'naive'}: escaped {rate:.0%} {dict(outcomes)} | avg turns {sum(turns) / runs:.1f}"
-            f" | deaths by chapter {dict(sorted(deaths.items()))} | beats {dict(beats.most_common())}")
+def run(smart: bool, runs: int, max_turns: int = 400) -> str:
+    codex, model = Codex.load(), load_director()
+    lines = []
+    for cid in sorted(codex.classes):
+        outcomes, beats, turns = collections.Counter(), collections.Counter(), []
+        for seed in range(runs):
+            e = TomeEngine(codex, director=Director(model, seed=seed), seed=seed, class_id=cid)
+            e.start()
+            n = 0
+            for n in range(1, max_turns + 1):
+                f = e.turn(bot_command(e, smart=smart))
+                beats[f.debug["beat"]] += 1
+                if f.over or e.state.stage in ("haven", "fallen"):
+                    break
+            outcomes["survived" if e.state.stage == "haven" else "died" if e.bearer.dead else "timeout"] += 1
+            turns.append(n)
+        lines.append(f"  {cid:<10} survived {outcomes['survived'] / runs:4.0%}  {dict(outcomes)}  "
+                     f"avg turns {sum(turns) / runs:.1f}  beats {dict(beats.most_common(3))}")
+    return f"{'smart' if smart else 'naive'} bot, short trials:\n" + "\n".join(lines)
 
 
 def main() -> None:

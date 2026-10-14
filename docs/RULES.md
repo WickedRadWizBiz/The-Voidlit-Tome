@@ -1,82 +1,57 @@
-# The Voidlit Rules
+# The Voidlit Tome: rules
 
-Original rules for the Tome, written for this project. They borrow the *spirit* of several rules-light sci-fi
-games; no text or tables are copied from them (see Credits).
+The app plays **TOME: Core Rules (Draft 0.2)**, the project's rules document
+(<https://claude.ai/code/artifact/09d100ff-71c2-4696-8d3b-da93391a2dbe>). That document is the source of truth:
+when this file and the Core Rules disagree, the Core Rules win, and the engine in `brain/voidlit/rules/` should be
+fixed to match. Names, classes, Openings, tables and prose come from the TOME Forge's content files, shipped as
+a snapshot in `brain/voidlit/content/tome/` (refresh it with `python tools/sync_content.py <folder or bundle>`).
 
-## The roll
+This page only lists what the engine implements, what the app adds on top, and what it leaves out.
 
-Roll a pool of d6. Every **5 or 6 is a hit**.
+## What the engine implements
 
-| Hits | Outcome |
-|---|---|
-| 0 | **Fail**: the obstacle bites; the Tome makes a hard move |
-| 1 | **Mixed**: your hits land, but it rattles you (+1 Stress) |
-| 2+ | **Success** |
-| 2+ with two 6s | **Critical**: strip an extra pip |
+* **Casting**: a d6 pool of the stat, plus Talent and gear dice, capped at 6; every 5–6 is a Hit. A zero pool rolls
+  one die that hits only on 6. Hits at or above the chapter's Difficulty is a success; some Hits is short; none is
+  a failure and the chapter Bites. **Push** once: reroll the misses, and every 1 is +1 Stress.
+* **The Bearer**: Might, Grace, Wits, Nerve; Grit 5; Stress 0–10 with a class minimum; Wounds (2d6 + open Wounds);
+  three open Wounds or a Last Rites result offers a **Bargain** (a stat −1, Hunger +1, a Brand). With two Brands the
+  TOME takes you.
+* **Stress and Panic**: from Stress 5, each new point checks 2d6 ≤ Stress; at 10 it breaks straight into Panic.
+* **The deck**: 54 hidden Leaves (36 chapters, 12 Echoes, 4 Breathers, 2 Interventions, a third at Hunger 4+).
+  Chapters are Hostile, Hazard, Relic or Witness, at Depth 2/4/6 for shallow/deep/abyssal. Clear 3 (short) or 5
+  (long) and the **Crucible** rises (Depth 10, Difficulty 2), demanding a different kind after every cast.
+* **The Lumen**: 6 − Hunger dice (minimum 2), rolled after each chapter; 1s go dark. When it dies the Crucible rises
+  at once and every Bite is +1.
+* **Classes and Openings**: the six classes and their abilities, Kits and Bonds, the Opening roll (Steven's
+  2026-10-14 rule: not yet through the playtest simulator), Origins and Debts.
+* **Progression**: Insight, the Haven, raising stats, Talents, Pages (12), Hunger, feeding Relics, Fragments,
+  Naming the Agenda, the Last Threshold and Legacy.
+* **The Oracle**: ask the TOME a yes/no question (`? is the air breathable`).
+* **Voice by Stress**: plain, uneasy, eldritch, and the TOME breaking through on a Panic.
 
-A pool of 0 still rolls one die, but only a 6 hits. Pools cap at 8.
+## What the app adds
 
-## Your character
+These are the app's own, offered to the project for the Core Rules and the Forge:
 
-Three attributes, each a pool size from 0 to 4:
+* **Place packs** (`content/places/*.toml`): a place in the Unknown with its own Leaves and people.
+  *The Hollow Lantern* is the first. Its NPCs have BindsNET brains and appear on Witness Leaves.
+* **Allies**: a person whose brain currently favours you lends **+1 die** to your casts.
+* **Gear help**: Kit items add a die to the kinds they suit (a scanner on Relics, lockpicks on Hazards, and so on).
+* **The Director** (a SpikingJelly network) chooses only how a draw is shown (a dot, shapes or the dark) and the
+  narrative beat (calm, foreshadow, a clue, a person acting). It never changes a roll or the deck.
 
-* **Grit**: force, violence, endurance. Also your backup health.
-* **Guile**: stealth, trickery, precision, speed.
-* **Insight**: analysis, systems, perception, will.
+## What is not in the app yet
 
-**Hull** is your health (5–7). **Stress** runs from 0 to 10. Your kit gives +dice to some approaches or intents, or
-does something special: *light* items feed the Lumen, *heal* items restore Hull.
+Group play, Vigil mode, recovering a Debt, and Insight for acting on a Bond or a Debt.
 
-Six backgrounds: Salvager, Ex-Marine, Engineer, Medic, Pilot, Archivist.
+## One reading to settle
 
-## Obstacles
-
-Every enemy, hazard, lock and horror is a row of **pips**: ▲ Grit, ◆ Guile, ● Insight. Say what you do; the Tome
-reads your approach.
-
-* Each hit from a matching approach strips one matching pip.
-* Hits with no matching pip are not wasted: **every two strip one pip of any kind** (brute force works, slowly).
-* Strip every pip and the obstacle is overcome (and you shed 1 Stress).
-* On a **fail**, an uncleared obstacle bites for its full harm and stress. Locks cost time instead: a clock ticks.
-
-## Harm, Last Light and Stress
-
-Harm comes off Hull. Harm past zero Hull forces a **Last Light** save: roll your Grit. No hits and you die; any hit
-and you stay up, but lose 1–2 Grit (one per missed die, max 2) and start bleeding.
-
-Gaining Stress at 4 or more triggers a **Panic check**: roll 2d6 + Insight. Beat your Stress and you hold. Otherwise
-roll on the Panic table (d6 + Stress/2). Panicking discharges 2 Stress first. Results run from an adrenal spike
-through freezing, fumbling, gaining a phobia and smashing a lamp, to the Dark answering you.
-
-## The Lumen
-
-The Tome's own light is a pool of up to six dice. Every 5 turns, roll it; every 1 gutters out. Twists, panics and
-some clocks burn it too; light sources restore it. At zero **the Dark has the sector**: every bite does +1, and
-the Director pushes escalation. The renderer dims the voxels with it, so you watch your light die.
-
-## Clocks, rest and allies
-
-* **Clocks** (*The Choir Wakes* 8, *Reactor Drift* 6) tick when the Director escalates and when locks fail
-  loudly. A full clock fires its consequence.
-* **Rest** once per chapter when nothing is threatening you: +2 Hull, −2 Stress (+3/−3 in a respite room).
-  Crossing into a new act gives +1 Hull and −1 Stress.
-* **Allies**: an NPC whose brain currently favours alliance lends **+1 die** to your rolls. Their minds change with
-  how you treat them, and with what other NPCs say about you behind your back.
-* **Talk is rolled when it bites**: a lie (Guile) or a threat (Grit) aimed at someone is rolled, and the result
-  changes what their brain *feels*.
-
-## The sector deck
-
-A run is a start chapter, two chapters from each of acts I–III (drawn from four each), and an escape chapter.
-Get through the escape alive to win.
+Panic 7 ("Run") during the Crucible: the app reads it as a lost action. The playtest simulator ends the trial as
+survived. The difference is about 5 points of short-trial survival; the rules thread has been asked to settle it.
 
 ## Credits and inspirations
 
-* **Voidlight** (Fari RPGs, Boundless system, ORC License): d6 pools where 5–6 hit, a shrinking light pool as the
-  run's clock, attributes as backup health.
-* **Mothership** (Tuesday Knight Games): Stress and Panic, the horror of the workaday crew, rules-light play.
-* **Escape the Dark Sector** (Themeborne): a chapter deck escalating by act toward a final escape, enemies as rows
-  of symbols your approaches must match.
-* **Blades in the Dark / Scum and Villainy**: progress clocks; position via the Flee and help bonuses.
-* The FigCat list of rules-light and OSR sci-fi RPGs (Traveller, Stars Without Number, Death in Space and others),
-  for the off-screen faction turn that became NPC gossip.
+* **Voidlight** (Fari RPGs): d6 pools where 5–6 hit, a shrinking light pool as the trial's clock.
+* **Mothership** (Tuesday Knight Games): Stress and Panic, the workaday crew, rules-light play.
+* **Escape the Dark Sector** (Themeborne): a hidden chapter deck that ends in a boss.
+* The FigCat list of rules-light and OSR sci-fi RPGs, for the off-screen turn that became NPC gossip.

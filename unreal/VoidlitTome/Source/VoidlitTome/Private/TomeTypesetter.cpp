@@ -8,9 +8,10 @@ static_assert(GTomeGlyphWidth == FTomeGlyphFont::Width && GTomeGlyphHeight == FT
 namespace
 {
 	const FColor StatusColor(111, 122, 143);
-	const FColor LumenColor(255, 233, 168);
-	const FColor HullColor(159, 230, 160);
-	const FColor StressColor(255, 77, 109);
+	// The TOME's voxel language: amber light, crimson Stress, raised black stone for its own words.
+	const FColor LumenColor(255, 178, 61);
+	const FColor GritColor(217, 212, 199);
+	const FColor StressColor(216, 33, 59);
 	const FColor InputColor(232, 232, 232);
 }
 
@@ -279,11 +280,11 @@ void FTomeTypesetter::ComposePage(int32 Rows, const FTomeStatus& Status, const F
 	// Status bar.
 	FTomeLine& Bar = OutPage[0];
 	int32 Col = 0;
-	const FString Hull = FString::Printf(TEXT("HULL %d/%d"), Status.Hull, Status.HullMax);
-	WriteText(Bar, Col, Hull, HullColor, 0.3f);
-	Col += Hull.Len() + 2;
+	const FString Grit = FString::Printf(TEXT("GRIT %d/%d"), Status.Grit, Status.GritMax);
+	WriteText(Bar, Col, Grit, GritColor, 0.3f);
+	Col += Grit.Len() + 2;
 	const FString Stress = FString::Printf(TEXT("STRESS %d"), Status.Stress);
-	WriteText(Bar, Col, Stress, StressColor, Status.Stress >= 4 ? 0.6f : 0.2f,
+	WriteText(Bar, Col, Stress, StressColor, Status.Stress >= 5 ? 0.6f : 0.2f,
 		Status.Stress >= 7 ? ETomeEffect::Pulse : ETomeEffect::None);
 	Col += Stress.Len() + 2;
 	FString Lumen;
@@ -294,7 +295,7 @@ void FTomeTypesetter::ComposePage(int32 Rows, const FTomeStatus& Status, const F
 	WriteText(Bar, Col, Lumen, LumenColor, 0.7f);
 	if (Status.ChapterTotal > 0)
 	{
-		const FString Where = FString::Printf(TEXT("%d/%d"), Status.ChapterIndex + 1, Status.ChapterTotal);
+		const FString Where = FString::Printf(TEXT("%d/%d"), Status.ChapterIndex, Status.ChapterTotal);
 		WriteText(Bar, Columns - Where.Len(), Where, StatusColor, 0.1f);
 	}
 

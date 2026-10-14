@@ -38,7 +38,8 @@ GENERATION_ERRORS = (RuntimeError, ValueError, KeyError, IndexError, TypeError, 
 
 SENSORY_SYSTEM = """You are the perception layer of a game master. Read the player's input and rate it.
 intent: what the player is trying to do (look, talk, fight, force, sneak, search, use, rest, advance, flee, other).
-approach: how (grit = force/violence/endurance, guile = stealth/trickery/precision, insight = analysis/systems/will,
+stat: which stat it rests on (might = force/endurance/melee/breaking, grace = speed/aim/stealth/piloting/escaping,
+wits = knowledge/repair/hacking/reading clues, nerve = resisting fear/lying/commanding/speaking to the TOME,
 none = no roll implied).
 target: who or what it is aimed at, from the allowed ids, else none.
 aggression: hostility or threat of violence. deception: lying or bluffing. leverage: bargaining power, offers,

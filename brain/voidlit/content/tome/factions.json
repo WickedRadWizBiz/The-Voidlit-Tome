@@ -1,0 +1,60 @@
+{
+  "collection": "factions",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "hush",
+      "description": "An outfit that boards silent ships, recovers or destroys what is aboard, and keeps it quiet. Nobody agrees whether the Hush is a company, a navy or something older.",
+      "name": "the Hush",
+      "notes": "The game's recurring hunter. Knows what to do with survivors.",
+      "order": 1,
+      "status": "placeholder",
+      "summary": "Boards ships that went silent, recovers or destroys what is aboard, keeps it quiet."
+    },
+    {
+      "id": "stratum",
+      "description": "A survey charter that digs the ancient ruins and catalogs glyphs nobody can read. Knows more than it admits.",
+      "name": "the Stratum",
+      "notes": "Relic Leaves can carry a Stratum seal.",
+      "order": 2,
+      "status": "placeholder",
+      "summary": "Survey charter that digs the ancient ruins and catalogs glyphs nobody can read."
+    },
+    {
+      "id": "lanes",
+      "description": "A haulers' union whose crews know every Haven on the old trade routes. Ordinary freight lines carry slabs without knowing.",
+      "name": "the Lanes",
+      "notes": "",
+      "order": 3,
+      "status": "placeholder",
+      "summary": "Haulers' union whose crews know every Haven on the old trade routes."
+    },
+    {
+      "id": "choir",
+      "description": "One of the cults that speak of black books that answer prayers. It waited generations for a book to answer, and has never seen the Last Altar it sends Pilgrims to.",
+      "name": "the Choir",
+      "notes": "",
+      "order": 4,
+      "status": "placeholder",
+      "summary": "A cult of black books; waited generations for one to answer."
+    },
+    {
+      "id": "market",
+      "description": "The black market where slabs change hands. Links to the Hauler's quiet trade.",
+      "name": "the market",
+      "notes": "",
+      "order": 5,
+      "status": "placeholder",
+      "summary": "The black market where slabs change hands."
+    },
+    {
+      "id": "maker",
+      "description": "Whoever wrote the Vessel's one instruction. Each hidden Agenda can explain who it was.",
+      "name": "your maker",
+      "notes": "Deliberately unnamed.",
+      "order": 6,
+      "status": "placeholder",
+      "summary": "Whoever wrote the Vessel's instruction. Unknown by design."
+    }
+  ]
+}

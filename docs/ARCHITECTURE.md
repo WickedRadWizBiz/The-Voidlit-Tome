@@ -37,7 +37,7 @@ and BindsNET**, which are PyTorch libraries, so the mind runs as a Python proces
 * Both libraries are used for what each does best: BindsNET for biologically plausible *online* plasticity,
   SpikingJelly for *trainable* deep SNNs with surrogate gradients and CUDA/CuPy backends.
 * The game can iterate on the brain (retune, retrain, hot-swap content) without recompiling Unreal.
-* The brain can run on a GPU, a second machine, or headless for automated playtesting (`tests/test_engine.py`
+* The brain can run on a GPU, or headless for automated playtesting (`tests/test_engine.py`
   plays whole runs).
 * Shipping: bundle the sidecar with PyInstaller (or an embedded CPython) and have `ATomeMonolith` spawn it. The
   protocol is plain JSON, so a future C++ port of the hot path stays possible.
@@ -102,13 +102,21 @@ The language model never leaves this machine, and nothing reaches the network to
   `llama-server`, no HTTP and no socket between the game and the model.
 * `--model` / `--senses-model` must be **existing local `.gguf` files**. URLs, `hf:` and Hugging Face references
   are refused (`resolve_model_path`). `from_pretrained`, the bindings' download helper, is never called.
-* Build the bindings with `CMAKE_ARGS="-DLLAMA_CURL=OFF"` so llama.cpp itself is compiled without libcurl, the only
-  component in it that can download.
+* The bindings load only llama.cpp's core libraries (`libllama`, `libggml*`), which contain no network code.
+  llama.cpp's own model downloader lives in a separate library, `libllama-common` (cpp-httplib + OpenSSL), which
+  llama-cpp-python builds and installs but never loads. A test asserts it is not mapped into the process after a
+  model turn. (The `LLAMA_CURL` build flag is not a safeguard: llama.cpp now ignores it.)
 * The one socket in the system, the WebSocket to Unreal, **only binds loopback** (127.0.0.1, ::1 or localhost);
   `ensure_loopback` refuses anything else.
-* `tests/test_llama_local.py` enforces this: a static scan fails if any brain module imports an HTTP/socket client
-  or a model hub. It also runs real llama.cpp against a tiny random-weight GGUF generated on the spot, so the
-  grammar path is tested without downloading anything.
+* `tests/test_llama_local.py` guards this. A static scan fails if any brain module imports a common outbound
+  client (urllib, http, requests, httpx, aiohttp, socket, ssl and others), a model hub, or llama-cpp-python's
+  bundled HTTP server, or calls `from_pretrained`. It is a regression tripwire, not a sandbox. The same file runs
+  real llama.cpp against tiny random-weight GGUFs generated on the spot, so the grammar path and strict chat
+  templates are tested without downloading anything.
+* Every prompt is laid out as one optional system turn plus one user turn (context goes in the user text, never as
+  a fake assistant turn). If a model's chat template rejects a system role (Gemma-2, some Mistral releases), that
+  is detected at load and the system text is merged into the user turn. Otherwise such models would silently fall
+  back to the offline voice.
 * Each loaded model is shared across sessions and guarded by a lock (a llama.cpp context is not thread-safe).
   Every grammar is parsed by llama.cpp before sampling. A grammar that fails to parse would otherwise crash the
   process inside the bindings; this check found exactly that bug in the original spec's multi-line grammar.

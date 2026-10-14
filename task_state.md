@@ -15,8 +15,10 @@ monolith. **Status: v0.1 done and pushed** on branch `claude/determined-maxwell-
 - The LLM never decides mechanics; there is a full offline fallback (heuristic senses, phrase banks).
 - **llama.cpp is local only (user requirement):** it runs in-process through llama-cpp-python from local `.gguf`
   files (`--model`, `--senses-model`). There is no llama-server, no HTTP, no URLs or hub names (refused), and no
-  downloads. Build with `CMAKE_ARGS="-DLLAMA_CURL=OFF"`. The Unreal WebSocket binds loopback only.
-  `tests/test_llama_local.py` enforces this with a static import scan and loopback tests.
+  downloads. The bindings never load llama.cpp's downloader library (libllama-common); a test checks this. The
+  `LLAMA_CURL` flag is ignored by current llama.cpp, so it is not a safeguard. The Unreal WebSocket binds loopback
+  only. `tests/test_llama_local.py` guards all of this (static import tripwire, /proc maps, loopback,
+  strict chat templates).
 - Mechanics and text are original; inspirations are credited in `docs/RULES.md`.
 - Voxel glyphs come from DejaVu Sans Mono Bold (permissive license). Unifont was rejected because the installed
   package is GPL-2+.

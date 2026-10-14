@@ -40,11 +40,9 @@ def compile_narration_prompt(req: NarrationRequest) -> list[dict]:
         lines.append("THIS IS THE ENDING: the player escapes. Close the tale in 3-4 sentences.")
     elif req.ending == "dead":
         lines.append("THIS IS THE ENDING: the player has died. Close the tale in 3-4 sentences.")
-    messages = [{"role": "system", "content": TOME_SYSTEM}]
     if req.history:
-        messages.append({"role": "assistant", "content": " ".join(req.history[-3:])})
-    messages.append({"role": "user", "content": "\n".join(lines)})
-    return messages
+        lines.insert(0, f"RECENT NARRATION (context only, do not repeat): {' '.join(req.history[-3:])}")
+    return [{"role": "system", "content": TOME_SYSTEM}, {"role": "user", "content": "\n".join(lines)}]
 
 
 def lineage_flavor(spec: NPCSpec, d: BrainDecision) -> str:

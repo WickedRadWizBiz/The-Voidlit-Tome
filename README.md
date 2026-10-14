@@ -29,11 +29,10 @@ python -m voidlit play --background medic --name Ash
 python -m voidlit play --debug          # watch the NPC brains and the Director think
 ```
 
-With a local language model (llama.cpp compiled into the process; build it without libcurl so it has no
-download code at all):
+With a local language model (llama.cpp compiled into the brain's own process by llama-cpp-python):
 
 ```bash
-CMAKE_ARGS="-DLLAMA_CURL=OFF" pip install -e ".[llm]"      # add your GPU backend flags if you want offload
+pip install -e ".[llm]"                                     # GPU offload: set CMAKE_ARGS for your backend first
 python -m voidlit play --model /path/to/model.gguf          # --senses-model small.gguf  --gpu-layers 99
 ```
 

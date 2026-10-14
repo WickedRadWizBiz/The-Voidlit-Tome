@@ -4,7 +4,7 @@ Protocol (JSON text messages; see docs/PROTOCOL.md):
 
 client -> server
     {"type": "hello", "protocol": 2, "options": {"seed": 7, "class": "breacher", "name": "Ash",
-                                                "place": "hollow_lantern", "length": "short"}}
+                                                "place": "hollow-lantern", "length": "short"}}
     {"type": "input", "text": "I pry the door open"}
     {"type": "command", "name": "new" | "save" | "load", "args": {...}}
     {"type": "ping"}

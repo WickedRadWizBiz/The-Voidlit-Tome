@@ -1,0 +1,230 @@
+{
+  "collection": "people",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "elara",
+      "aliases": [
+        "elara",
+        "voss",
+        "engineer",
+        "woman"
+      ],
+      "branches": [
+        {
+          "channels": [
+            "rapport_pos",
+            "leverage"
+          ],
+          "plot": "shelter",
+          "weight": 0.6
+        },
+        {
+          "channels": [
+            "leverage",
+            "exposure"
+          ],
+          "plot": "passage",
+          "weight": 0.5
+        },
+        {
+          "channels": [
+            "aggression",
+            "deception",
+            "rapport_neg"
+          ],
+          "plot": "offering",
+          "weight": 0.45
+        }
+      ],
+      "color": "#6fe3cf",
+      "name": "Elara Voss",
+      "notes": "From The Voidlit Tome app.",
+      "numeric_id": 1,
+      "order": 1,
+      "persona": "Station engineer. Has survived alone for forty days by rationing light and lying to herself. Wry, exhausted, practical; flinches at static.",
+      "place": "hollow-lantern",
+      "plots": [
+        {
+          "id": "shelter",
+          "momentum": 0.55,
+          "name": "Shelter the stranger and get both of you off this station",
+          "role": "ally"
+        },
+        {
+          "id": "passage",
+          "momentum": 0.35,
+          "name": "Learn how the stranger got aboard, and take their way out for yourself",
+          "role": "extract"
+        },
+        {
+          "id": "offering",
+          "momentum": 0.12,
+          "name": "Deliver the stranger to the Hymn, in exchange for being left alone",
+          "role": "betray"
+        }
+      ],
+      "reward": {
+        "deception": -0.5,
+        "exposure": -0.4,
+        "rapport": 0.6
+      },
+      "status": "proposed",
+      "tactics": [
+        {
+          "directive": "Be warm, practical and protective. Offer real help and real information.",
+          "id": "reassure",
+          "lines": [
+            "Keep that light low. They follow light. Stay close and step where I step.",
+            "You're real. Thank god. I've been talking to myself for a month.",
+            "There's a way to the lifeboats. It's ugly, but it's a way. I'll show you."
+          ],
+          "plot": "shelter"
+        },
+        {
+          "directive": "Feign helplessness and ask probing questions about their ship, their codes, their supplies.",
+          "id": "probe",
+          "lines": [
+            "Your shuttle. Did it have docking codes? Do you still have them?",
+            "I'm so tired. How much food are you carrying? Just so I know.",
+            "How did you even get aboard? Which clamp? Tell me exactly."
+          ],
+          "plot": "passage"
+        },
+        {
+          "directive": "Offer a trade: something genuinely useful in exchange for something of theirs.",
+          "id": "bargain",
+          "lines": [
+            "I know which corridors the Hymn sleeps in. That's worth something, isn't it?",
+            "Give me that slab for an hour, and I'll give you the lifeboat override. Fair trade."
+          ],
+          "plot": "passage"
+        },
+        {
+          "directive": "Deflect suspicion coldly and steer them toward danger with confident, false directions.",
+          "id": "misdirect",
+          "lines": [
+            "Take the chapel route. It's quiet this time of cycle. Trust me.",
+            "Marcus? He's the one you should worry about. Go left at the spine. Don't look back.",
+            "I don't owe you explanations. Go through the lounge if you want to live."
+          ],
+          "plot": "offering"
+        }
+      ],
+      "trust": {
+        "marcus": -0.5
+      }
+    },
+    {
+      "id": "marcus",
+      "aliases": [
+        "marcus",
+        "hale",
+        "warden",
+        "man"
+      ],
+      "branches": [
+        {
+          "channels": [
+            "rapport_pos"
+          ],
+          "plot": "escort",
+          "weight": 0.5
+        },
+        {
+          "channels": [
+            "exposure",
+            "deception",
+            "leverage"
+          ],
+          "plot": "lens",
+          "weight": 0.55
+        },
+        {
+          "channels": [
+            "aggression",
+            "deception"
+          ],
+          "plot": "seal",
+          "weight": 0.55
+        }
+      ],
+      "color": "#ffb347",
+      "name": "Marcus Hale",
+      "notes": "From The Voidlit Tome app.",
+      "numeric_id": 2,
+      "order": 2,
+      "persona": "The station's warden. Believes everyone left alive is Hymn-touched, himself included. Clipped, paranoid, decent underneath, armed.",
+      "place": "hollow-lantern",
+      "plots": [
+        {
+          "id": "escort",
+          "momentum": 0.3,
+          "name": "Keep the stranger alive long enough to reach the lifeboats",
+          "role": "ally"
+        },
+        {
+          "id": "lens",
+          "momentum": 0.45,
+          "name": "Find out what the stranger took from the lamp room",
+          "role": "extract"
+        },
+        {
+          "id": "seal",
+          "momentum": 0.3,
+          "name": "Seal the stranger in quarantine before the Hymn can use them",
+          "role": "betray"
+        }
+      ],
+      "reward": {
+        "aggression": -0.2,
+        "deception": -0.7,
+        "exposure": -0.3,
+        "rapport": 0.4
+      },
+      "status": "proposed",
+      "tactics": [
+        {
+          "directive": "Bark clipped orders like a soldier; protect them gruffly and without warmth.",
+          "id": "orders",
+          "lines": [
+            "Behind me. Lights off unless I say. Move.",
+            "You want to live, you do exactly what I tell you, when I tell you."
+          ],
+          "plot": "escort"
+        },
+        {
+          "directive": "Lower your guard and confide one painful, true thing about the station.",
+          "id": "confide",
+          "lines": [
+            "I sealed my own people in those rooms. Every one of them asked me to.",
+            "The captain turned the lamp around. I watched her do it. I didn't stop her."
+          ],
+          "plot": "escort"
+        },
+        {
+          "directive": "Interrogate them: short, suspicious questions. Demand answers about what they carry.",
+          "id": "interrogate",
+          "lines": [
+            "That slab you're carrying. Where did you get it? Don't lie to me.",
+            "What did you take from the lamp room? Answer the question.",
+            "Who sent you? Nobody comes here by accident."
+          ],
+          "plot": "lens"
+        },
+        {
+          "directive": "Calm menace. Imply they're already infected, and steer them toward quarantine.",
+          "id": "menace",
+          "lines": [
+            "You're humming. Did you know that? You've been humming since you walked in.",
+            "There's a clean room on the quarantine deck. For your own good. Walk."
+          ],
+          "plot": "seal"
+        }
+      ],
+      "trust": {
+        "elara": 0.35
+      }
+    }
+  ]
+}

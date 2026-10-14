@@ -188,3 +188,18 @@ def test_play_reports_a_result():
     engine, _ = build_engine(seed=11, class_id="fence")
     r = play(engine)
     assert r["stage"] in ("haven", "fallen", "over")
+
+
+def test_places_come_from_the_forge(codex, lantern):
+    assert len(lantern.leaves) == 17 and set(lantern.npcs) == {"elara", "marcus"}
+    assert all(x.kind in ("hostile", "hazard", "relic", "witness") for x in lantern.leaves)
+    assert any(x.id == "hl-hymn-cantor" for x in lantern.leaves)
+    for kind in ("hostile", "hazard", "relic", "witness"):
+        assert not any(e.get("place") for e in codex.leaves(kind)), "a place's Leaves stay in that place"
+
+
+def test_a_place_can_be_named_either_way(codex, lantern, director_model):
+    for name in ("hollow_lantern", "hollow-lantern"):
+        e = make(codex, lantern, director_model, seed=1, place=name)
+        e.start()
+        assert e.state.place == "hollow-lantern"

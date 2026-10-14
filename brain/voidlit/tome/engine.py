@@ -42,7 +42,7 @@ from ..senses.state import ENGAGING, Intent, SensoryState
 from ..voice.narrator import OfflineVoice
 from ..voice.prompts import compile_npc_prompt
 from ..voice.requests import DialogueRequest, NarrationRequest
-from .content import Codex, Place, load_place, place_ids
+from .content import Codex, Place, all_places, place_key
 from .frames import COLORED, SHAPE_GLYPH, STAT_GLYPH, Block, Span, TomeFrame, dice_block, span, text_block
 
 SAVE_VERSION = 2
@@ -158,7 +158,7 @@ class TomeEngine:
                  lower: str | None = None, length: str = "short") -> None:
         self.codex = codex or Codex.load()
         self.codex.validate()
-        self.places: dict[str, Place] = {pid: load_place(pid) for pid in place_ids()}
+        self.places: dict[str, Place] = all_places(self.codex)
         self.transducer = transducer or HeuristicTransducer()
         banks: dict[str, list[str]] = {}
         for p in self.places.values():
@@ -185,7 +185,7 @@ class TomeEngine:
         opening = opening_roll(bearer, self.rng, lowered)
         campaign = Campaign.begin(bearer, self.codex.entries("agendas"), self.rng)
         self.state = GameState(seed=seed, campaign=campaign, opening=opening.to_dict())
-        self._forced_place = place if place in self.places else None
+        self._forced_place = place_key(place) if place and place_key(place) in self.places else None
 
     # ================================================================ public API
     @property

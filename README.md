@@ -28,7 +28,7 @@ cd brain
 pip install torch --index-url https://download.pytorch.org/whl/cpu   # or a CUDA build
 pip install -e ".[dev]"
 python -m voidlit play --class breacher --name Ash
-python -m voidlit play --place hollow_lantern --debug   # watch the NPC brains and the Director think
+python -m voidlit play --place hollow-lantern --debug   # watch the NPC brains and the Director think
 ```
 
 With a local language model (llama.cpp compiled into the brain's own process by llama-cpp-python):
@@ -60,7 +60,7 @@ brain/                      Python sidecar: the Tome's mind
   voidlit/voice/            local in-process llama.cpp (llama-cpp-python), prompt compilers, offline narrator
   voidlit/tome/             the turn engine, render frames, content loader
   voidlit/content/tome/     the TOME Forge's content (JSON snapshot; refresh with tools/sync_content.py)
-  voidlit/content/places/   place packs as TOML ("The Hollow Lantern")
+  voidlit/content/places/   optional local place packs (TOML); the Forge's places load from content/tome
   tests/                    rules, senses, BindsNET plasticity, Director, full trials and campaigns, WebSocket,
                             local-only guards, real llama.cpp on a generated tiny GGUF
   tools/balance.py          seeded bot trials → survival by class

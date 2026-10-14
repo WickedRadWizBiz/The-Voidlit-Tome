@@ -33,8 +33,10 @@ This page only lists what the engine implements, what the app adds on top, and w
 
 These are the app's own, offered to the project for the Core Rules and the Forge:
 
-* **Place packs** (`content/places/*.toml`): a place in the Unknown with its own Leaves and people.
-  *The Hollow Lantern* is the first. Its NPCs have BindsNET brains and appear on Witness Leaves.
+* **Places**: a place in the Unknown with its own Leaves and people, authored in the Forge (`places`, `people`,
+  and Leaves that name a `place`). *The Hollow Lantern* is the first. Its people have BindsNET brains and appear on
+  its Witness Leaves; its Leaves are dealt only there. A local TOML pack in `content/places/` can add a place the
+  Forge does not have yet.
 * **Allies**: a person whose brain currently favours you lends **+1 die** to your casts.
 * **Gear help**: Kit items add a die to the kinds they suit (a scanner on Relics, lockpicks on Hazards, and so on).
 * **The Director** (a SpikingJelly network) chooses only how a draw is shown (a dot, shapes or the dark) and the

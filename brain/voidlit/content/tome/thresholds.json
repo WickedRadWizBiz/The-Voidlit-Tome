@@ -4,65 +4,65 @@
   "entries": [
     {
       "id": "threshold-1",
-      "roll": "1",
-      "pool": "start",
-      "status": "canon",
       "notes": "Workshop proposes: \"A derelict hauler drifts toward a sun. Retrieve its heart, or ride it down.\"",
       "order": 1,
+      "pool": "start",
+      "roll": "1",
+      "status": "canon",
       "threshold": "A derelict hauler drifts toward a sun. Retrieve its heart before it burns."
     },
     {
       "id": "threshold-2",
-      "roll": "2",
-      "pool": "start",
-      "status": "canon",
       "notes": "",
       "order": 2,
+      "pool": "start",
+      "roll": "2",
+      "status": "canon",
       "threshold": "Beneath this colony is a door. Open it."
     },
     {
       "id": "threshold-3",
-      "roll": "3",
-      "pool": "start",
-      "status": "canon",
       "notes": "",
       "order": 3,
+      "pool": "start",
+      "roll": "3",
+      "status": "canon",
       "threshold": "A ship carries one who knows my true name. Silence them, or learn it."
     },
     {
       "id": "threshold-4",
-      "roll": "4",
-      "pool": "start",
-      "status": "canon",
       "notes": "",
       "order": 4,
+      "pool": "start",
+      "roll": "4",
+      "status": "canon",
       "threshold": "This station is dreaming. Wake it, or join it."
     },
     {
       "id": "threshold-5",
-      "roll": "5",
-      "pool": "after 2 Fragments",
-      "status": "canon",
       "notes": "Workshop proposes moving this to a pool that opens after 2 Fragments.",
       "order": 5,
+      "pool": "after 2 Fragments",
+      "roll": "5",
+      "status": "canon",
       "threshold": "Walk the moon where I was made. Bring back what I left there."
     },
     {
       "id": "threshold-6",
-      "roll": "6",
-      "pool": "start",
-      "status": "canon",
       "notes": "",
       "order": 6,
+      "pool": "start",
+      "roll": "6",
+      "status": "canon",
       "threshold": "You are already inside the trial. Find where it begins."
     },
     {
       "id": "threshold-survey-beacon",
-      "roll": "5",
-      "pool": "start",
-      "status": "proposed",
       "notes": "Workshop replacement for Threshold 5.",
       "order": 7,
+      "pool": "start",
+      "roll": "5",
+      "status": "proposed",
       "threshold": "A survey beacon is singing in my script. Find who taught it."
     }
   ]

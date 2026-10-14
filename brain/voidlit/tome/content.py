@@ -5,8 +5,9 @@ collection, ``{"collection", "schemaVersion", "entries": [...]}``), shipped in `
 ``tools/sync_content.py`` refreshes it from that folder or from a Forge "Export JSON" bundle. The engine never
 edits it: names, Bonds, Openings and tables are changed in the Forge.
 
-A place pack is somewhere in the Unknown with its own authored Leaves and people (NPCs with BindsNET brains),
-for example ``places/hollow_lantern.toml``. Places are the app's addition; they are offered to the Forge.
+A place is somewhere in the Unknown with its own authored Leaves and people (NPCs with BindsNET brains). Places
+come from the Forge (``places``, ``people`` and the ``leaves`` that name a ``place``); the Hollow Lantern is the
+first. A TOML pack in ``content/places/`` can add a local place the Forge does not have yet.
 """
 
 from __future__ import annotations
@@ -67,7 +68,32 @@ class Codex:
                     None)
 
     def leaves(self, kind: str) -> list[dict]:
-        return [e for e in self.entries("leaves") if e.get("kind", "").lower() == kind]
+        """The generic Leaves of a kind; a place's own Leaves are dealt only in that place."""
+        return [e for e in self.entries("leaves") if e.get("kind", "").lower() == kind and not e.get("place")]
+
+    def places(self) -> dict[str, "Place"]:
+        """Every playable place in the Forge (one with an arrival), with its Leaves and people."""
+        out = {}
+        for e in self.entries("places"):
+            if not e.get("arrival"):
+                continue
+            pid = e["id"]
+            narration = {"beat.calm": e.get("narration_calm", []), "beat.foreshadow": e.get("narration_foreshadow", []),
+                         "ending.verdict": e.get("narration_verdict", [])}
+            place = Place(
+                id=pid, name=e["name"], threshold=e.get("threshold", ""), arrival=e["arrival"],
+                crucible=e.get("crucible", ""), crucible_text=e.get("crucible_text", ""),
+                lore=list(e.get("lore", [])), rumors=list(e.get("rumors", [])),
+                leaves=[PlaceLeaf(id=x["id"], kind=x["kind"].lower(), title=x["title"], rank=_rank(x.get("depth", "")),
+                                  text={r: x[r] for r in REGISTERS if x.get(r)}, npcs=list(x.get("people", [])),
+                                  clue=x.get("clue", ""), cleared=x.get("cleared", ""))
+                        for x in self.entries("leaves") if x.get("place") == pid],
+                npcs={n["id"]: _npc(n) for n in self.entries("people") if n.get("place") == pid},
+                narration={k: list(v) for k, v in narration.items() if v},
+            )
+            place.validate()
+            out[pid] = place
+        return out
 
     def register_for(self, stress: int, panicked: bool = False) -> str:
         if panicked:
@@ -98,6 +124,17 @@ class Codex:
             for k in ("might", "grace", "wits", "nerve"):
                 if not 0 <= int(c[k]) <= 4:
                     raise ValueError(f"class {c['id']}: {k} out of range")
+
+
+def _rank(depth: str) -> str:
+    """Forge depth ("Shallow (2)", "any") to a rank ("shallow", "")."""
+    word = depth.split()[0].lower() if depth else ""
+    return word if word in ("shallow", "deep", "abyssal") else ""
+
+
+def place_key(name: str) -> str:
+    """Place ids are compared without caring about dashes or underscores (hollow_lantern = hollow-lantern)."""
+    return name.strip().lower().replace("_", "-")
 
 
 @dataclass
@@ -179,4 +216,14 @@ def load_place(name_or_path: str | Path) -> Place:
 
 
 def place_ids() -> list[str]:
+    """Local TOML place packs (the Forge's places come from ``Codex.places``)."""
     return sorted(p.stem for p in PLACES_DIR.glob("*.toml"))
+
+
+def all_places(codex: Codex) -> dict[str, Place]:
+    """The Forge's places, plus any local TOML pack the Forge does not have."""
+    places = {place_key(k): v for k, v in codex.places().items()}
+    for pid in place_ids():
+        if place_key(pid) not in places:
+            places[place_key(pid)] = load_place(pid)
+    return places

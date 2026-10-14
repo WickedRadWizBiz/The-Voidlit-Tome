@@ -7,7 +7,7 @@ only ever on a loopback address: the Tome is a local game and is never reachable
 
 ```json
 {"type": "hello", "protocol": 2, "options": {"seed": 7, "class": "breacher", "name": "Ash",
-                                              "place": "hollow_lantern", "length": "short", "lower": "grace"}}
+                                              "place": "hollow-lantern", "length": "short", "lower": "grace"}}
 {"type": "input", "text": "I hold steady and face it"}
 {"type": "command", "name": "save", "args": {"slot": "quicksave"}}
 {"type": "command", "name": "load", "args": {"slot": "quicksave"}}

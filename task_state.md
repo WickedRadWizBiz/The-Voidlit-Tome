@@ -13,7 +13,7 @@ Branch: `claude/reconcile-core-rules` (from `claude/determined-maxwell-5j79pa`),
 
 ## Plan
 1. [x] rules/: replace Grit/Guile/Insight, Hull, pips, clocks, act deck with Core Rules 0.2
-2. [x] content: ship a Forge snapshot (brain/voidlit/content/tome/*.json) + tools/sync_content.py; Hollow Lantern -> place pack
+2. [x] content: ship a Forge snapshot (brain/voidlit/content/tome/*.json) + tools/sync_content.py; places (Hollow Lantern) load from the Forge
 3. [x] engine: draw prompts, Leaves, Push, Bargain, Breather/Echo/Intervention, Crucible, Haven, Pages, oracle
 4. [x] keep + rewire: senses (4 stats), NPC brains on Witness Leaves, Director re-scoped to draw mode + beats
 5. [x] voice: Stress registers; palette = voxel color language

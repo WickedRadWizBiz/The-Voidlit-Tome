@@ -164,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     play.add_argument("--class", dest="cls", default=None,
                       help="breacher, archivist, vessel, hauler, pilgrim or fence (default: the TOME chooses)")
     play.add_argument("--name", default="Bearer")
-    play.add_argument("--place", default=None, help="start in a place pack, e.g. hollow_lantern")
+    play.add_argument("--place", default=None, help="start in a place, e.g. hollow-lantern")
     play.add_argument("--lower", default=None, help="the stat the Opening roll lowers (default: your weakest)")
     play.add_argument("--length", default="short", choices=("short", "long"), help="trial length")
     play.add_argument("--content", default=None, help="a TOME Forge content folder or export bundle")

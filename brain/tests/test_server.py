@@ -31,7 +31,7 @@ async def _session(tmp_path):
             welcome = await recv()
             assert welcome["type"] == "welcome" and welcome["llm"] is False
             assert welcome["bearer"]["class_name"] == "Hauler" and "breacher" in welcome["classes"]
-            assert welcome["protocol"] == 2 and "hollow_lantern" in welcome["places"]
+            assert welcome["protocol"] == 2 and "hollow-lantern" in welcome["places"]
             start = await recv()
             assert start["type"] == "frame" and start["blocks"][0]["role"] == "title"
             assert start["status"]["pending"]["type"] == "draw"

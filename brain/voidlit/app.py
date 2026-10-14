@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .tome.content import Codex, load_place, place_ids
+from .tome.content import Codex, all_places
 from .tome.engine import TomeEngine
 from .voice.llama_local import ChatModel, LocalLlama, LocalTransducer, LocalVoice
 from .voice.narrator import OfflineVoice
@@ -30,12 +30,13 @@ def build_engine(seed: int = 0, class_id: str | None = None, name: str = "Bearer
 
     ``codex`` is a Forge content folder or export bundle; the default is the snapshot shipped with the app.
     """
+    content = Codex.load(codex)
     banks: dict[str, list[str]] = {}
-    for pid in place_ids():
-        banks.update(load_place(pid).narration)
+    for p in all_places(content).values():
+        banks.update(p.narration)
     offline = OfflineVoice(banks, seed=seed)
     transducer = LocalTransducer(senses_llm) if senses_llm is not None else None
     voice = LocalVoice(voice_llm, offline) if voice_llm is not None else offline
-    engine = TomeEngine(Codex.load(codex), transducer=transducer, voice=voice, seed=seed, class_id=class_id,
+    engine = TomeEngine(content, transducer=transducer, voice=voice, seed=seed, class_id=class_id,
                         player_name=name, place=place, lower=lower, length=length)
     return engine, voice_llm is not None or senses_llm is not None

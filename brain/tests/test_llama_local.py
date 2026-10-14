@@ -148,6 +148,7 @@ def test_local_llama_loads_once_and_speaks(tiny_model, lantern):
     from voidlit.voice import NarrationRequest
 
     text = voice.narrate(NarrationRequest(player_text="look", intent="look", stat="none",
+                                          register="plain", register_style="",
                                           leaf_title="T", leaf_text="A room.", entering=True,
                                           facts=["You look."]))
     assert isinstance(text, str) and text
@@ -179,7 +180,8 @@ def test_strict_chat_templates_still_reach_the_model(tmp_path, template_name, la
     LocalTransducer(llm, NoFallback()).extract("I smash the door", {"elara": ["elara"]})
     voice = LocalVoice(llm, Refuse())
     history = ["The iris grinds open.", "Frost creeps across a viewport."]
-    voice.narrate(NarrationRequest(player_text="look", intent="look", stat="none", leaf_title="T",
+    voice.narrate(NarrationRequest(player_text="look", intent="look", stat="none",
+                                   register="plain", register_style="", leaf_title="T",
                                    leaf_text="A room.", entering=False, facts=["x"], history=history))
     spec = lantern.npcs["elara"]
     decision = BrainDecision(dominant_plot=0, secondary_plot=1, tactic=0, branch_id=1, branch_origin="ally",

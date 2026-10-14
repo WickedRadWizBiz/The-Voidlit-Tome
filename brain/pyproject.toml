@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voidlit"
+version = "0.1.0"
+description = "The Voidlit Tome: a spiking-neural Dungeon Master (SpikingJelly + BindsNET + llama.cpp)."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "torch>=2.4",
+    "spikingjelly>=0.0.0.0.14",
+    "bindsnet>=0.3.4",
+    "websockets>=13",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+voidlit = "voidlit.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["voidlit*"]
+
+[tool.setuptools.package-data]
+voidlit = ["content/*.toml", "cortex/director.pt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning", "ignore::FutureWarning"]

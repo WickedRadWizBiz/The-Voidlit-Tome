@@ -1,0 +1,594 @@
+# The Hollow Lantern: the first sector for the Voidlit Tome.
+#
+# The Hollow Lantern was a lighthouse-station, built to burn a lamp bright enough to guide ore haulers
+# through the Dark Sector, where starlight goes missing. Forty days ago the lamp went out. The crew
+# stopped answering, then started singing. You came aboard to strip the lamp's core for salvage.
+# Your shuttle is gone. The Tome, a sliver of the lamp's lens that still remembers light, is the only
+# light you have, and it has started to write.
+
+[scenario]
+id = "hollow_lantern"
+title = "The Hollow Lantern"
+per_act = 2
+lumen_interval = 5
+intro = """The Tome wakes under your hand: a slab of black glass, warm as skin. Words rise out of it in light. \
+You are aboard the Hollow Lantern, a lighthouse-station adrift in the Dark Sector. Your shuttle tore loose \
+an hour ago. The lifeboats are at the far end of the station. Between here and there is everything that \
+put the lamp out."""
+lore = [
+    "The lamp didn't fail. Someone turned it toward the dark on purpose, and something on the other side looked back.",
+    "The Choir isn't a cult. It's what's left of the crew, still on shift, still answering a signal from the black.",
+    "The Tome you carry was cut from the lamp's lens. As long as it glows, the Choir can't quite see you.",
+    "Every lifeboat but one was launched empty. The last one is locked to the Conductor's voice.",
+]
+
+# ---------------------------------------------------------------------------------------- backgrounds
+[[backgrounds]]
+id = "salvager"
+name = "Salvager"
+grit = 3
+guile = 2
+insight = 1
+hull = 6
+items = [
+    { name = "Plasma cutter", bonus = { grit = 1 } },
+    { name = "Flare", tags = ["light"], uses = 2, light = 1 },
+]
+
+[[backgrounds]]
+id = "marine"
+name = "Ex-Marine"
+grit = 3
+guile = 2
+insight = 1
+hull = 7
+items = [
+    { name = "Slug rifle", bonus = { fight = 1 } },
+    { name = "Combat stim", tags = ["heal"], uses = 1 },
+]
+
+[[backgrounds]]
+id = "engineer"
+name = "Engineer"
+grit = 1
+guile = 2
+insight = 3
+hull = 5
+items = [
+    { name = "Multitool", bonus = { insight = 1 } },
+    { name = "Work lamp", tags = ["light"], uses = 3, light = 1 },
+]
+
+[[backgrounds]]
+id = "medic"
+name = "Medic"
+grit = 1
+guile = 3
+insight = 2
+hull = 5
+items = [
+    { name = "Medkit", tags = ["heal"], uses = 3 },
+    { name = "Scalpel", bonus = { guile = 1 } },
+]
+
+[[backgrounds]]
+id = "pilot"
+name = "Pilot"
+grit = 2
+guile = 3
+insight = 1
+hull = 6
+items = [
+    { name = "Grapple gun", bonus = { guile = 1 } },
+    { name = "Flare", tags = ["light"], uses = 1, light = 1 },
+]
+
+[[backgrounds]]
+id = "archivist"
+name = "Archivist"
+grit = 1
+guile = 2
+insight = 3
+hull = 5
+items = [
+    { name = "Lexicon slate", bonus = { insight = 1, search = 1 } },
+    { name = "Votive candle", tags = ["light"], uses = 1, light = 2 },
+]
+
+# ---------------------------------------------------------------------------------------- clocks
+[[clocks]]
+id = "choir"
+name = "The Choir Wakes"
+segments = 8
+consequence = "choir_drone"
+
+[[clocks]]
+id = "reactor"
+name = "Reactor Drift"
+segments = 6
+consequence = "lumen"
+
+# ---------------------------------------------------------------------------------------- obstacles
+[obstacles.jammed_iris]
+name = "the jammed iris door"
+kind = "lock"
+pips = ["grit", "insight"]
+harm = 0
+text = "A docking iris frozen half-shut, its petals bent inward like broken teeth."
+defeat_text = "The iris grinds open with a sound like a sigh, and stale air rolls out to meet you."
+
+[obstacles.scavenger_drone]
+name = "a scavenger drone"
+kind = "enemy"
+pips = ["guile", "grit"]
+harm = 1
+text = "A maintenance drone with a cutting arm, stripping copper from the walls. It stops when it sees you."
+defeat_text = "The drone spins, sparks, and drops dead on the deck."
+
+[obstacles.rot_bloom]
+name = "the rot bloom"
+kind = "hazard"
+pips = ["insight", "guile"]
+harm = 1
+stress = 1
+text = "Pale fungus has swallowed the grow racks. Spore clouds drift like slow ghosts."
+defeat_text = "You find the air handler's rhythm and slip through between its breaths."
+
+[obstacles.the_sleepers]
+name = "the sleepers"
+kind = "horror"
+pips = ["insight", "insight"]
+harm = 0
+stress = 2
+text = "Every bunk is occupied. Every sleeper is smiling. None of them are breathing."
+defeat_text = "You understand at last: they're listening, not sleeping. You stop making noise worth hearing."
+
+[obstacles.warden_turret]
+name = "the warden turret"
+kind = "enemy"
+pips = ["guile", "insight"]
+harm = 1
+text = "A ceiling turret tracks you with a whine of servos. Its targeting laser is the only other light here."
+defeat_text = "The turret's eye flickers, confused, and droops toward the floor."
+
+[obstacles.vacuum_breach]
+name = "the vacuum breach"
+kind = "hazard"
+pips = ["grit", "guile"]
+harm = 2
+text = "A hull plate has peeled back. The corridor howls as the station bleeds air into the black."
+defeat_text = "You haul yourself hand over hand past the breach, and an emergency shutter slams behind you."
+
+[obstacles.choir_cantor]
+name = "the Cantor"
+kind = "enemy"
+pips = ["insight", "grit", "guile"]
+harm = 1
+stress = 2
+text = "A crewman in a pressure suit, faceplate painted black, conducts a hymn only the static can hear."
+defeat_text = "The Cantor's song breaks mid-note. The silence afterward is almost worse."
+
+[obstacles.coolant_storm]
+name = "the coolant storm"
+kind = "hazard"
+pips = ["grit", "grit", "insight"]
+harm = 2
+text = "Ruptured lines vent supercooled vapor in shrieking white sheets across the catwalks."
+defeat_text = "You time the vents and cross, frost cracking off your shoulders."
+
+[obstacles.lamp_shade]
+name = "the shadow in the lamp"
+kind = "horror"
+pips = ["insight", "insight", "guile"]
+harm = 0
+stress = 2
+text = "The great lens is dark, and something stands inside it, a silhouette cut out of the stars."
+defeat_text = "You turn the Tome's light on the lens and the silhouette folds away into nothing."
+
+[obstacles.choir_drone]
+name = "the Choir drones"
+kind = "enemy"
+pips = ["grit", "guile", "guile"]
+harm = 2
+text = "Drones crawl from the vents, their speakers humming one sustained, impossible chord."
+defeat_text = "The last drone's chord dies to a whimper of feedback."
+
+[obstacles.hollow_crew]
+name = "the hollow crew"
+kind = "enemy"
+pips = ["grit", "grit", "guile", "insight"]
+harm = 2
+stress = 1
+text = "Figures in uniform stand in rows between the dead shuttles, swaying in time to nothing."
+defeat_text = "The rows break and scatter like smoke, and the hangar is just a hangar again."
+
+[obstacles.failing_lift]
+name = "the failing lift"
+kind = "hazard"
+pips = ["grit", "insight", "guile"]
+harm = 2
+text = "The cargo lift drops in sickening lurches, its brakes screaming against the rails."
+defeat_text = "You slam the emergency brake and the lift shudders to a stop a meter above the floor."
+
+[obstacles.the_conductor]
+name = "the Conductor"
+kind = "enemy"
+pips = ["grit", "guile", "insight", "insight", "grit"]
+harm = 2
+stress = 2
+text = "The station's captain, or what wears her uniform, stands before the last lifeboat with her arms raised to the dark."
+defeat_text = "The Conductor's arms fall. Every speaker on the station goes silent at once."
+
+# Hazards the Director can spring on you (by the act they first appear in).
+[obstacles.sparking_conduit]
+name = "a sparking conduit"
+kind = "hazard"
+pips = ["guile"]
+harm = 1
+blocking = false
+text = "A conduit splits overhead and spits blue fire across your path."
+defeat_text = "You duck the arc and the conduit gutters out."
+
+[obstacles.toxic_vent]
+name = "a toxic vent"
+kind = "hazard"
+pips = ["grit"]
+harm = 1
+stress = 1
+blocking = false
+text = "Yellow gas pours from a vent with a wet cough."
+defeat_text = "You seal the vent with your shoulder and a curse."
+
+[obstacles.whisper_static]
+name = "the whisper static"
+kind = "horror"
+pips = ["insight"]
+harm = 0
+stress = 2
+blocking = false
+text = "Every speaker in reach starts whispering your name, out of sync."
+defeat_text = "You stop listening. The whispers lose interest."
+
+[obstacles.gravity_hiccup]
+name = "a gravity hiccup"
+kind = "hazard"
+pips = ["guile", "grit"]
+harm = 1
+blocking = false
+text = "The artificial gravity stutters, and the floor becomes the ceiling for one long second."
+defeat_text = "Gravity snaps back. You land on your feet, barely."
+
+[hazards]
+act1 = ["sparking_conduit", "toxic_vent"]
+act2 = ["sparking_conduit", "toxic_vent", "whisper_static", "gravity_hiccup"]
+act3 = ["whisper_static", "gravity_hiccup", "toxic_vent"]
+
+# ---------------------------------------------------------------------------------------- chapters
+[[chapters]]
+id = "docking_throat"
+act = 0
+kind = "passage"
+title = "The Docking Throat"
+text = "The docking throat is a ribbed tunnel of frost and dead lights. Your shuttle clamp hangs empty behind you. Ahead, a jammed iris door. Someone has scratched a word into it: LISTEN."
+obstacles = ["jammed_iris"]
+npcs = ["elara"]
+clues = ["Scratches on the iris are fresh, made from this side. Someone tried to get out, not in."]
+exit_text = "Beyond the iris, the station's ring corridor curves away into the dark."
+
+[[chapters]]
+id = "ration_vault"
+act = 1
+kind = "discovery"
+title = "The Ration Vault"
+text = "Shelves of sealed rations, most torn open by hands, not tools. A work lamp still burns low in the corner, guarding a nest of blankets."
+obstacles = ["scavenger_drone"]
+npcs = ["elara"]
+clues = ["The blankets are arranged so the sleeper faces the door. Whoever lives here doesn't sleep much."]
+light = 1
+exit_text = "A maintenance hatch leads deeper toward the spine."
+
+[[chapters]]
+id = "hydroponics"
+act = 1
+kind = "hazard"
+title = "Drowned Hydroponics"
+text = "The hydroponics bay is ankle-deep in black water. The grow lights are dead and the plants have gone pale and soft, reaching toward the door you came in by."
+obstacles = ["rot_bloom"]
+clues = ["Someone fed the plants with the station's distress beacon battery. They wanted the light more than the rescue."]
+exit_text = "The far airlock is clear of growth."
+
+[[chapters]]
+id = "crew_quarters"
+act = 1
+kind = "horror"
+title = "Crew Quarters"
+text = "Rows of bunks under a low ceiling. The air is warm and smells like breath. Every bunk curtain is drawn."
+obstacles = ["the_sleepers"]
+clues = ["A duty roster on the wall: every name crossed out except E. VOSS and M. HALE."]
+exit_text = "The corridor beyond the bunks leads to the signal room."
+
+[[chapters]]
+id = "signal_room"
+act = 1
+kind = "encounter"
+title = "The Signal Room"
+text = "Banks of dead monitors and one live one, showing static that moves like a slow tide. A man in a warden's coat sits with a shotgun across his knees, watching it."
+obstacles = ["warden_turret"]
+npcs = ["marcus"]
+clues = ["The static on the screen isn't random. It's a recording of a voice, slowed down thousands of times."]
+exit_text = "A service ladder drops toward the spine."
+
+[[chapters]]
+id = "spine_corridor"
+act = 2
+kind = "passage"
+title = "The Spine"
+text = "The station's spine runs a kilometer straight through its heart. Half the panels have blown out. Stars, or the absence of them, show through the gaps."
+obstacles = ["vacuum_breach"]
+clues = ["The breach was cut from inside. Someone wanted this corridor to be hard to cross."]
+exit_text = "The spine opens onto the station's central decks."
+
+[[chapters]]
+id = "chapel_of_static"
+act = 2
+kind = "horror"
+title = "Chapel of Static"
+text = "The observation lounge has become a chapel: chairs in rows, facing a viewport of perfect black. Every speaker in the room plays the same low note."
+obstacles = ["choir_cantor"]
+clues = ["Hymn sheets on the chairs are station maintenance logs, with every mention of the lamp underlined."]
+exit_text = "Behind the altar, a door to the medical deck."
+
+[[chapters]]
+id = "med_bay"
+act = 2
+kind = "respite"
+title = "Medical Bay"
+text = "Clean. Shockingly clean. The medical bay's emergency lights still glow, and the air recycler hums like a lullaby."
+npcs = ["elara"]
+respite = true
+light = 1
+clues = ["The medical log: Dr. Ilse Maren treated 'auditory contagion' for nine days, then wrote only one word, over and over: SING."]
+exit_text = "The lift to the upper ring is still powered."
+
+[[chapters]]
+id = "reactor_gallery"
+act = 2
+kind = "hazard"
+title = "Reactor Gallery"
+text = "Catwalks hang over the reactor's sullen glow. Coolant lines have burst, and the gallery fills with freezing fog."
+obstacles = ["coolant_storm"]
+clues = ["The reactor's output has been rerouted, all of it, to the lamp. It's trying to relight itself."]
+exit_text = "A maintenance duct climbs toward the lamp housing."
+
+[[chapters]]
+id = "lamp_room"
+act = 3
+kind = "discovery"
+title = "The Dead Lamp"
+text = "The lamp room is a cathedral of brass and glass, ringed around a lens three stories tall. It is completely dark. Your Tome grows warm, as if recognizing home."
+obstacles = ["lamp_shade"]
+light = 2
+clues = ["There's a Tome-shaped hollow cut into the lens. The piece you carry was taken from here, and the lamp went out the day it was cut."]
+exit_text = "From the lamp gallery, a cable car runs to the hangar ring."
+
+[[chapters]]
+id = "quarantine"
+act = 3
+kind = "encounter"
+title = "Quarantine Deck"
+text = "Plastic sheeting, biohazard tape, sealed doors with names on them. Marcus Hale's handwriting is on every one."
+obstacles = ["choir_drone"]
+npcs = ["marcus"]
+clues = ["One quarantine door has no name. It has a fresh lock and an empty cot. It's been waiting for someone."]
+exit_text = "The quarantine exit opens on the hangar ring."
+
+[[chapters]]
+id = "hangar_ghosts"
+act = 3
+kind = "horror"
+title = "Hangar of Ghosts"
+text = "Dead shuttles in their cradles, frost on every surface. Footprints in the frost lead everywhere and nowhere."
+obstacles = ["hollow_crew"]
+clues = ["The shuttles have been gutted for their lights. Every bulb, every lamp, every screen."]
+exit_text = "Past the hangar, the lifeboat cradle."
+
+[[chapters]]
+id = "long_drop"
+act = 3
+kind = "hazard"
+title = "The Long Drop"
+text = "The cargo lift is the only way down to the lifeboats. Its cables sing under the strain before you even step aboard."
+obstacles = ["failing_lift"]
+clues = ["Scratched into the lift wall: SHE KEEPS THE LAST ONE. SHE WON'T LET IT GO DARK."]
+exit_text = "The lift opens onto the lifeboat cradle."
+
+[[chapters]]
+id = "lifeboat_cradle"
+act = 4
+kind = "escape"
+title = "The Lifeboat Cradle"
+text = "One lifeboat remains, its running lights the only color for a kilometer. Between you and it, the Conductor turns."
+obstacles = ["the_conductor"]
+clues = ["The Conductor isn't guarding the lifeboat. She is guarding the light inside it."]
+exit_text = "The lifeboat hatch stands open. Launch, and leave the Hollow Lantern to the dark."
+
+# ---------------------------------------------------------------------------------------- NPCs
+[[npcs]]
+id = "elara"
+name = "Elara Voss"
+numeric_id = 1
+color = "#6fe3cf"
+aliases = ["elara", "voss", "engineer", "woman"]
+persona = "Station engineer. Has survived alone for forty days by rationing light and lying to herself. Wry, exhausted, practical; flinches at static."
+trust = { marcus = -0.5 }
+reward = { rapport = 0.6, deception = -0.5, exposure = -0.4 }
+
+[[npcs.plots]]
+id = "shelter"
+name = "Shelter the stranger and get both of you off this station"
+role = "ally"
+momentum = 0.55
+
+[[npcs.plots]]
+id = "passage"
+name = "Learn how the stranger got aboard, and take their way out for yourself"
+role = "extract"
+momentum = 0.35
+
+[[npcs.plots]]
+id = "offering"
+name = "Deliver the stranger to the Choir, in exchange for being left alone"
+role = "betray"
+momentum = 0.12
+
+[[npcs.tactics]]
+id = "reassure"
+plot = "shelter"
+directive = "Be warm, practical and protective. Offer real help and real information."
+lines = [
+    "Keep that light low. They follow light. Stay close and step where I step.",
+    "You're real. Thank god. I've been talking to myself for a month.",
+    "There's a way to the lifeboats. It's ugly, but it's a way. I'll show you.",
+]
+
+[[npcs.tactics]]
+id = "probe"
+plot = "passage"
+directive = "Feign helplessness and ask probing questions about their ship, their codes, their supplies."
+lines = [
+    "Your shuttle. Did it have docking codes? Do you still have them?",
+    "I'm so tired. How much food are you carrying? Just so I know.",
+    "How did you even get aboard? Which clamp? Tell me exactly.",
+]
+
+[[npcs.tactics]]
+id = "bargain"
+plot = "passage"
+directive = "Offer a trade: something genuinely useful in exchange for something of theirs."
+lines = [
+    "I know which corridors the Choir sleeps in. That's worth something, isn't it?",
+    "Give me the Tome for an hour, and I'll give you the lifeboat override. Fair trade.",
+]
+
+[[npcs.tactics]]
+id = "misdirect"
+plot = "offering"
+directive = "Deflect suspicion coldly and steer them toward danger with confident, false directions."
+lines = [
+    "Take the chapel route. It's quiet this time of cycle. Trust me.",
+    "Marcus? He's the one you should worry about. Go left at the spine. Don't look back.",
+    "I don't owe you explanations. Go through the lounge if you want to live.",
+]
+
+[[npcs.branches]]
+plot = "shelter"
+channels = ["rapport_pos", "leverage"]
+weight = 0.6
+
+[[npcs.branches]]
+plot = "passage"
+channels = ["leverage", "exposure"]
+weight = 0.5
+
+[[npcs.branches]]
+plot = "offering"
+channels = ["aggression", "deception", "rapport_neg"]
+weight = 0.45
+
+[[npcs]]
+id = "marcus"
+name = "Marcus Hale"
+numeric_id = 2
+color = "#ffb347"
+aliases = ["marcus", "hale", "warden", "man"]
+persona = "The station's warden. Believes everyone left alive is Choir-touched, himself included. Clipped, paranoid, decent underneath, armed."
+trust = { elara = 0.35 }
+reward = { rapport = 0.4, deception = -0.7, exposure = -0.3, aggression = -0.2 }
+
+[[npcs.plots]]
+id = "escort"
+name = "Keep the stranger alive long enough to reach the lifeboats"
+role = "ally"
+momentum = 0.3
+
+[[npcs.plots]]
+id = "lens"
+name = "Find out what the stranger took from the lamp room"
+role = "extract"
+momentum = 0.45
+
+[[npcs.plots]]
+id = "seal"
+name = "Seal the stranger in quarantine before the Choir can use them"
+role = "betray"
+momentum = 0.3
+
+[[npcs.tactics]]
+id = "orders"
+plot = "escort"
+directive = "Bark clipped orders like a soldier; protect them gruffly and without warmth."
+lines = [
+    "Behind me. Lights off unless I say. Move.",
+    "You want to live, you do exactly what I tell you, when I tell you.",
+]
+
+[[npcs.tactics]]
+id = "confide"
+plot = "escort"
+directive = "Lower your guard and confide one painful, true thing about the station."
+lines = [
+    "I sealed my own people in those rooms. Every one of them asked me to.",
+    "The captain turned the lamp around. I watched her do it. I didn't stop her.",
+]
+
+[[npcs.tactics]]
+id = "interrogate"
+plot = "lens"
+directive = "Interrogate them: short, suspicious questions. Demand answers about what they carry."
+lines = [
+    "That slab you're carrying. Where did you get it? Don't lie to me.",
+    "What did you take from the lamp room? Answer the question.",
+    "Who sent you? Nobody comes here by accident.",
+]
+
+[[npcs.tactics]]
+id = "menace"
+plot = "seal"
+directive = "Calm menace. Imply they're already infected, and steer them toward quarantine."
+lines = [
+    "You're humming. Did you know that? You've been humming since you walked in.",
+    "There's a clean room on the quarantine deck. For your own good. Walk.",
+]
+
+[[npcs.branches]]
+plot = "escort"
+channels = ["rapport_pos"]
+weight = 0.5
+
+[[npcs.branches]]
+plot = "lens"
+channels = ["exposure", "deception", "leverage"]
+weight = 0.55
+
+[[npcs.branches]]
+plot = "seal"
+channels = ["aggression", "deception"]
+weight = 0.55
+
+# ---------------------------------------------------------------------------------------- narration
+[narration]
+"beat.calm" = [
+    "Somewhere far off, the station's hull pings as it cools.",
+    "The Tome's light breathes slowly against the walls.",
+    "Frost spreads across a viewport, slow as breath.",
+    "A long way below you, water drips into metal, patient as a clock.",
+]
+"beat.escalate" = [
+    "Deep in the hull, something answers the noise you made.",
+    "Every speaker on the deck clicks once, in unison.",
+    "Far below, a bulkhead opens on its own.",
+]
+"beat.twist" = [
+    "Then the lights you passed come on behind you, one by one.",
+    "Wrong. The door you came through is gone. Just wall.",
+]

@@ -21,9 +21,10 @@ Branch: `claude/reconcile-core-rules` (from `claude/determined-maxwell-5j79pa`),
 7. [ ] export Hollow Lantern + app-only rules to /mnt/project-files/tome/from-app/ for the coordinator
 8. [ ] PR into main, drive CI green
 
-## Open questions for the rules thread
-- Panic 7 in the Crucible: app = lost action, tome_sim = trial survived (~5 points of survival).
-- Ally +1 die, Kit "helps" map, Director scope: app rules offered to the Core Rules.
+## Rules settled with the rules thread (2026-10-14, pending Steven's card there)
+- Panic 7 in the Crucible is a lost action; the Crucible is Depth 8, Damage 2; Vessel panics there (or with the
+  Lumen out) cost its next action. Ally die, gear helps, Talent coverage and Director scope are now Core Rules.
+- Places come from the Forge (places, people, Leaves with a place); the app's TOML copy is gone.
 
 ## Not implemented yet
 Group play, Vigil mode, recovering a Debt, Insight for acting on a Bond or Debt.

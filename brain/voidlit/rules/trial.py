@@ -7,7 +7,7 @@ Decisions only the player can make are *pending*: a Push, a Breather's gift, a L
 offer. While one is pending the Trial waits; ``pending["type"]`` names it.
 
 The numbers follow the playtest simulator's final configuration (``/tome/playtest/final_cfg.json``): Grit 5,
-one Wound roll per hit, Abyssal chapters and the Crucible at Difficulty 2, Crucible Depth 10, Stress over 10
+one Wound roll per hit, Abyssal chapters and the Crucible at Difficulty 2, Crucible Depth 8 (Damage 2), Stress over 10
 forcing a Panic, Relics also taking Might and Witnesses also taking Wits, and the Lumen's death raising the
 Crucible at once with every Bite 1 worse.
 """
@@ -30,7 +30,8 @@ RANKS = ("shallow", "deep", "abyssal")
 DEPTH = {"shallow": 2, "deep": 4, "abyssal": 6}
 DIFFICULTY = {"shallow": 1, "deep": 1, "abyssal": 2}
 DAMAGE = {"shallow": 1, "deep": 2, "abyssal": 3}
-CRUCIBLE_DEPTH, CRUCIBLE_DIFFICULTY, CRUCIBLE_DAMAGE = 10, 2, 3
+# Retuned 2026-10-14 when Panic 7 in the Crucible became a lost action (rules thread, rules_changes.md).
+CRUCIBLE_DEPTH, CRUCIBLE_DIFFICULTY, CRUCIBLE_DAMAGE = 8, 2, 2
 PER_KIND = {"shallow": 4, "deep": 4, "abyssal": 1}   # x4 kinds = 16 / 16 / 4
 ECHOES, BREATHERS, INTERVENTIONS = 12, 4, 2
 
@@ -624,6 +625,12 @@ class Trial:
     def panic(self, total: int, rng: random.Random) -> None:
         b = self.bearer
         if b.class_id == "vessel" and total not in (9, 11):
+            if self.lumen_out or (self.chapter is not None and self.chapter.crucible):
+                # In the Crucible, or with the Lumen dead, the panic costs the Vessel's next action instead.
+                self.lost_actions += 1
+                self.log.add("vessel", "THE TOME RUNS THROUGH YOU", "tome",
+                             "The panic runs through your code and locks you up for a moment.")
+                return
             self.log.add("vessel", "THE TOME RUNS THROUGH YOU", "tome",
                          "The panic runs through your code and out into the TOME's light.")
             self.dim_by(1)

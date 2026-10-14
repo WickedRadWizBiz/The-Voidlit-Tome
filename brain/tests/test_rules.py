@@ -107,7 +107,7 @@ def test_lumen_starts_from_hunger_and_crucible_is_deep(codex):
     b = bearer(codex, "pilgrim")
     assert Trial.begin(b, random.Random(11)).lumen == LUMEN_MAX
     assert Trial.begin(b, random.Random(11), hunger=5).lumen == 2
-    assert DEPTH == {"shallow": 2, "deep": 4, "abyssal": 6} and CRUCIBLE_DEPTH == 10
+    assert DEPTH == {"shallow": 2, "deep": 4, "abyssal": 6} and CRUCIBLE_DEPTH == 8
 
 
 def test_haven_resets_stress_and_grit(codex):

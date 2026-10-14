@@ -10,6 +10,42 @@
       "notes": "From the lore thread's classes.json",
       "order": 1,
       "text": "Rolled stat +1 and another stat of the player's choice -1 (min 1); no change if the rolled stat is already 3. First Threshold = the class opening for that stat."
+    },
+    {
+      "id": "crucible",
+      "detail": "Was Depth 10, Damage 3. Retuned to keep two-Bargain lethality once running from the Crucible stopped counting as survival.",
+      "die": "",
+      "name": "The Crucible",
+      "notes": "Rules thread, 2026-10-14. Pending Steven's confirmation.",
+      "order": 2,
+      "text": "Depth 8, Difficulty 2, enemy Damage 2. It opens on Hostile and turns to a different kind after every cast; the new demand shows before the player chooses. There is no exit: Panic 7 costs your next action."
+    },
+    {
+      "id": "ally-die",
+      "detail": "",
+      "die": "",
+      "name": "Ally die",
+      "notes": "Rules thread, 2026-10-14. Not yet simulated.",
+      "order": 3,
+      "text": "+1 die while an ally is with you: a person met on a Witness Leaf who currently trusts you. One ally at a time. Attack or abandon them and they leave. Pool cap 6 still applies."
+    },
+    {
+      "id": "gear-helps",
+      "detail": "Scanner: Relic, Hazard. Battery: Relic. Toolbelt: Hazard, Relic. Lockpicks: Relic. Prayer cords: Witness. Ranged: rifle, pistol. Melee: torch, tool-arm, blade.",
+      "die": "",
+      "name": "Gear helps kinds",
+      "notes": "Rules thread, 2026-10-14. Per-class detail is on each class.",
+      "order": 4,
+      "text": "An item that helps a chapter's kind adds +1 die and spends a Use. Ranged weapons fight with Grace, melee with Might."
+    },
+    {
+      "id": "director-scope",
+      "detail": "",
+      "die": "",
+      "name": "Director scope",
+      "notes": "Rules thread, 2026-10-14.",
+      "order": 5,
+      "text": "The app's director chooses only how a draw is shown (one dot, two or three shapes, or the dark) and the narrative beat (calm, foreshadow, a clue, a person acting). It never touches casts, deck order or numbers."
     }
   ]
 }

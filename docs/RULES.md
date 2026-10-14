@@ -19,7 +19,8 @@ This page only lists what the engine implements, what the app adds on top, and w
 * **Stress and Panic**: from Stress 5, each new point checks 2d6 ≤ Stress; at 10 it breaks straight into Panic.
 * **The deck**: 54 hidden Leaves (36 chapters, 12 Echoes, 4 Breathers, 2 Interventions, a third at Hunger 4+).
   Chapters are Hostile, Hazard, Relic or Witness, at Depth 2/4/6 for shallow/deep/abyssal. Clear 3 (short) or 5
-  (long) and the **Crucible** rises (Depth 10, Difficulty 2), demanding a different kind after every cast.
+  (long) and the **Crucible** rises (Depth 8, Difficulty 2, Damage 2). It opens on Hostile and demands a
+  different kind after every cast, shown before you choose. There is no running from it.
 * **The Lumen**: 6 − Hunger dice (minimum 2), rolled after each chapter; 1s go dark. When it dies the Crucible rises
   at once and every Bite is +1.
 * **Classes and Openings**: the six classes and their abilities, Kits and Bonds, the Opening roll (Steven's
@@ -29,27 +30,26 @@ This page only lists what the engine implements, what the app adds on top, and w
 * **The Oracle**: ask the TOME a yes/no question (`? is the air breathable`).
 * **Voice by Stress**: plain, uneasy, eldritch, and the TOME breaking through on a Panic.
 
-## What the app adds
+## Rules that started in the app
 
-These are the app's own, offered to the project for the Core Rules and the Forge:
+The rules thread adopted these into the Core Rules on 2026-10-14 (pending Steven's confirmation there):
 
-* **Places**: a place in the Unknown with its own Leaves and people, authored in the Forge (`places`, `people`,
-  and Leaves that name a `place`). *The Hollow Lantern* is the first. Its people have BindsNET brains and appear on
-  its Witness Leaves; its Leaves are dealt only there. A local TOML pack in `content/places/` can add a place the
-  Forge does not have yet.
-* **Allies**: a person whose brain currently favours you lends **+1 die** to your casts.
-* **Gear help**: Kit items add a die to the kinds they suit (a scanner on Relics, lockpicks on Hazards, and so on).
+* **Allies**: one person met on a Witness Leaf who currently trusts you (their BindsNET brain favours alliance)
+  lends **+1 die**. Attack or abandon them and they leave.
+* **Gear helps kinds**: a scanner on Relics and Hazards, a battery or lockpicks on Relics, a toolbelt on Hazards and
+  Relics, prayer cords on Witnesses: +1 die and a Use. Rifles and pistols are ranged; torches, tool-arms and blades
+  are melee.
 * **The Director** (a SpikingJelly network) chooses only how a draw is shown (a dot, shapes or the dark) and the
-  narrative beat (calm, foreshadow, a clue, a person acting). It never changes a roll or the deck.
+  narrative beat (calm, foreshadow, a clue, a person acting). It never changes a roll, a number or the deck.
+* **Panic 7 ("Run")**: take 1 Harm and abandon the Leaf (it does not count). In the Crucible it is a lost action.
+  The Vessel, in the Crucible or once the Lumen is out, loses its next action to a panic instead of a Lumen die.
+* **Places**: a place in the Unknown with its own Leaves and people, authored in the Forge (`places`, `people`,
+  and Leaves that name a `place`). *The Hollow Lantern* is the first. Its people appear on its Witness Leaves;
+  its Leaves are dealt only there. A local TOML pack in `content/places/` can add a place the Forge lacks.
 
 ## What is not in the app yet
 
 Group play, Vigil mode, recovering a Debt, and Insight for acting on a Bond or a Debt.
-
-## One reading to settle
-
-Panic 7 ("Run") during the Crucible: the app reads it as a lost action. The playtest simulator ends the trial as
-survived. The difference is about 5 points of short-trial survival; the rules thread has been asked to settle it.
 
 ## Credits and inspirations
 

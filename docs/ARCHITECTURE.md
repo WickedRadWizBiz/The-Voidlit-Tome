@@ -149,9 +149,8 @@ threshold, eligibility gain). The rationale is in the header of `limbic/npc_brai
 ## Balance snapshot
 
 `tools/balance.py` plays seeded short trials per class through the whole app. With a sensible bot, short-trial
-survival is about 87–100% by class (30 seeds each); a bot that never pushes and ignores its best stat survives
-about 20%. The project's playtest simulator reports 93–97% for the same rules; the main known difference is how
-Panic 7 in the Crucible is read (see `docs/RULES.md`). Re-measure after content changes.
+survival is about 90–100% by class (40 seeds each, Crucible Depth 8 and Damage 2). The project's playtest simulator
+reports 90–93% for the same rules. Re-measure after content changes.
 
 ## Roadmap
 

@@ -2,9 +2,8 @@
 
     python tools/balance.py --runs 40
 
-The project's playtest simulator (tome_sim.py) reports 93-97% short-trial survival by class with a smart bot.
-Two known differences: this bot plays through the full app (senses, Director, NPCs, place packs), and the app
-reads Panic 7 ("Run") in the Crucible as a lost action, where the simulator ends the trial as survived.
+The project's playtest simulator (tome_sim.py, final_cfg.json) reports 90-93% short-trial survival by class with a
+smart bot. This bot plays through the full app (senses, Director, people and places), and may use allies and gear.
 """
 
 from __future__ import annotations

@@ -44,9 +44,9 @@
     },
     {
       "id": "panic-7",
-      "effect": "Flee the scene by the nearest exit, even into danger.",
+      "effect": "Take 1 Harm and abandon the Leaf unfinished; it does not count. In the Crucible there is no exit, so you lose your next action instead.",
       "name": "Run",
-      "notes": "",
+      "notes": "Changed 2026-10-14 by the rules thread (was: flee by the nearest exit). Pending Steven's confirmation.",
       "order": 6,
       "roll": "7"
     },

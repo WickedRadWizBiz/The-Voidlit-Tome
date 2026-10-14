@@ -4,6 +4,9 @@ The grammar is rebuilt every turn so the ``target`` field can only name
 entities that are actually in the scene. Every key and all punctuation are
 fixed literals, so the model samples only the enum choices and about a dozen
 numeric tokens.
+
+llama.cpp's GBNF parser ends a rule at a newline unless it is inside
+parentheses, so the multi-line ``root`` body is wrapped in ``( ... )``.
 """
 
 from __future__ import annotations
@@ -37,7 +40,7 @@ def build_sensory_gbnf(targets: Iterable[str] = ()) -> str:
     fields += [rf'"\"{f}\": " unit ", "' for f in _FLOAT_FIELDS]
     fields += [r'"\"rapport\": " signed ", "', r'"\"boldness\": " unit "}"']
     return "\n".join([
-        "root ::= " + "\n  ".join(fields),
+        "root ::= (\n  " + "\n  ".join(fields) + "\n)",
         f"intent ::= {_alts(i.value for i in Intent)}",
         f"approach ::= {_alts(a.value for a in Approach)}",
         f"target ::= {_alts(ids)}",

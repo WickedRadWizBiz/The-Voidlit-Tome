@@ -16,7 +16,7 @@ def free_port() -> int:
 async def _session(tmp_path):
     port = free_port()
     ready = asyncio.Event()
-    task = asyncio.create_task(run_server("127.0.0.1", port, None, tmp_path, debug=True, ready=ready))
+    task = asyncio.create_task(run_server("127.0.0.1", port, save_root=tmp_path, debug=True, ready=ready))
     await asyncio.wait_for(ready.wait(), 10)
     try:
         async with connect(f"ws://127.0.0.1:{port}") as ws:

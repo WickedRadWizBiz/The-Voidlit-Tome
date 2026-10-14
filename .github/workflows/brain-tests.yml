@@ -2,9 +2,9 @@ name: brain-tests
 
 on:
   push:
-    paths: ["brain/**", ".github/workflows/brain-tests.yml"]
+    paths: ["brain/**", "grammars/**", ".github/workflows/brain-tests.yml"]
   pull_request:
-    paths: ["brain/**", ".github/workflows/brain-tests.yml"]
+    paths: ["brain/**", "grammars/**", ".github/workflows/brain-tests.yml"]
   workflow_dispatch:
 
 jobs:
@@ -22,9 +22,31 @@ jobs:
           python -m pip install -q --upgrade pip
           pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install -q -e "brain[dev]"
-      - name: Test
+      - name: Test (local-model tests skip without llama-cpp-python)
         working-directory: brain
         run: python -m pytest -q
       - name: Balance report (40 seeded bot runs)
         working-directory: brain
         run: python tools/balance.py --runs 40
+
+  local-llm:
+    # Real llama.cpp, in-process, against a tiny random-weight GGUF generated on the runner.
+    # No model is downloaded; llama.cpp is compiled without libcurl.
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU torch, then the brain with llama.cpp built from source
+        env:
+          CMAKE_ARGS: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF"
+        run: |
+          python -m pip install -q --upgrade pip
+          pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install -q -e "brain[dev,llm]"
+      - name: Local llama.cpp tests
+        working-directory: brain
+        run: python -m pytest -q tests/test_llama_local.py tests/test_engine.py

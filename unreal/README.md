@@ -19,10 +19,11 @@ obstacle pips, the status bar, and the Lumen dimming as your light runs out.
    `/Plugin/VoidlitTome/TomeVoxel.ush`) and `/VoidlitTome/M_TomeSlab`.
 4. Start the mind (from the repo):
    ```bash
-   cd brain && python -m voidlit serve --llama http://127.0.0.1:8080   # or omit --llama to play offline
+   cd brain && python -m voidlit serve --model /path/to/model.gguf   # local file; omit --model to play offline
    ```
-   Or tick **Spawn Brain** on the actor and set *Python Executable* and *Brain Working Directory* (the repo's
-   `brain/` folder).
+   Or tick **Spawn Brain** on the actor, set *Python Executable* and *Brain Working Directory* (the repo's
+   `brain/` folder), and add `--model C:/Models/your-model.gguf` to *Brain Arguments*. The model is a local file
+   loaded into the brain's process; the brain only listens on 127.0.0.1.
 5. Drag a **TomeMonolithActor** into a dark level, aim a camera at its face (+X), and press Play. Type; press Enter.
    `:save`, `:load` and `:new` work as commands.
 

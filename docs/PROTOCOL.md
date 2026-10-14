@@ -1,6 +1,7 @@
 # Tome protocol v1 (brain ⇄ body)
 
-JSON text messages over a WebSocket. The brain listens on `ws://127.0.0.1:8765` (`python -m voidlit serve`).
+JSON text messages over a WebSocket. The brain listens on `ws://127.0.0.1:8765` (`python -m voidlit serve`), and
+only ever on a loopback address: the Tome is a local game and is never reachable from another machine.
 
 ## Client → brain
 
@@ -17,7 +18,7 @@ JSON text messages over a WebSocket. The brain listens on `ws://127.0.0.1:8765` 
 
 | type | when | payload |
 |---|---|---|
-| `welcome` | after `hello` or `new` | `protocol`, `scenario`, `backgrounds`, `character`, `llm` (bool) |
+| `welcome` | after `hello` or `new` | `protocol`, `scenario`, `backgrounds`, `character`, `llm` (bool: a local llama.cpp model is loaded) |
 | `thinking` | as soon as `input` arrives | — (ripple the surface while the mind works) |
 | `frame` | the result of a turn, or the opening | see below |
 | `saved` / `loaded` | after commands | `slot` |

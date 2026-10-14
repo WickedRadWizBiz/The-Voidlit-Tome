@@ -7,7 +7,7 @@ The Voidlit Tome is a Dungeon Master built from three kinds of machinery, each d
 | **Rules** (`voidlit/rules`) | plain Python | — | every outcome: dice, harm, stress, light, movement | improvise |
 | **Limbic system** (`voidlit/limbic`) | **BindsNET** | online, every turn (R-STDP, structural plasticity) | each NPC's motive and tactic | write words |
 | **Cortex** (`voidlit/cortex`) | **SpikingJelly** | offline (surrogate-gradient BPTT) | the DM's pacing beat | touch the dice |
-| **Transducer / Voice** (`voidlit/voice`) | **llama.cpp** (`llama-server`) | — | how things are *said* | decide what happens |
+| **Transducer / Voice** (`voidlit/voice`) | **llama.cpp**, in-process (llama-cpp-python, local `.gguf`) | — | how things are *said* | decide what happens |
 
 The body is a separate process: an **Unreal Engine 5.8** plugin (`unreal/VoidlitTome`) that renders the Tome's voxel
 surface and talks to the brain over a localhost WebSocket ([PROTOCOL.md](PROTOCOL.md)).
@@ -88,11 +88,30 @@ gets air, a stalled scene gets a push. Playtest logs can fine-tune the network l
 
 ## The voice: llama.cpp as a transducer, never a decider
 
-* **Pass 1, senses** (`voice/llama_bridge.py: LlamaTransducer`): the player's text goes in with a GBNF grammar
+* **Pass 1, senses** (`voice/llama_local.py: LocalTransducer`): the player's text goes in with a GBNF grammar
   rebuilt every turn (`senses/grammar.py`), so `target` can only be an entity actually in the scene. Keys and
   punctuation are literals; the model samples only enums and two-decimal floats at temperature 0.1.
-* **Pass 2, voice** (`LlamaVoice`): narration gets a list of *already-resolved facts*, the outcome, the beat, and
+* **Pass 2, voice** (`LocalVoice`): narration gets a list of *already-resolved facts*, the outcome, the beat, and
   strict instructions never to invent results. NPC dialogue gets the compiled limbic prompt.
+
+### Local only
+
+The language model never leaves this machine, and nothing reaches the network to use one:
+
+* llama.cpp runs **inside the brain's process** through llama-cpp-python (`LocalLlama`). There is no
+  `llama-server`, no HTTP and no socket between the game and the model.
+* `--model` / `--senses-model` must be **existing local `.gguf` files**. URLs, `hf:` and Hugging Face references
+  are refused (`resolve_model_path`). `from_pretrained`, the bindings' download helper, is never called.
+* Build the bindings with `CMAKE_ARGS="-DLLAMA_CURL=OFF"` so llama.cpp itself is compiled without libcurl, the only
+  component in it that can download.
+* The one socket in the system, the WebSocket to Unreal, **only binds loopback** (127.0.0.1, ::1 or localhost);
+  `ensure_loopback` refuses anything else.
+* `tests/test_llama_local.py` enforces this: a static scan fails if any brain module imports an HTTP/socket client
+  or a model hub. It also runs real llama.cpp against a tiny random-weight GGUF generated on the spot, so the
+  grammar path is tested without downloading anything.
+* Each loaded model is shared across sessions and guarded by a lock (a llama.cpp context is not thread-safe).
+  Every grammar is parsed by llama.cpp before sampling. A grammar that fails to parse would otherwise crash the
+  process inside the bindings; this check found exactly that bug in the original spec's multi-line grammar.
 * **Offline fallback for everything** (`senses/heuristic.py`, `voice/narrator.py`): lexicon senses and authored
   phrase banks. With no model running the game still plays, and every test runs without a GPU.
 
@@ -101,15 +120,16 @@ gets air, a stalled scene gets a push. Playtest logs can fine-tune the network l
 | Spec item | Where it lives now |
 |---|---|
 | §3 Stage 1 sensory extraction (5 floats) | `senses/state.py`, extended with intent, approach, target and boldness for a DM |
-| §4 GBNF grammar | `senses/grammar.py`, dynamic per scene; `grammars/sensory.gbnf` is the static reference |
+| §4 GBNF grammar | `senses/grammar.py`, dynamic per scene; `grammars/sensory.gbnf` is the static reference. The spec's multi-line rule does not parse in llama.cpp (a rule ends at a newline outside parentheses), so the body is wrapped in `( … )`. |
 | §3 Stage 2 retroactive R-STDP | `NPCBrain.consolidate`, using BindsNET `MSTDPET` traces |
 | §3 Stage 3 Poisson / NMDA plateau / WTA / tactics | `NPCBrain.simulate`, `DendriticBranchNodes`, LIF plots with lateral inhibition |
 | §3 Stage 4 calcium, prune, split, trauma | `NPCBrain.restructure` |
 | §3 Stage 5 lineage and provenance prompts | `voice/prompts.py: compile_npc_prompt` |
-| §3 Stage 6 vocal generation | `LlamaVoice.speak` |
+| §3 Stage 6 vocal generation | `LocalVoice.speak` (in-process llama.cpp) |
 | §5.2 off-screen contagion and grafting | `limbic/contagion.py: gossip` |
 | `.snnb` binary save | `NPCBrain.state_dict` via `torch.save` (versioned, includes RNG state); `TomeEngine.save` |
-| §7 tests (1)–(4) | `tests/test_senses.py`, `tests/test_limbic.py` (R-STDP A/B, round-trip, grafting) |
+| `llama-server` over localhost HTTP | replaced by in-process llama.cpp on local files (see *Local only*) |
+| §7 tests (1)–(4) | `tests/test_senses.py`, `tests/test_limbic.py` (R-STDP A/B, round-trip, grafting), `tests/test_llama_local.py` (real llama.cpp grammar pass) |
 
 Tuning constants differ from the spec where calibration demanded it (plateau threshold, plateau length, tactic
 threshold, eligibility gain). The rationale is in the header of `limbic/npc_brain.py`.
@@ -124,6 +144,6 @@ content changes (see `task_state.md`).
 
 1. Compile and play-test the Unreal plugin in a 5.8 project, then author the material with
    `Content/Python/create_tome_material.py`.
-2. Spawn and supervise the sidecar from `ATomeMonolith`, and package it with PyInstaller.
+2. Spawn and supervise the sidecar from `ATomeMonolith`, and package it with PyInstaller (bundling llama.cpp).
 3. Fine-tune the Director on playtest logs (designer-labelled good and bad beats).
 4. More sectors (TOML only), NPC-to-NPC scenes on screen, and multiple crew members (Escape the Dark Sector style).

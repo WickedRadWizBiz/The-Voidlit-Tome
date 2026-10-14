@@ -48,12 +48,27 @@ def render_ansi(frame: TomeFrame | dict) -> str:
     return "\n".join(out)
 
 
+def _load_models(args: argparse.Namespace):
+    """Load the local .gguf models named on the command line; None, None when there are none."""
+    from .app import load_models
+    from .voice.llama_local import LocalModelError
+
+    try:
+        return load_models(args.model, args.senses_model, n_ctx=args.ctx, n_gpu_layers=args.gpu_layers)
+    except LocalModelError as e:
+        print(f"voidlit: {e}", file=sys.stderr)
+        return None
+
+
 def cmd_play(args: argparse.Namespace) -> int:
     from .app import build_engine
 
-    engine, llm = build_engine(args.seed, args.background, args.name, args.scenario, args.llama)
+    models = _load_models(args)
+    if models is None:
+        return 2
+    engine, llm = build_engine(args.seed, args.background, args.name, args.scenario, *models)
     ch = engine.state.character
-    print(_ansi(f"[{'llama.cpp online' if llm else 'offline voice'}]  {ch.name}, {ch.background}  "
+    print(_ansi(f"[{'local llama.cpp' if llm else 'offline voice'}]  {ch.name}, {ch.background}  "
                 f"GRIT {ch.grit}  GUILE {ch.guile}  INSIGHT {ch.insight}", "#6f7a8f", 0.0))
     print(render_ansi(engine.start()))
     while True:
@@ -87,10 +102,18 @@ def cmd_play(args: argparse.Namespace) -> int:
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
-    from .server import run_server
+    from .server import ensure_loopback, run_server
 
     try:
-        asyncio.run(run_server(args.host, args.port, args.llama, args.saves, args.debug))
+        ensure_loopback(args.host)
+    except ValueError as e:
+        print(f"voidlit: {e}", file=sys.stderr)
+        return 2
+    models = _load_models(args)
+    if models is None:
+        return 2
+    try:
+        asyncio.run(run_server(args.host, args.port, *models, save_root=args.saves, debug=args.debug))
     except KeyboardInterrupt:
         pass
     return 0
@@ -115,6 +138,15 @@ def cmd_gbnf(args: argparse.Namespace) -> int:
     return 0
 
 
+def _model_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--model", default=None, metavar="FILE.gguf",
+                   help="local llama.cpp model for narration and dialogue (in-process; no server, no network)")
+    p.add_argument("--senses-model", default=None, metavar="FILE.gguf",
+                   help="optional smaller local model for the sensory pass (defaults to --model)")
+    p.add_argument("--gpu-layers", type=int, default=0, help="layers to offload to the GPU (0 = CPU only)")
+    p.add_argument("--ctx", type=int, default=4096, help="context length")
+
+
 def main(argv: list[str] | None = None) -> int:
     warnings.filterwarnings("ignore", module="bindsnet")
     p = argparse.ArgumentParser(prog="voidlit", description="The Voidlit Tome: a spiking-neural game master.")
@@ -125,14 +157,14 @@ def main(argv: list[str] | None = None) -> int:
     play.add_argument("--background", default=None)
     play.add_argument("--name", default="Wanderer")
     play.add_argument("--scenario", default="hollow_lantern")
-    play.add_argument("--llama", default=None, help="llama-server URL, e.g. http://127.0.0.1:8080")
+    _model_args(play)
     play.add_argument("--debug", action="store_true", help="show the brains' decisions each turn")
     play.set_defaults(fn=cmd_play)
 
     srv = sub.add_parser("serve", help="serve the Unreal client over WebSocket")
-    srv.add_argument("--host", default="127.0.0.1")
+    srv.add_argument("--host", default="127.0.0.1", help="loopback only (127.0.0.1, ::1 or localhost)")
     srv.add_argument("--port", type=int, default=8765)
-    srv.add_argument("--llama", default=None)
+    _model_args(srv)
     srv.add_argument("--saves", default="saves")
     srv.add_argument("--debug", action="store_true", help="include brain internals in every frame")
     srv.set_defaults(fn=cmd_serve)

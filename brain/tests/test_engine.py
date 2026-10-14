@@ -7,7 +7,7 @@ from voidlit.playtest import bot_command
 from voidlit.cortex.director import Director
 from voidlit.senses import HeuristicTransducer
 from voidlit.tome.engine import TomeEngine
-from voidlit.voice import LlamaTransducer, LlamaVoice, OfflineVoice
+from voidlit.voice import LocalTransducer, LocalVoice, OfflineVoice
 
 def make(scenario, director_model, seed=0, **kw):
     return TomeEngine(scenario, director=Director(director_model, seed=seed), seed=seed,
@@ -82,7 +82,9 @@ def test_blocked_advance_does_not_move(scenario, director_model):
     assert e.state.deck.index == 0 and "Not yet" in f.text
 
 
-class FakeServer:
+class FakeLlm:
+    """Stands in for a loaded local model (anything with LocalLlama.chat's signature)."""
+
     def __init__(self, reply):
         self.reply = reply
         self.calls = []
@@ -94,26 +96,32 @@ class FakeServer:
         return self.reply
 
 
-def test_llama_transducer_uses_grammar_and_falls_back():
-    good = FakeServer('{"intent": "fight", "approach": "grit", "target": "elara", "aggression": 0.9, '
-                      '"deception": 0.0, "leverage": 0.0, "exposure": 0.0, "rapport": -0.8, "boldness": 0.7}')
-    s = LlamaTransducer(good).extract("whatever", {"elara": ["elara"]})
+def test_local_transducer_uses_grammar_and_falls_back():
+    good = FakeLlm('{"intent": "fight", "approach": "grit", "target": "elara", "aggression": 0.9, '
+                   '"deception": 0.0, "leverage": 0.0, "exposure": 0.0, "rapport": -0.8, "boldness": 0.7}')
+    s = LocalTransducer(good).extract("whatever", {"elara": ["elara"]})
     assert s.intent.value == "fight" and s.target == "elara"
     assert 'target ::= "none" | "elara"' in good.calls[0][1]["grammar"]
-    bad = FakeServer("I refuse to output JSON")
-    s = LlamaTransducer(bad, HeuristicTransducer()).extract("I pry the door open", {})
+    assert good.calls[0][1]["temperature"] <= 0.2
+    bad = FakeLlm("I refuse to output JSON")
+    s = LocalTransducer(bad, HeuristicTransducer()).extract("I pry the door open", {})
     assert s.intent.value == "force"
+    broken = FakeLlm(RuntimeError("llama_decode returned -1"))
+    assert LocalTransducer(broken).extract("I pry the door open", {}).intent.value == "force"
 
 
-def test_llama_voice_falls_back_offline(scenario, director_model):
-    voice = LlamaVoice(FakeServer(OSError("down")), OfflineVoice(scenario.narration, seed=0))
-    e = make(scenario, director_model, seed=2)
-    e.voice = voice
-    e.start()
-    f = e.turn("I force the iris")
-    assert any(b.role == "narration" and b.text for b in f.blocks)
+def test_local_voice_falls_back_offline(scenario, director_model):
+    for failure in (ValueError("Requested tokens exceed context window"), RuntimeError("decode"), ""):
+        voice = LocalVoice(FakeLlm(failure), OfflineVoice(scenario.narration, seed=0))
+        e = make(scenario, director_model, seed=2)
+        e.voice = voice
+        e.start()
+        f = e.turn("I force the iris")
+        assert any(b.role == "narration" and b.text for b in f.blocks)
 
 
-def test_build_engine_runs_offline_without_a_server():
-    engine, llm = build_engine(seed=1, llama_url="http://127.0.0.1:9")
+def test_build_engine_without_models_is_offline():
+    engine, llm = build_engine(seed=1)
     assert llm is False and isinstance(engine.voice, OfflineVoice)
+    engine, llm = build_engine(seed=1, voice_llm=FakeLlm("The dark listens."))
+    assert llm is True and isinstance(engine.voice, LocalVoice)

@@ -18,6 +18,7 @@ server -> client
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 from pathlib import Path
@@ -27,15 +28,18 @@ from websockets.exceptions import ConnectionClosed
 
 from .app import build_engine
 from .tome.frames import PROTOCOL_VERSION
+from .voice.llama_local import ChatModel
 
 log = logging.getLogger(__name__)
 MAX_INPUT = 2000
 
 
 class TomeSession:
-    def __init__(self, ws: ServerConnection, llama_url: str | None, save_root: Path, debug: bool) -> None:
+    def __init__(self, ws: ServerConnection, voice_llm: ChatModel | None, senses_llm: ChatModel | None,
+                 save_root: Path, debug: bool) -> None:
         self.ws = ws
-        self.llama_url = llama_url
+        self.voice_llm = voice_llm
+        self.senses_llm = senses_llm
         self.save_root = save_root
         self.debug = debug
         self.engine = None
@@ -50,7 +54,8 @@ class TomeSession:
     async def new_game(self, options: dict) -> None:
         engine, llm = await asyncio.to_thread(
             build_engine, int(options.get("seed", 0)), options.get("background"),
-            str(options.get("name", "Wanderer"))[:32], options.get("scenario", "hollow_lantern"), self.llama_url,
+            str(options.get("name", "Wanderer"))[:32], options.get("scenario", "hollow_lantern"),
+            self.voice_llm, self.senses_llm,
         )
         self.engine = engine
         await self.send({
@@ -99,12 +104,26 @@ class TomeSession:
             await self.send({"type": "error", "message": f"unknown command {name!r}"})
 
 
-async def run_server(host: str = "127.0.0.1", port: int = 8765, llama_url: str | None = None,
-                     save_root: str | Path = "saves", debug: bool = False, ready: asyncio.Event | None = None) -> None:
+def ensure_loopback(host: str) -> None:
+    """The Tome serves only this machine: refuse any address that is not loopback."""
+    if host == "localhost":
+        return
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return
+    except ValueError:
+        pass
+    raise ValueError(f"refusing to listen on {host!r}: the Tome only serves this machine (use 127.0.0.1)")
+
+
+async def run_server(host: str = "127.0.0.1", port: int = 8765, voice_llm: ChatModel | None = None,
+                     senses_llm: ChatModel | None = None, save_root: str | Path = "saves", debug: bool = False,
+                     ready: asyncio.Event | None = None) -> None:
+    ensure_loopback(host)
     root = Path(save_root)
 
     async def handler(ws: ServerConnection) -> None:
-        session = TomeSession(ws, llama_url, root, debug)
+        session = TomeSession(ws, voice_llm, senses_llm, root, debug)
         try:
             async for raw in ws:
                 try:

@@ -16,7 +16,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+# llama.cpp compiled into this process; models are local .gguf files only. Build without libcurl so even the C
+# library has no download code: CMAKE_ARGS="-DLLAMA_CURL=OFF" pip install -e ".[llm]"
+llm = ["llama-cpp-python>=0.3.8"]
+dev = ["pytest>=8", "gguf>=0.10"]
 
 [project.scripts]
 voidlit = "voidlit.cli:main"

@@ -56,6 +56,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tome|Brain", meta = (EditCondition = "bSpawnBrain"))
 	FString PythonExecutable = TEXT("python");
 
+	/** Add "--model <path>.gguf" to use a local llama.cpp model (loaded in the brain's process; no network). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Tome|Brain", meta = (EditCondition = "bSpawnBrain"))
 	FString BrainArguments = TEXT("-m voidlit serve --port 8765");
 

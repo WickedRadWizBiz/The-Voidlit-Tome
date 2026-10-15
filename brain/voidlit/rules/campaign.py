@@ -5,7 +5,8 @@ TOME's secret Agenda. Content (classes, origins, agendas) arrives as plain dicts
 
 The Opening roll is Steven's 2026-10-14 decision (one d6: 1-4 pick a stat, 5-6 the class's signature stat;
 that stat +1 unless it is already 3, another stat -1, min 1; the class Opening for that stat is the first
-Threshold). It has not been through the playtest simulator yet.
+Threshold). It simulated neutral and is final in Core Rules (2026-10-15); by default the app lowers the
+weakest other stat above 1, the same policy as the simulator.
 """
 
 from __future__ import annotations

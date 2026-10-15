@@ -23,8 +23,8 @@ This page only lists what the engine implements, what the app adds on top, and w
   different kind after every cast, shown before you choose. There is no running from it.
 * **The Lumen**: 6 − Hunger dice (minimum 2), rolled after each chapter; 1s go dark. When it dies the Crucible rises
   at once and every Bite is +1.
-* **Classes and Openings**: the six classes and their abilities, Kits and Bonds, the Opening roll (Steven's
-  2026-10-14 rule: not yet through the playtest simulator), Origins and Debts.
+* **Classes and Openings**: the six classes and their abilities, Kits and Bonds, the Opening roll (final in
+  Core Rules; it simulated neutral), Origins and Debts.
 * **Progression**: Insight, the Haven, raising stats, Talents, Pages (12), Hunger, feeding Relics, Fragments,
   Naming the Agenda, the Last Threshold and Legacy.
 * **The Oracle**: ask the TOME a yes/no question (`? is the air breathable`).

@@ -7,7 +7,7 @@
       "detail": "1 = might, 2 = grace, 3 = wits, 4 = nerve, 5 = signature, 6 = signature",
       "die": "d6",
       "name": "Opening roll",
-      "notes": "From the lore thread's classes.json",
+      "notes": "Final in Core Rules (character creation step 2), 2026-10-15. Simulated neutral: no rule change.",
       "order": 1,
       "text": "Rolled stat +1 and another stat of the player's choice -1 (min 1); no change if the rolled stat is already 3. First Threshold = the class opening for that stat."
     },
@@ -87,10 +87,15 @@
     },
     {
       "id": "tie-die",
-      "detail": "trusted: Hit on 3+, costs on 1 or less; strained: Hit on 4+, costs on 2 or less; burned: Hit on 6+, costs on 3 or less",
+      "detail": "trusted: helps on 4+, hurts on 1; strained: helps on 5+, hurts on 1-2; burned: helps on 6, hurts on 1-3",
       "die": "d6",
+      "hunt_depth": 2,
+      "mark_roll": {
+        "die": "d6",
+        "marks_on_max": 2
+      },
       "name": "Tie die",
-      "notes": "Going to the rules thread for a sim run. Pending Steven's OK (ties rework, 2026-10-15).",
+      "notes": "Retuned by the rules thread after sims, 2026-10-15 (playtest/ties_final.txt). Pending Steven's OK.",
       "order": 7,
       "standings": {
         "burned": {
@@ -98,15 +103,15 @@
           "hurts_on_max": 3
         },
         "strained": {
-          "helps_on": 4,
+          "helps_on": 5,
           "hurts_on_max": 2
         },
         "trusted": {
-          "helps_on": 3,
+          "helps_on": 4,
           "hurts_on_max": 1
         }
       },
-      "text": "Casting in a chapter marked with a faction you hold a Tie to adds one Tie die: at or above helps_on counts as a Hit; at or below hurts_on_max costs 1 Stress or makes the faction hunt you this trial (its next Hostile Leaf is theirs). Cannot be refused."
+      "text": "When a chapter opens, each Bearer secretly rolls a d6: on 1-2 one of their Ties marks it (a random Tie if they hold two). Factions never mark the Crucible unless one is your enemy. A marked chapter gets one Tie die, rolled once when it opens. It sits outside the pool and can't be Pushed or refused. A help counts as +1 chapter progress (a free Hit). A hurt costs 1 Stress, or the faction hunts you: its next Hostile chapter this trial is marked by them and gets Depth +2 (one hunt at a time)."
     }
   ]
 }

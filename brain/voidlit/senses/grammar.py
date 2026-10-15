@@ -15,7 +15,7 @@ import json
 import re
 from collections.abc import Iterable
 
-from ..rules.character import Approach
+from ..rules.bearer import Stat
 from .state import Intent, SensoryState
 
 _FLOAT_FIELDS = ("aggression", "deception", "leverage", "exposure")
@@ -34,7 +34,7 @@ def build_sensory_gbnf(targets: Iterable[str] = ()) -> str:
     ids = ["none"] + sorted({sanitize_id(t) for t in targets if sanitize_id(t) != "none"})
     fields = [
         r'"{\"intent\": \"" intent "\", "',
-        r'"\"approach\": \"" approach "\", "',
+        r'"\"stat\": \"" stat "\", "',
         r'"\"target\": \"" target "\", "',
     ]
     fields += [rf'"\"{f}\": " unit ", "' for f in _FLOAT_FIELDS]
@@ -42,7 +42,7 @@ def build_sensory_gbnf(targets: Iterable[str] = ()) -> str:
     return "\n".join([
         "root ::= (\n  " + "\n  ".join(fields) + "\n)",
         f"intent ::= {_alts(i.value for i in Intent)}",
-        f"approach ::= {_alts(a.value for a in Approach)}",
+        f"stat ::= {_alts(a.value for a in Stat)}",
         f"target ::= {_alts(ids)}",
         'unit ::= ("0." [0-9] [0-9]?) | "1.0"',
         'signed ::= "-"? unit',
@@ -65,7 +65,7 @@ def parse_sensory_json(text: str, targets: Iterable[str] = ()) -> SensoryState:
         raise SensoryParseError(str(e)) from e
     try:
         intent = Intent(d["intent"])
-        approach = Approach(d["approach"])
+        stat = Stat(d["stat"])
         floats = {k: float(d[k]) for k in (*_FLOAT_FIELDS, "rapport", "boldness")}
     except (KeyError, ValueError, TypeError) as e:
         raise SensoryParseError(f"bad sensory field: {e}") from e
@@ -73,4 +73,4 @@ def parse_sensory_json(text: str, targets: Iterable[str] = ()) -> SensoryState:
     target = sanitize_id(str(d.get("target", "none")))
     if target not in known:
         target = "none"
-    return SensoryState(intent=intent, approach=approach, target=target, **floats).clamped()
+    return SensoryState(intent=intent, stat=stat, target=target, **floats).clamped()

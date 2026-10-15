@@ -1,9 +1,9 @@
 """Offline voice: authored phrase banks, chosen by seeded dice. No model needed.
 
-Scenario content can add or override any bank key. Keys look like
-``action.<intent>.<outcome>`` (where outcome is fail, mixed, success,
-critical or ``none``), ``action.any.<outcome>``, ``beat.<beat>``, ``bite``,
-``npc.rumor`` and ``npc.regret``.
+Place packs can add or override any bank key. Keys look like ``action.<kind>.<outcome>`` (kind is hostile,
+hazard, relic, witness or crucible; outcome is fail, short or success), ``action.any.<outcome>``,
+``variant.<name>``, ``register.<register>``, ``beat.<beat>``, ``ending.<ending>``, ``npc.rumor`` and
+``npc.regret``. Facts from the rules are already written in the TOME's voice and are always included.
 """
 
 from __future__ import annotations
@@ -16,80 +16,50 @@ from .requests import DialogueRequest, NarrationRequest
 
 DEFAULT_BANKS: dict[str, list[str]] = {
     "action.any.fail": ["It goes wrong at once.", "The dark does not cooperate.", "Nothing gives except your nerve."],
-    "action.any.mixed": ["It works, but the station takes its toll.", "Something gives, and something else breaks."],
-    "action.any.success": ["It works. For once, the station lets you have this.", "Clean. Quick. Done."],
-    "action.any.critical": ["Better than you dared. For a breath, you feel unkillable."],
-    "action.any.none": ["The Tome's surface ripples, waiting.", "You hold still. The station breathes around you."],
-    "action.fight.fail": ["You lunge for {obstacle} and meet only its answer.",
-                          "Your strike glances off {obstacle}, which was waiting for exactly that."],
-    "action.fight.mixed": ["You hurt {obstacle}, and pay for it in kind.",
-                           "Steel finds {obstacle}, but not before {obstacle} finds you."],
-    "action.fight.success": ["You drive into {obstacle}, and something gives.", "{obstacle} reels under the blow."],
-    "action.fight.critical": ["You find the seam in {obstacle} and tear it wide open."],
-    "action.force.fail": ["You strain against {obstacle}. Nothing moves, except something behind it."],
-    "action.force.mixed": ["{obstacle} groans and shifts, and the effort costs you."],
-    "action.force.success": ["{obstacle} gives way with a shriek of metal."],
-    "action.force.critical": ["{obstacle} comes apart in your hands like wet paper."],
-    "action.sneak.fail": ["A boot scuffs. {obstacle} turns toward the sound."],
-    "action.sneak.mixed": ["You slip past {obstacle}, but not unnoticed."],
-    "action.sneak.success": ["You become a shadow. {obstacle} never knows."],
-    "action.sneak.critical": ["You move like the dark itself; {obstacle} is behind you before it can blink."],
-    "action.search.fail": ["Panels, dust, dead screens. And the feeling of being watched."],
-    "action.search.mixed": ["You find something, but it takes too long."],
-    "action.search.success": ["Your fingers find what your eyes missed."],
-    "action.search.critical": ["It all clicks: the pattern, the purpose, the way through."],
-    "action.search.none": ["You look, and the station looks back."],
-    "action.look.none": ["You take it in, slowly. The Tome's light trembles over every surface."],
-    "action.rest.none": ["You sit with your back to cold metal and let your heart slow."],
-    "action.flee.fail": ["You run, and {obstacle} is faster."],
-    "action.flee.mixed": ["You break away from {obstacle}, but it marks you as you go."],
-    "action.flee.success": ["You put distance and darkness between you and {obstacle}."],
-    "action.advance.none": ["You move on. The corridor swallows the light behind you."],
-    "action.advance.fail": ["You dash past {obstacle}, and it catches you on the way through."],
-    "action.advance.mixed": ["You make it past {obstacle}, heart hammering."],
-    "action.advance.success": ["You slip past {obstacle} before it can touch you."],
-    "action.advance.critical": ["You're past {obstacle} before it knows you were there."],
-    "action.advance.blocked": ["You can't press on past {obstacle}. Not yet."],
-    "action.any.unmatched": ["{obstacle} doesn't care about that. You'll need another way in.",
-                             "Wrong tool, wrong instinct: {obstacle} shrugs it off."],
-    "action.rest.denied": ["You try to rest, but {obstacle} won't let you close your eyes."],
-    "action.rest.spent": ["You've taken what rest this place will give. The station won't allow more."],
-    "action.use.light": ["Light hisses alive in your hand and you feed it to the Tome. The words burn brighter."],
-    "action.use.heal": ["You patch what you can. It isn't pretty, but it holds."],
-    "action.fight.npc_attack": ["{npc} twists away from you, eyes wide, and the dark takes them."],
-    "action.fight.none": ["You lash out at shadows. Nothing here fights back, yet."],
-    "action.force.none": ["You put your shoulder into the station. It doesn't notice."],
-    "action.sneak.none": ["You move quietly through the dark, though nothing here is watching. You think."],
-    "action.flee.none": ["You back away. Nothing follows. That's almost worse."],
-    "action.talk.none": ["Your words hang in the stale air."],
-    "action.talk.alone": ["You speak into the dark. The dark keeps its own counsel."],
-    "action.talk.npc": ["{npc} studies you before answering.", "{npc} takes a moment with your words.",
-                        "{npc} glances at the Tome's light, then back to you."],
-    "action.talk.fail": ["Your words come out wrong, and {npc} hears every crack in them."],
-    "action.talk.mixed": ["{npc} weighs what you said, unconvinced but listening."],
-    "action.talk.success": ["Your words land exactly where you meant them to. {npc} goes still."],
-    "action.talk.critical": ["You say it perfectly. {npc} has no answer ready."],
-    "action.any.blocked": ["{obstacle} is still in the way."],
-    "bite": ["Pain arrives a half-second late.", "It costs you. It always costs you."],
-    "beat.calm": ["Somewhere far off, a pipe ticks as it cools.", "For a moment, only the hum of dying machines.",
-                  "Frost creeps across a viewport, slow as breath."],
-    "beat.escalate": ["Deep in the hull, something answers the noise you made.",
-                      "The station shudders. A low choir of static rises and falls.",
-                      "Far below, a bulkhead opens on its own."],
+    "action.any.short": ["It gives, a little, and takes something back.", "Not enough. It costs you."],
+    "action.any.success": ["It works. For once, the dark lets you have this.", "Clean. Quick. Done."],
+    "action.hostile.fail": ["You go at it and meet only its answer.", "It was waiting for exactly that."],
+    "action.hostile.short": ["You hurt it, and it pays you back in kind."],
+    "action.hostile.success": ["You drive into it, and something gives.", "It reels."],
+    "action.hazard.fail": ["The place does not care what you meant to do."],
+    "action.hazard.short": ["You get partway through, and the place takes its toll."],
+    "action.hazard.success": ["You find the rhythm of the place and move with it."],
+    "action.relic.fail": ["It does not open to you. It looks back."],
+    "action.relic.short": ["Something turns over inside it, and something in you turns with it."],
+    "action.relic.success": ["Your fingers find what your eyes missed."],
+    "action.witness.fail": ["Your words come out wrong, and the silence after them is worse."],
+    "action.witness.short": ["You hold its gaze, mostly."],
+    "action.witness.success": ["You stand there and take it, and you are still yourself afterward."],
+    "action.crucible.fail": ["The Crucible turns your strength back on you."],
+    "action.crucible.short": ["You hurt it. It hurts you more."],
+    "action.crucible.success": ["Something in the Crucible breaks, and it is not you."],
+    "variant.look": ["You take it in, slowly. The TOME's light trembles over every surface."],
+    "variant.wait": ["The stone is still. It is waiting for you to choose how."],
+    "variant.alone": ["You speak into the dark. The dark keeps its own counsel."],
+    "variant.npc": ["{npc} studies you before answering.", "{npc} glances at the slab, then back to you."],
+    "variant.npc_attack": ["{npc} twists away from you, eyes wide, and the dark takes them."],
+    "variant.lost": ["Your body will not answer you."],
+    "variant.touch": ["The stone ripples under your touch."],
+    "variant.haven": ["The TOME is quiet. For now, so is everything else."],
+    "register.uneasy": ["Something about it is slightly wrong, and stays wrong.",
+                        "You look at it twice and it is the same both times, which is worse."],
+    "register.eldritch": ["Its angles do not agree with one another, and the longer you look the older it becomes.",
+                          "It has the patience of a thing that was here before the stars learned to burn."],
+    "register.breakthrough": ["MINE, the stone says, inside the sentence, in violet. You keep reading.",
+                              "The words on the slab rearrange themselves while you read them. YOU ARE LATE."],
+    "beat.calm": ["Somewhere far off, metal ticks as it cools.", "For a moment, only the hum of dying machines."],
+    "beat.foreshadow": ["Somewhere ahead, something hears you.", "The TOME's surface stirs, then lies flat again."],
     "beat.clue": ["Something here wants to be understood."],
     "beat.npc": [""],
-    "beat.hazard": ["The station turns on you.", "Warning lights wake, red and silent."],
-    "beat.respite": ["The pressure eases. You can breathe here, briefly.",
-                     "A pocket of warmth: a vent still pushing air. Rest, while you can."],
-    "beat.twist": ["Then the floor changes its mind.", "Wrong. Something about this is wrong."],
-    "beat.advance": ["The way onward stands open, and the dark behind you is growing patient.",
-                     "There's nothing more for you here. The Tome's light leans toward the exit."],
-    "npc.rumor": ["Funny. I heard a different story about you.", "People talk, even down here."],
+    "beat.dot": [""], "beat.shapes": [""], "beat.dark": [""],
+    "npc.rumor": ["Funny. I heard a different story about you.", "People talk, even out here."],
     "npc.regret": ["I wanted to trust you. You made that impossible.", "We could have walked out of here together."],
-    "ending.won": ["The airlock seals behind you. The Tome's light steadies, then dims to a sleeping glow. "
-                   "You are out. Whatever is left in the Hollow Lantern will have to keep its own dark."],
-    "ending.dead": ["Your light goes out before you do, but not by much. The Tome closes over your name, "
-                    "and the station keeps you."],
+    "ending.verdict": ["The Crucible sinks into the stone, and the TOME closes under your hand. It lets you go. "
+                       "For now."],
+    "ending.dead": ["Your light goes out before you do, but not by much. The TOME closes over your name and "
+                    "waits for the next pair of hands."],
+    "ending.taken": ["You do not die. The TOME simply has you now, the way it has always meant to."],
+    "ending.campaign": ["The last glyph translates itself, and you understand what it wanted all along."],
 }
 
 
@@ -113,26 +83,27 @@ class OfflineVoice:
 
     def narrate(self, req: NarrationRequest) -> str:
         parts: list[str] = []
-        if req.entering_chapter:
-            parts.append(req.chapter_text)
-        if req.ending:
-            parts.append(self._pick(f"ending.{req.ending}"))
-            return " ".join(p for p in parts if p)
-        outcome = req.outcome or "none"
-        keys = [f"action.{req.intent}.{req.variant}", f"action.any.{req.variant}"] if req.variant else []
-        keys += [f"action.{req.intent}.{outcome}", f"action.any.{outcome}"]
-        line = self._pick(*keys)
-        if line and not (req.entering_chapter and req.intent == "advance"):
-            line = line.replace("{obstacle}", req.obstacle_name or "the dark")
-            parts.append(line.replace("{npc}", req.npc_name or "They"))
-        if req.defeated_text:
-            parts.append(req.defeated_text)
+        if req.entering:
+            parts.append(req.leaf_text or req.leaf_title)
+            if not req.leaf_text and req.register != "plain":
+                parts.append(self._pick(f"register.{req.register}"))
+        if req.variant:
+            parts.append(self._pick(f"variant.{req.variant}").replace("{npc}", req.npc_name or "They"))
+        if req.outcome:
+            parts.append(self._pick(f"action.{req.leaf_kind}.{req.outcome}", f"action.any.{req.outcome}"))
+        parts += req.facts
+        if req.cleared_text:
+            parts.append(req.cleared_text)
         if req.clue:
             parts.append(req.clue)
-        if req.beat_fact:
+        if req.ending:
+            parts.append(self._pick(f"ending.{req.ending}"))
+        elif req.beat_fact:
             parts.append(req.beat_fact)
         elif req.beat is not Beat.NPC and not (req.beat is Beat.CLUE and req.clue):
             parts.append(self._pick(f"beat.{req.beat.value}"))
+        if req.register == "breakthrough" and not req.entering:
+            parts.append(self._pick("register.breakthrough"))
         return " ".join(_capitalize(p) for p in parts if p)
 
     def speak(self, req: DialogueRequest) -> str:

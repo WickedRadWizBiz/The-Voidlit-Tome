@@ -1,0 +1,38 @@
+{
+  "collection": "canon",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "canon-1",
+      "hidden": "How far the dark goes past it.",
+      "known": "Settled space is a thin, crowded strip along old trade lanes.",
+      "notes": "",
+      "order": 1,
+      "status": "canon"
+    },
+    {
+      "id": "canon-2",
+      "hidden": "That they share the TOME's surface.",
+      "known": "Ancient structures turn up everywhere, all built by no known species.",
+      "notes": "",
+      "order": 2,
+      "status": "canon"
+    },
+    {
+      "id": "canon-3",
+      "hidden": "That a Bearer was aboard each one.",
+      "known": "Some ships and stations go silent for no reason.",
+      "notes": "",
+      "order": 3,
+      "status": "canon"
+    },
+    {
+      "id": "canon-4",
+      "hidden": "Which of them are right.",
+      "known": "Cults speak of black books that answer prayers.",
+      "notes": "",
+      "order": 4,
+      "status": "canon"
+    }
+  ]
+}

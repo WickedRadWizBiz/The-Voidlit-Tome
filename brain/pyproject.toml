@@ -16,8 +16,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# llama.cpp compiled into this process; models are local .gguf files only. Build without libcurl so even the C
-# library has no download code: CMAKE_ARGS="-DLLAMA_CURL=OFF" pip install -e ".[llm]"
+# llama.cpp compiled into this process by llama-cpp-python; models are local .gguf files only (see
+# docs/ARCHITECTURE.md, "Local only").
 llm = ["llama-cpp-python>=0.3.8"]
 dev = ["pytest>=8", "gguf>=0.10"]
 
@@ -28,7 +28,7 @@ voidlit = "voidlit.cli:main"
 include = ["voidlit*"]
 
 [tool.setuptools.package-data]
-voidlit = ["content/*.toml", "cortex/director.pt"]
+voidlit = ["content/places/*.toml", "content/tome/*.json", "cortex/director.pt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,117 @@
+{
+  "collection": "rules",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "opening-roll",
+      "detail": "1 = might, 2 = grace, 3 = wits, 4 = nerve, 5 = signature, 6 = signature",
+      "die": "d6",
+      "name": "Opening roll",
+      "notes": "Final in Core Rules (character creation step 2), 2026-10-15. Simulated neutral: no rule change.",
+      "order": 1,
+      "text": "Rolled stat +1 and another stat of the player's choice -1 (min 1); no change if the rolled stat is already 3. First Threshold = the class opening for that stat."
+    },
+    {
+      "id": "crucible",
+      "detail": "Was Depth 10, Damage 3. Retuned to keep two-Bargain lethality once running from the Crucible stopped counting as survival.",
+      "die": "",
+      "name": "The Crucible",
+      "notes": "Rules thread, 2026-10-14. Pending Steven's confirmation.",
+      "order": 2,
+      "text": "Depth 8, Difficulty 2, enemy Damage 2. It opens on Hostile and turns to a different kind after every cast; the new demand shows before the player chooses. There is no exit: Panic 7 costs your next action."
+    },
+    {
+      "id": "ally-die",
+      "detail": "",
+      "die": "",
+      "name": "Ally die",
+      "notes": "Rules thread, 2026-10-14. Not yet simulated.",
+      "order": 3,
+      "text": "+1 die while an ally is with you: a person met on a Witness Leaf who currently trusts you. One ally at a time. Attack or abandon them and they leave. Pool cap 6 still applies."
+    },
+    {
+      "id": "gear-helps",
+      "detail": "Scanner: Relic, Hazard. Battery: Relic. Toolbelt: Hazard, Relic. Lockpicks: Relic. Prayer cords: Witness. Ranged: rifle, pistol. Melee: torch, tool-arm, blade.",
+      "die": "",
+      "name": "Gear helps kinds",
+      "notes": "Rules thread, 2026-10-14. Per-class detail is on each class.",
+      "order": 4,
+      "text": "An item that helps a chapter's kind adds +1 die and spends a Use. Ranged weapons fight with Grace, melee with Might."
+    },
+    {
+      "id": "director-scope",
+      "detail": "",
+      "die": "",
+      "name": "Director scope",
+      "notes": "Rules thread, 2026-10-14.",
+      "order": 5,
+      "text": "The app's director chooses only how a draw is shown (one dot, two or three shapes, or the dark) and the narrative beat (calm, foreshadow, a clue, a person acting). It never touches casts, deck order or numbers."
+    },
+    {
+      "id": "ties",
+      "creation_roll": {
+        "1": "hush",
+        "2": "stratum",
+        "3": "lanes",
+        "4": "choir",
+        "5": "market",
+        "6": "choice"
+      },
+      "detail": "Creation roll: 1 = hush, 2 = stratum, 3 = lanes, 4 = choir, 5 = market, 6 = choice. Standing shift: At the Verdict: acted on the Tie's Aspiration +1 step; betrayed the faction -1 step. Burned dropping again = enemy, eligible as Crucible form.",
+      "die": "",
+      "example": [
+        {
+          "aspiration": "Make them admit what they sent us into.",
+          "faction": "hush",
+          "link": "service",
+          "standing": "burned"
+        },
+        {
+          "aspiration": "Keep my sister's dig alive.",
+          "faction": "stratum",
+          "link": "blood",
+          "standing": "trusted"
+        }
+      ],
+      "links": [
+        "blood",
+        "service",
+        "debt",
+        "faith",
+        "trade"
+      ],
+      "name": "Ties",
+      "notes": "From the lore thread's Factions and Ties. Pending Steven's OK (ties rework, 2026-10-15).",
+      "order": 6,
+      "text": "A Bearer holds Ties to any factions, whatever their class. Each Tie has a faction, a link (blood, service, debt, faith, trade), a standing (trusted, strained, burned) and an aspiration. One Tie from your past (class typical_tie or any faction), plus an optional second: d6 1 hush, 2 stratum, 3 lanes, 4 choir, 5 market, 6 choice."
+    },
+    {
+      "id": "tie-die",
+      "detail": "trusted: helps on 4+, hurts on 1; strained: helps on 5+, hurts on 1-2; burned: helps on 6, hurts on 1-3",
+      "die": "d6",
+      "hunt_depth": 2,
+      "mark_roll": {
+        "die": "d6",
+        "marks_on_max": 2
+      },
+      "name": "Tie die",
+      "notes": "Retuned by the rules thread after sims, 2026-10-15 (playtest/ties_final.txt). Pending Steven's OK.",
+      "order": 7,
+      "standings": {
+        "burned": {
+          "helps_on": 6,
+          "hurts_on_max": 3
+        },
+        "strained": {
+          "helps_on": 5,
+          "hurts_on_max": 2
+        },
+        "trusted": {
+          "helps_on": 4,
+          "hurts_on_max": 1
+        }
+      },
+      "text": "When a chapter opens, each Bearer secretly rolls a d6: on 1-2 one of their Ties marks it (a random Tie if they hold two). Factions never mark the Crucible unless one is your enemy. A marked chapter gets one Tie die, rolled once when it opens. It sits outside the pool and can't be Pushed or refused. A help counts as +1 chapter progress (a free Hit). A hurt costs 1 Stress, or the faction hunts you: its next Hostile chapter this trial is marked by them and gets Depth +2 (one hunt at a time)."
+    }
+  ]
+}

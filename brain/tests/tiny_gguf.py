@@ -6,7 +6,31 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def write_tiny_llama(path: Path, seed: int = 0) -> Path:
+DEFAULT_TEMPLATE = "{% for m in messages %}{{ m['role'] }}: {{ m['content'] }}\n{% endfor %}assistant: "
+
+# Gemma-2's published template: rejects a system message and demands strict user/assistant alternation.
+GEMMA2_TEMPLATE = (
+    "{{ bos_token }}{% if messages[0]['role'] == 'system' %}{{ raise_exception('System role not supported') }}"
+    "{% endif %}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}"
+    "{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}"
+    "{% if (message['role'] == 'assistant') %}{% set role = 'model' %}{% else %}{% set role = message['role'] %}"
+    "{% endif %}{{ '<start_of_turn>' + role + '\n' + message['content'] | trim + '<end_of_turn>\n' }}{% endfor %}"
+    "{% if add_generation_prompt %}{{'<start_of_turn>model\n'}}{% endif %}"
+)
+
+# A Mistral-v0.3-style template: an optional leading system message, then strict alternation.
+STRICT_TEMPLATE = (
+    "{% if messages[0]['role'] == 'system' %}{% set loop_messages = messages[1:] %}"
+    "{% set sys = messages[0]['content'] %}{% else %}{% set loop_messages = messages %}{% set sys = '' %}{% endif %}"
+    "{% for message in loop_messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}"
+    "{{ raise_exception('After the optional system message, conversation roles must alternate "
+    "user/assistant/user/assistant/...') }}{% endif %}{% if message['role'] == 'user' %}"
+    "{{ '[INST] ' + sys + ' ' + message['content'] + ' [/INST]' }}{% else %}{{ message['content'] }}{% endif %}"
+    "{% endfor %}"
+)
+
+
+def write_tiny_llama(path: Path, seed: int = 0, chat_template: str = DEFAULT_TEMPLATE) -> Path:
     import gguf
     import numpy as np
 
@@ -33,7 +57,7 @@ def write_tiny_llama(path: Path, seed: int = 0) -> Path:
     w.add_bos_token_id(1)
     w.add_eos_token_id(2)
     w.add_unk_token_id(0)
-    w.add_chat_template("{% for m in messages %}{{ m['role'] }}: {{ m['content'] }}\n{% endfor %}assistant: ")
+    w.add_chat_template(chat_template)
 
     def rand(*shape: int) -> None:
         return (rng.standard_normal(shape) * 0.02).astype(np.float32)

@@ -1,0 +1,42 @@
+{
+  "collection": "registers",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "plain",
+      "name": "Plain",
+      "notes": "",
+      "order": 1,
+      "stress_max": 3,
+      "stress_min": 0,
+      "style": "Crew report. Short sentences, hard nouns, numbers."
+    },
+    {
+      "id": "uneasy",
+      "name": "Uneasy",
+      "notes": "",
+      "order": 2,
+      "stress_max": 6,
+      "stress_min": 4,
+      "style": "Details slightly wrong; similes, blurred senses, repetition."
+    },
+    {
+      "id": "eldritch",
+      "name": "Eldritch",
+      "notes": "",
+      "order": 3,
+      "stress_max": 9,
+      "stress_min": 7,
+      "style": "Long rolling sentences, sparing archaic words, impossible angles, an unreliable narrator."
+    },
+    {
+      "id": "breakthrough",
+      "name": "The TOME breaks through",
+      "notes": "Also on Panic.",
+      "order": 4,
+      "stress_max": 10,
+      "stress_min": 10,
+      "style": "Violet TOME words cut into the description mid-sentence."
+    }
+  ]
+}

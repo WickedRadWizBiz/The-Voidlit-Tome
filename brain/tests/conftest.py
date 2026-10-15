@@ -6,12 +6,17 @@ warnings.filterwarnings("ignore")
 
 from voidlit.cortex.director import Director, load_director  # noqa: E402
 from voidlit.limbic import BranchSeed, NPCSpec, PlotSpec, TacticSpec  # noqa: E402
-from voidlit.tome.content import load_scenario  # noqa: E402
+from voidlit.tome.content import Codex  # noqa: E402
 
 
 @pytest.fixture(scope="session")
-def scenario():
-    return load_scenario()
+def codex():
+    return Codex.load()
+
+
+@pytest.fixture(scope="session")
+def lantern(codex):
+    return codex.places()["hollow-lantern"]
 
 
 @pytest.fixture(scope="session")

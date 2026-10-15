@@ -1,0 +1,114 @@
+{
+  "collection": "origins",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "night-1",
+      "notes": "",
+      "order": 1,
+      "proposed": "It lit up as someone died next to you. It has used their voice ever since.",
+      "roll": "1",
+      "table": "The Night It Woke",
+      "text": "It lit up as someone died next to you. You took their place."
+    },
+    {
+      "id": "night-2",
+      "notes": "",
+      "order": 2,
+      "proposed": "You dreamed of it for a year before you ever saw it. The dreams have not stopped.",
+      "roll": "2",
+      "table": "The Night It Woke",
+      "text": "You dreamed of it for a year before you ever saw it."
+    },
+    {
+      "id": "night-3",
+      "notes": "",
+      "order": 3,
+      "proposed": "It woke the night your home burned. You have never been sure which came first.",
+      "roll": "3",
+      "table": "The Night It Woke",
+      "text": "It fell out of the sky and burned your home."
+    },
+    {
+      "id": "night-4",
+      "notes": "",
+      "order": 4,
+      "proposed": "It woke during a card game you do not remember playing. You won something.",
+      "roll": "4",
+      "table": "The Night It Woke",
+      "text": "You won it in a game you do not remember playing."
+    },
+    {
+      "id": "night-5",
+      "notes": "",
+      "order": 5,
+      "proposed": "It woke under a medical scan. Every scan of you since shows it inside your chest.",
+      "roll": "5",
+      "table": "The Night It Woke",
+      "text": "It was inside you. Surgeons removed it."
+    },
+    {
+      "id": "night-6",
+      "notes": "",
+      "order": 6,
+      "proposed": "It never woke. One day it was simply speaking, and everyone around you acted as if it always had.",
+      "roll": "6",
+      "table": "The Night It Woke",
+      "text": "You have always had it. Everyone else forgot."
+    },
+    {
+      "id": "took-1",
+      "notes": "",
+      "order": 7,
+      "proposed": "",
+      "roll": "1",
+      "table": "What It Took",
+      "text": "A memory. One stat cannot be raised until you recover it in a trial."
+    },
+    {
+      "id": "took-2",
+      "notes": "",
+      "order": 8,
+      "proposed": "",
+      "roll": "2",
+      "table": "What It Took",
+      "text": "A face. Mirrors and cameras show someone else."
+    },
+    {
+      "id": "took-3",
+      "notes": "",
+      "order": 9,
+      "proposed": "",
+      "roll": "3",
+      "table": "What It Took",
+      "text": "A person. Someone you love is inside it. Trials sometimes show them."
+    },
+    {
+      "id": "took-4",
+      "notes": "",
+      "order": 10,
+      "proposed": "",
+      "roll": "4",
+      "table": "What It Took",
+      "text": "Your sleep. Rest removes 1 less Stress."
+    },
+    {
+      "id": "took-5",
+      "notes": "",
+      "order": 11,
+      "proposed": "",
+      "roll": "5",
+      "table": "What It Took",
+      "text": "Your shadow. Things in the dark notice you first."
+    },
+    {
+      "id": "took-6",
+      "notes": "",
+      "order": 12,
+      "proposed": "",
+      "roll": "6",
+      "table": "What It Took",
+      "text": "Nothing yet. It is saving that for later. The TOME may claim a Debt at any Joker."
+    }
+  ]
+}

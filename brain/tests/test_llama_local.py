@@ -11,7 +11,10 @@ from voidlit.server import ensure_loopback, run_server
 from voidlit.voice import LocalModelError, LocalTransducer, LocalVoice, OfflineVoice, resolve_model_path
 
 PACKAGE = Path(__file__).resolve().parents[1] / "voidlit"
-NETWORK_MODULES = {"urllib", "http", "requests", "httpx", "aiohttp", "huggingface_hub", "socket", "ftplib"}
+# Common outbound clients and model hubs. This is a regression tripwire, not a sandbox: the brain's one socket is the
+# loopback-only `websockets` server for Unreal, which is checked separately below.
+NETWORK_MODULES = {"urllib", "urllib3", "http", "requests", "httpx", "aiohttp", "huggingface_hub", "socket", "ssl",
+                   "ftplib", "smtplib", "xmlrpc", "telnetlib"}
 
 
 @pytest.mark.parametrize("ref", [
@@ -21,6 +24,32 @@ NETWORK_MODULES = {"urllib", "http", "requests", "httpx", "aiohttp", "huggingfac
 def test_remote_model_references_are_refused(ref):
     with pytest.raises(LocalModelError, match="local"):
         resolve_model_path(ref)
+
+
+def test_local_paths_that_merely_mention_hubs_are_fine(tmp_path):
+    # A Hugging Face cache snapshot: snapshots/<rev>/model.gguf -> ../../blobs/<sha> (no extension on the blob).
+    blob = tmp_path / "hub" / "blobs" / "3f9a1c"
+    blob.parent.mkdir(parents=True)
+    blob.write_bytes(b"GGUF")
+    snap = tmp_path / "hub" / "snapshots" / "rev1"
+    snap.mkdir(parents=True)
+    (snap / "model.gguf").symlink_to(Path("../../blobs/3f9a1c"))
+    assert resolve_model_path(snap / "model.gguf") == blob.resolve()
+    # A local mirror whose folder is literally named after the hub.
+    mirror = tmp_path / "mirror" / "huggingface.co" / "org" / "model.gguf"
+    mirror.parent.mkdir(parents=True)
+    mirror.write_bytes(b"GGUF")
+    assert resolve_model_path(mirror) == mirror.resolve()
+
+
+def test_unloadable_model_is_a_clean_error(tmp_path):
+    pytest.importorskip("llama_cpp", reason="llama-cpp-python not installed")
+    from voidlit.voice import LocalLlama
+
+    bad = tmp_path / "corrupt.gguf"
+    bad.write_bytes(b"this is not a gguf file at all")
+    with pytest.raises(LocalModelError, match="could not load"):
+        LocalLlama(bad)
 
 
 def test_model_must_be_an_existing_gguf_file(tmp_path):
@@ -45,7 +74,8 @@ def test_the_brain_imports_no_network_client():
                 names = [a.name for a in node.names]
             elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
                 names = [node.module]
-            offenders += [f"{py.name}: {n}" for n in names if n.split(".")[0] in NETWORK_MODULES]
+            offenders += [f"{py.name}: {n}" for n in names
+                          if n.split(".")[0] in NETWORK_MODULES or n.startswith("llama_cpp.server")]
             if isinstance(node, ast.Attribute) and node.attr == "from_pretrained":  # hub download helper
                 offenders.append(f"{py.name}: .from_pretrained")
     assert offenders == []
@@ -108,19 +138,66 @@ def test_local_llama_grammar_pass_always_parses(tiny_model):
         assert 0.0 <= s.aggression <= 1.0 and -1.0 <= s.rapport <= 1.0
 
 
-def test_local_llama_loads_once_and_speaks(tiny_model, scenario):
+def test_local_llama_loads_once_and_speaks(tiny_model, lantern):
     from voidlit.voice import LocalLlama
 
     assert LocalLlama.load(tiny_model.path, n_ctx=4096) is tiny_model
     out = tiny_model.chat([{"role": "user", "content": "Say something."}], max_tokens=8, seed=1)
     assert isinstance(out, str)
-    voice = LocalVoice(tiny_model, OfflineVoice(scenario.narration))
+    voice = LocalVoice(tiny_model, OfflineVoice(lantern.narration))
     from voidlit.voice import NarrationRequest
 
-    text = voice.narrate(NarrationRequest(player_text="look", intent="look", approach="none",
-                                          chapter_title="T", chapter_text="A room.", entering_chapter=True,
-                                          facts=["The player looks."]))
+    text = voice.narrate(NarrationRequest(player_text="look", intent="look", stat="none",
+                                          register="plain", register_style="",
+                                          leaf_title="T", leaf_text="A room.", entering=True,
+                                          facts=["You look."]))
     assert isinstance(text, str) and text
+
+
+@pytest.mark.parametrize("template_name", ["GEMMA2_TEMPLATE", "STRICT_TEMPLATE"])
+def test_strict_chat_templates_still_reach_the_model(tmp_path, template_name, lantern):
+    """Templates that reject a system role or a leading assistant turn must not push us onto the fallbacks."""
+    pytest.importorskip("llama_cpp", reason="llama-cpp-python not installed")
+    pytest.importorskip("gguf", reason="gguf not installed")
+    from voidlit.limbic.npc_brain import BrainDecision
+    from voidlit.voice import DialogueRequest, LocalLlama, NarrationRequest
+
+    from . import tiny_gguf
+
+    path = tiny_gguf.write_tiny_llama(tmp_path / f"{template_name}.gguf",
+                                      chat_template=getattr(tiny_gguf, template_name))
+    llm = LocalLlama.load(path, n_ctx=4096)
+    if template_name == "GEMMA2_TEMPLATE":
+        assert llm.system_role is False
+
+    class Refuse:
+        def narrate(self, req):
+            raise AssertionError("narration fell back to the offline voice")
+
+        def speak(self, req):
+            raise AssertionError("dialogue fell back to the offline voice")
+
+    LocalTransducer(llm, NoFallback()).extract("I smash the door", {"elara": ["elara"]})
+    voice = LocalVoice(llm, Refuse())
+    history = ["The iris grinds open.", "Frost creeps across a viewport."]
+    voice.narrate(NarrationRequest(player_text="look", intent="look", stat="none",
+                                   register="plain", register_style="", leaf_title="T",
+                                   leaf_text="A room.", entering=False, facts=["x"], history=history))
+    spec = lantern.npcs["elara"]
+    decision = BrainDecision(dominant_plot=0, secondary_plot=1, tactic=0, branch_id=1, branch_origin="ally",
+                             branch_source_npc=0, branch_parent=0, plot_spikes=[0, 0, 0], tactic_spikes=[0, 0, 0, 0],
+                             momentum=[0.5, 0.3, 0.1])
+    voice.speak(DialogueRequest(npc=spec, decision=decision, system_prompt="You are Elara.", player_text="hi",
+                                player_name="Ash", history=history))
+
+
+@pytest.mark.skipif(not Path("/proc/self/maps").exists(), reason="needs Linux /proc")
+def test_llama_cpp_download_library_is_never_loaded(tiny_model):
+    """llama-cpp-python installs libllama-common (llama.cpp's HTTP/TLS model downloader) but must never load it:
+    the bindings use only libllama and libggml, which contain no network code."""
+    tiny_model.chat([{"role": "user", "content": "x"}], max_tokens=2)
+    maps = Path("/proc/self/maps").read_text()
+    assert "libllama-common" not in maps
 
 
 def test_model_text_is_cleaned_of_control_characters():
@@ -131,4 +208,4 @@ def test_model_text_is_cleaned_of_control_characters():
 
 def test_parse_rejects_truncated_output():
     with pytest.raises(SensoryParseError):
-        parse_sensory_json('{"intent": "look", "approach": "none", "target": "none", "aggression": 0.')
+        parse_sensory_json('{"intent": "look", "stat": "none", "target": "none", "aggression": 0.')

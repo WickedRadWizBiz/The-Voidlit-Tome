@@ -1,0 +1,50 @@
+{
+  "collection": "places",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "last-altar",
+      "description": "Where the Choir sends its Pilgrims. No one in the Choir has seen it. A Pilgrim's Atlas starts with it as one flickering Rumor point.",
+      "faction": "choir",
+      "name": "the Last Altar",
+      "notes": "Workshop: when the Agenda is revealed, the Last Threshold is the Altar.",
+      "order": 1,
+      "status": "proposed"
+    },
+    {
+      "id": "hollow-lantern",
+      "arrival": "The cover parts and you are standing in a docking throat of frost and dead lights, aboard the Hollow Lantern, a lighthouse-station adrift where starlight goes missing. There is no ship behind you. The lifeboats are at the far end of the station. Between here and there is everything that put the lamp out.",
+      "crucible": "The Conductor",
+      "crucible_text": "The station's captain, or what wears her uniform, stands before the last lifeboat with her arms raised to the dark.",
+      "description": "A lighthouse-station built to burn a lamp bright enough to guide ore haulers through a stretch of space where starlight goes missing. Forty days ago the lamp went out. The crew stopped answering, then started singing.",
+      "faction": "",
+      "lore": [
+        "The lamp didn't fail. Someone turned it toward the dark on purpose, and something on the other side looked back.",
+        "The Hymn isn't a cult. It's what's left of the crew, still on shift, still answering a signal from the black.",
+        "There is a hollow in the great lens the exact shape of the slab you carry. Whether something was cut from here, or something was meant to be set here, the lens does not say.",
+        "Every lifeboat but one was launched empty. The last one is locked to the Conductor's voice."
+      ],
+      "name": "the Hollow Lantern",
+      "narration_calm": [
+        "Somewhere far off, the station's hull pings as it cools.",
+        "Frost spreads across a viewport, slow as breath.",
+        "A long way below you, water drips into metal, patient as a clock."
+      ],
+      "narration_foreshadow": [
+        "Deep in the hull, something answers the noise you made.",
+        "Every speaker on the deck clicks once, in unison.",
+        "Far below, a bulkhead opens on its own."
+      ],
+      "narration_verdict": [
+        "The lifeboat seals behind you and the TOME closes under your hand. Whatever is left in the Hollow Lantern will have to keep its own dark."
+      ],
+      "notes": "From The Voidlit Tome app (its first sector, v0.1), brought in 2026-10-14. App id: hollow_lantern. The singing crew is \"the Hymn\" (renamed from \"the Choir\").\n\nLore thread hooks (optional, not applied): make the Conductor the Bearer aboard this silent station, who turned the lamp on her TOME's orders. The lamp sits on a Lanes route, so the Hauler's Wits opening could point here. Forty days silent means the Hush is due: a Hush boarding team as a late Hostile Leaf. Marcus as an ex-Hush warden would mirror the Breacher.",
+      "order": 2,
+      "rumors": [
+        "A second lamp, further out, that nobody admits to building."
+      ],
+      "status": "proposed",
+      "threshold": "A lighthouse in the dark has gone out. Find what put it out, and leave before it notices you."
+    }
+  ]
+}

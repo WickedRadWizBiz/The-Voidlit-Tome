@@ -2,59 +2,33 @@
 
 > The handoff file for cross-session work. Read this first after `/clear`; update it after every sub-task.
 
-## Current objective
-First runnable slice of **The Voidlit Tome**, a text-first sci-fi horror RPG whose Dungeon Master is a voxel
-monolith. **Status: v0.1 done and pushed** on branch `claude/determined-maxwell-5j79pa`.
+## Current objective (2026-10-14, Steven in the "TOME - Game Mechanics" project)
+Reconcile the app with the project's design. **The project wins every conflict**; the app keeps only what the
+project did not already have. Sources of truth (read-only from here):
+- TOME: Core Rules (Draft 0.2), https://claude.ai/code/artifact/09d100ff-71c2-4696-8d3b-da93391a2dbe
+- Game content: TOME Forge JSON (`/mnt/project-files/tome/content/`, Forge format "tome-content")
+- Lore: TOME: Lore Workshop + `/mnt/project-files/tome/lore/content/`
+- Balance reference: `/mnt/project-files/tome/playtest/tome_sim.py` + `final_cfg.json`
+Branch: `claude/reconcile-core-rules` (from `claude/determined-maxwell-5j79pa`), PR into `main`.
 
-## Decisions (do not re-litigate)
-- The brain is a **Python sidecar** (`brain/`) because SpikingJelly and BindsNET are PyTorch libraries; Unreal is
-  the body over a localhost WebSocket (`docs/PROTOCOL.md`). This departs from the Gemini spec's C++ SNN. The
-  mapping is in `docs/ARCHITECTURE.md`.
-- **BindsNET = limbic** (per-NPC online R-STDP, dendritic plateaus, structural plasticity, gossip).
-  **SpikingJelly = cortex** (the Director, trained offline with surrogate gradients).
-- The LLM never decides mechanics; there is a full offline fallback (heuristic senses, phrase banks).
-- **llama.cpp is local only (user requirement):** it runs in-process through llama-cpp-python from local `.gguf`
-  files (`--model`, `--senses-model`). There is no llama-server, no HTTP, no URLs or hub names (refused), and no
-  downloads. Build with `CMAKE_ARGS="-DLLAMA_CURL=OFF"`. The Unreal WebSocket binds loopback only.
-  `tests/test_llama_local.py` enforces this with a static import scan and loopback tests.
-- Mechanics and text are original; inspirations are credited in `docs/RULES.md`.
-- Voxel glyphs come from DejaVu Sans Mono Bold (permissive license). Unifont was rejected because the installed
-  package is GPL-2+.
+## Plan
+1. [x] rules/: replace Grit/Guile/Insight, Hull, pips, clocks, act deck with Core Rules 0.2
+2. [x] content: ship a Forge snapshot (brain/voidlit/content/tome/*.json) + tools/sync_content.py; places (Hollow Lantern) load from the Forge
+3. [x] engine: draw prompts, Leaves, Push, Bargain, Breather/Echo/Intervention, Crucible, Haven, Pages, oracle
+4. [x] keep + rewire: senses (4 stats), NPC brains on Witness Leaves, Director re-scoped to draw mode + beats
+5. [x] voice: Stress registers; palette = voxel color language
+6. [x] tests (84 pass), balance report, docs, Unreal protocol v2 fields (Grit, class, place)
+7. [ ] export Hollow Lantern + app-only rules to /mnt/project-files/tome/from-app/ for the coordinator
+8. [ ] PR into main, drive CI green
 
-## Done
-- [x] rules/: d6 pools, Grit/Guile/Insight, obstacles as approach pips (off-approach: 2 hits = 1 pip), Stress/Panic
-      (2d6 + Insight vs Stress; panicking discharges 2), Lumen (interval 5), clocks, sector deck, Last Light
-- [x] senses/: SensoryState, per-scene GBNF, strict parser, heuristic transducer
-- [x] limbic/: BindsNET NPC brain (custom DendriticBranchNodes, LIF WTA plots, MSTDPET + retroactive consolidation),
-      prune/split/trauma, gossip grafting, save/load. An ally NPC gives +1 die (the brains matter mechanically).
-- [x] cortex/: Director SNN plus weights (`voidlit/cortex/director.pt`, KL ~0.09). Retrain after teacher changes:
-      `python -m voidlit train-director`.
-- [x] voice/: local in-process llama.cpp (`llama_local.py`: LocalLlama, LocalTransducer, LocalVoice), prompt
-      compilers, offline narrator with variants. GBNF root wrapped in parentheses (llama.cpp ends rules at
-      newlines); grammars are pre-parsed by llama.cpp to avoid a NULL-sampler segfault.
-- [x] tome/: engine turn loop, frames, `content/hollow_lantern.toml`; DM fair-play masks (hazards only on a clear
-      scene with a cooldown, one twist per obstacle)
-- [x] server + CLI (`python -m voidlit play|serve|train-director|gbnf`), `tools/balance.py`
-- [x] 73 pytest tests passing (~9 s on CPU), including real llama.cpp against a tiny random GGUF generated on the
-      fly (`tests/tiny_gguf.py`). CI has two jobs: `test` (with a balance report) and `local-llm`.
-- [x] Unreal 5.8 plugin `unreal/VoidlitTome` (voxel ISM surface, GPU-animated via TomeVoxel.ush, typesetter,
-      glyphs, WebSocket client, monolith actor, Slate keyboard capture, material-building editor script)
+## Rules settled with the rules thread (2026-10-14, pending Steven's card there)
+- Panic 7 in the Crucible is a lost action; the Crucible is Depth 8, Damage 2; Vessel panics there (or with the
+  Lumen out) cost its next action. Ally die, gear helps, Talent coverage and Director scope are now Core Rules.
+- Places come from the Forge (places, people, Leaves with a place); the app's TOML copy is gone.
 
-## Balance snapshot (40 seeded runs)
-- Smart bot escapes ~60%; naive bot ~7%. Most deaths are at the final boss (the Conductor).
-
-## Known gaps / next steps (priority order)
-1. **Compile the Unreal plugin** in a real UE 5.8 project. It has never been built (no UE in CI); expect small
-   API fixes. Then run `Content/Python/create_tome_material.py`.
-2. Package the sidecar (PyInstaller) and have `ATomeMonolithActor` spawn it by default.
-3. Fine-tune the Director on playtest logs; add more sectors (TOML only).
-4. Play-test with a real local instruct model (.gguf) to tune the prompts; grammar output is already verified
-   with real llama.cpp.
-
-## Environment notes
-- download.pytorch.org is blocked here; torch came from PyPI (CUDA build, ~6 GB venv in the scratchpad, not
-  committed). CI uses CPU torch from download.pytorch.org.
-- farirpgs.com and figcat.com are blocked; Voidlight and FigCat details came from web search summaries.
+## Not implemented yet
+Group play, Vigil mode, recovering a Debt, Insight for acting on a Bond or Debt.
 
 ## Next immediate action
-None pending in this session. Next session: step 1 above (needs a machine with UE 5.8).
+Step 7, then step 8. After merge: re-run tools/sync_content.py whenever the Forge changes; compile the UE plugin
+on Steven's machine (needs UE 5.8); PyInstaller packaging; playtest with a real local model.

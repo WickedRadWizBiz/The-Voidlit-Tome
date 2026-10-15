@@ -1,0 +1,94 @@
+{
+  "collection": "panic",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "panic-2",
+      "effect": "Lose your next action.",
+      "name": "Flinch",
+      "notes": "",
+      "order": 1,
+      "roll": "2"
+    },
+    {
+      "id": "panic-3",
+      "effect": "Your next roll is one die smaller.",
+      "name": "Shaking hands",
+      "notes": "",
+      "order": 2,
+      "roll": "3"
+    },
+    {
+      "id": "panic-4",
+      "effect": "You cannot help allies until the chapter ends.",
+      "name": "Tunnel vision",
+      "notes": "",
+      "order": 3,
+      "roll": "4"
+    },
+    {
+      "id": "panic-5",
+      "effect": "Drop whatever you are holding.",
+      "name": "Drop it",
+      "notes": "",
+      "order": 4,
+      "roll": "5"
+    },
+    {
+      "id": "panic-6",
+      "effect": "The TOME whispers. It slips an extra Leaf into this trial.",
+      "name": "Hear it",
+      "notes": "",
+      "order": 5,
+      "roll": "6"
+    },
+    {
+      "id": "panic-7",
+      "effect": "Take 1 Harm and abandon the Leaf unfinished; it does not count. In the Crucible there is no exit, so you lose your next action instead.",
+      "name": "Run",
+      "notes": "Changed 2026-10-14 by the rules thread (was: flee by the nearest exit). Pending Steven's confirmation.",
+      "order": 6,
+      "roll": "7"
+    },
+    {
+      "id": "panic-8",
+      "effect": "Attack the nearest creature, friend or not.",
+      "name": "Lash out",
+      "notes": "",
+      "order": 7,
+      "roll": "8"
+    },
+    {
+      "id": "panic-9",
+      "effect": "Your minimum Stress rises by 1 permanently.",
+      "name": "Gutted",
+      "notes": "",
+      "order": 8,
+      "roll": "9"
+    },
+    {
+      "id": "panic-10",
+      "effect": "Take 1 Harm and lose your next two actions.",
+      "name": "Freeze",
+      "notes": "",
+      "order": 9,
+      "roll": "10"
+    },
+    {
+      "id": "panic-11",
+      "effect": "Gain a permanent phobia tied to this moment; facing it costs 1 Stress each time.",
+      "name": "Phobia",
+      "notes": "",
+      "order": 10,
+      "roll": "11"
+    },
+    {
+      "id": "panic-12",
+      "effect": "The TOME takes control of you for one chapter. Remove 2 Lumen dice.",
+      "name": "The slab answers",
+      "notes": "",
+      "order": 11,
+      "roll": "12"
+    }
+  ]
+}

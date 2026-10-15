@@ -26,14 +26,17 @@ async def _session(tmp_path):
             await ws.send(json.dumps({"type": "input", "text": "hi"}))
             assert (await recv())["type"] == "error"
 
-            await ws.send(json.dumps({"type": "hello", "options": {"seed": 3, "background": "pilot", "name": "Kit"}}))
+            await ws.send(json.dumps({"type": "hello", "options": {"seed": 3, "class": "hauler", "name": "Kit",
+                                                                "place": "hollow_lantern"}}))
             welcome = await recv()
             assert welcome["type"] == "welcome" and welcome["llm"] is False
-            assert welcome["character"]["background"] == "Pilot"
+            assert welcome["bearer"]["class_name"] == "Hauler" and "breacher" in welcome["classes"]
+            assert welcome["protocol"] == 2 and "hollow-lantern" in welcome["places"]
             start = await recv()
             assert start["type"] == "frame" and start["blocks"][0]["role"] == "title"
+            assert start["status"]["pending"]["type"] == "draw"
 
-            await ws.send(json.dumps({"type": "input", "text": "I force the iris"}))
+            await ws.send(json.dumps({"type": "input", "text": "I touch the first one"}))
             assert (await recv())["type"] == "thinking"
             frame = await recv()
             assert frame["type"] == "frame" and frame["seq"] == start["seq"] + 1 and "debug" in frame

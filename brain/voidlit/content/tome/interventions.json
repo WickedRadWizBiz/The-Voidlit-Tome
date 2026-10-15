@@ -1,0 +1,48 @@
+{
+  "collection": "interventions",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "intervention-1",
+      "effect": "The TOME claims a Debt, or deepens the one it holds.",
+      "notes": "",
+      "order": 1,
+      "roll": "1"
+    },
+    {
+      "id": "intervention-2",
+      "effect": "Everything goes dark: remove 2 Lumen dice.",
+      "notes": "",
+      "order": 2,
+      "roll": "2"
+    },
+    {
+      "id": "intervention-3",
+      "effect": "The TOME moves you: the next Leaf is lost unseen, and the one after it rises.",
+      "notes": "",
+      "order": 3,
+      "roll": "3"
+    },
+    {
+      "id": "intervention-4",
+      "effect": "Another Bearer's trial bleeds into yours: the next Hostile Leaf is a rival Bearer.",
+      "notes": "",
+      "order": 4,
+      "roll": "4"
+    },
+    {
+      "id": "intervention-5",
+      "effect": "The TOME heals you fully. It wants you alive for something.",
+      "notes": "",
+      "order": 5,
+      "roll": "5"
+    },
+    {
+      "id": "intervention-6",
+      "effect": "The Crucible rises now.",
+      "notes": "",
+      "order": 6,
+      "roll": "6"
+    }
+  ]
+}

@@ -1,81 +1,181 @@
-"""Scenario loading: TOML on disk -> typed rules and brain specs."""
+"""Game content: the TOME Forge's JSON (the codex) plus place packs (TOML).
+
+The codex is a snapshot of the project's content files (``/tome/content/*.json``, Forge format: one file per
+collection, ``{"collection", "schemaVersion", "entries": [...]}``), shipped in ``voidlit/content/tome``.
+``tools/sync_content.py`` refreshes it from that folder or from a Forge "Export JSON" bundle. The engine never
+edits it: names, Bonds, Openings and tables are changed in the Forge.
+
+A place is somewhere in the Unknown with its own authored Leaves and people (NPCs with BindsNET brains). Places
+come from the Forge (``places``, ``people`` and the ``leaves`` that name a ``place``); the Hollow Lantern is the
+first. A TOML pack in ``content/places/`` can add a local place the Forge does not have yet.
+"""
 
 from __future__ import annotations
 
-import copy
+import json
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..limbic.npc_brain import BranchSeed, NPCSpec, PlotSpec, TacticSpec
-from ..rules.character import Character, Item
-from ..rules.clocks import Clock
-from ..rules.obstacles import Obstacle
-from ..rules.sector import Chapter
 
 CONTENT_DIR = Path(__file__).resolve().parent.parent / "content"
+CODEX_DIR = CONTENT_DIR / "tome"
+PLACES_DIR = CONTENT_DIR / "places"
+REGISTERS = ("plain", "uneasy", "eldritch", "breakthrough")
 
 
-@dataclass
-class Background:
-    id: str
-    name: str
-    grit: int
-    guile: int
-    insight: int
-    hull: int
-    items: list[Item]
+class Codex:
+    """Every Forge collection, by name, as a list of entries sorted by ``order``."""
 
-    def make_character(self, name: str) -> Character:
-        return Character(name=name, background=self.name, grit=self.grit, guile=self.guile,
-                         insight=self.insight, hull_max=self.hull, inventory=copy.deepcopy(self.items))
+    def __init__(self, collections: dict[str, list[dict]]) -> None:
+        self.c = collections
 
+    @classmethod
+    def load(cls, path: str | Path | None = None) -> "Codex":
+        p = Path(path) if path else CODEX_DIR
+        if p.is_file():
+            blob = json.loads(p.read_text())
+            if blob.get("format") == "tome-content":
+                cols = {k: list(v if isinstance(v, list) else v.get("entries", []))
+                        for k, v in blob["collections"].items()}
+            else:
+                cols = {blob["collection"]: blob["entries"]}
+        else:
+            cols = {}
+            for f in sorted(p.glob("*.json")):
+                blob = json.loads(f.read_text())
+                cols[blob.get("collection", f.stem)] = blob["entries"]
+        for k in cols:
+            cols[k] = sorted(cols[k], key=lambda e: (e.get("order", 1e9), e.get("id", "")))
+        return cls(cols)
 
-@dataclass
-class Scenario:
-    id: str
-    title: str
-    intro: str
-    per_act: int
-    lumen_interval: int
-    lore: list[str]
-    backgrounds: dict[str, Background]
-    obstacles: dict[str, Obstacle]
-    hazards: dict[int, list[str]]
-    chapters: dict[str, Chapter]
-    npcs: dict[str, NPCSpec]
-    clocks: list[Clock]
-    narration: dict[str, list[str]] = field(default_factory=dict)
+    def entries(self, collection: str) -> list[dict]:
+        return self.c.get(collection, [])
 
-    def new_obstacle(self, obstacle_id: str) -> Obstacle:
-        return copy.deepcopy(self.obstacles[obstacle_id])
+    def by_id(self, collection: str, id_: str) -> dict | None:
+        return next((e for e in self.entries(collection) if e.get("id") == id_), None)
 
-    def new_clocks(self) -> list[Clock]:
-        return copy.deepcopy(self.clocks)
+    def by_roll(self, collection: str, roll: int) -> dict | None:
+        return next((e for e in self.entries(collection) if str(e.get("roll")) == str(roll)), None)
+
+    @property
+    def classes(self) -> dict[str, dict]:
+        return {e["id"]: e for e in self.entries("classes")}
+
+    def opening(self, class_id: str, stat: str) -> dict | None:
+        return next((e for e in self.entries("openings") if e.get("class") == class_id and e.get("stat") == stat),
+                    None)
+
+    def leaves(self, kind: str) -> list[dict]:
+        """The generic Leaves of a kind; a place's own Leaves are dealt only in that place."""
+        return [e for e in self.entries("leaves") if e.get("kind", "").lower() == kind and not e.get("place")]
+
+    def places(self) -> dict[str, "Place"]:
+        """Every playable place in the Forge (one with an arrival), with its Leaves and people."""
+        out = {}
+        for e in self.entries("places"):
+            if not e.get("arrival"):
+                continue
+            pid = e["id"]
+            narration = {"beat.calm": e.get("narration_calm", []), "beat.foreshadow": e.get("narration_foreshadow", []),
+                         "ending.verdict": e.get("narration_verdict", [])}
+            place = Place(
+                id=pid, name=e["name"], threshold=e.get("threshold", ""), arrival=e["arrival"],
+                crucible=e.get("crucible", ""), crucible_text=e.get("crucible_text", ""),
+                lore=list(e.get("lore", [])), rumors=list(e.get("rumors", [])),
+                leaves=[PlaceLeaf(id=x["id"], kind=x["kind"].lower(), title=x["title"], rank=_rank(x.get("depth", "")),
+                                  text={r: x[r] for r in REGISTERS if x.get(r)}, npcs=list(x.get("people", [])),
+                                  clue=x.get("clue", ""), cleared=x.get("cleared", ""))
+                        for x in self.entries("leaves") if x.get("place") == pid],
+                npcs={n["id"]: _npc(n) for n in self.entries("people") if n.get("place") == pid},
+                narration={k: list(v) for k, v in narration.items() if v},
+            )
+            place.validate()
+            out[pid] = place
+        return out
+
+    def register_for(self, stress: int, panicked: bool = False) -> str:
+        if panicked:
+            return "breakthrough"
+        for e in self.entries("registers"):
+            if int(e.get("stress_min", 0)) <= stress <= int(e.get("stress_max", 10)):
+                return e["id"]
+        return "plain"
+
+    def register_style(self, register: str) -> str:
+        e = self.by_id("registers", register)
+        return e.get("style", "") if e else ""
+
+    def thresholds(self, fragments: int = 0) -> list[dict]:
+        out = []
+        for e in self.entries("thresholds"):
+            pool = str(e.get("pool", "start"))
+            if pool == "start" or (pool.startswith("after") and fragments >= int(pool.split()[1])):
+                out.append(e)
+        return out
 
     def validate(self) -> None:
-        for ch in self.chapters.values():
-            for oid in ch.obstacles:
-                if oid not in self.obstacles:
-                    raise ValueError(f"chapter {ch.id}: unknown obstacle {oid!r}")
-            for nid in ch.npcs:
-                if nid not in self.npcs:
-                    raise ValueError(f"chapter {ch.id}: unknown npc {nid!r}")
-        for ids in self.hazards.values():
-            for oid in ids:
-                if oid not in self.obstacles:
-                    raise ValueError(f"hazards: unknown obstacle {oid!r}")
-        for c in self.clocks:
-            if c.consequence not in ("", "lumen") and c.consequence not in self.obstacles:
-                raise ValueError(f"clock {c.id}: unknown consequence {c.consequence!r}")
+        for need in ("classes", "openings", "leaves", "panic", "echoes", "interventions", "crucible_forms",
+                     "agendas", "thresholds", "registers"):
+            if not self.entries(need):
+                raise ValueError(f"content has no {need!r} entries")
+        for c in self.entries("classes"):
+            for k in ("might", "grace", "wits", "nerve"):
+                if not 0 <= int(c[k]) <= 4:
+                    raise ValueError(f"class {c['id']}: {k} out of range")
+
+
+def _rank(depth: str) -> str:
+    """Forge depth ("Shallow (2)", "any") to a rank ("shallow", "")."""
+    word = depth.split()[0].lower() if depth else ""
+    return word if word in ("shallow", "deep", "abyssal") else ""
+
+
+def place_key(name: str) -> str:
+    """Place ids are compared without caring about dashes or underscores (hollow_lantern = hollow-lantern)."""
+    return name.strip().lower().replace("_", "-")
+
+
+@dataclass
+class PlaceLeaf:
+    id: str
+    kind: str                       # hostile | hazard | relic | witness
+    title: str
+    text: dict[str, str]            # register -> prose
+    rank: str = ""                  # "" = any
+    npcs: list[str] = field(default_factory=list)
+    clue: str = ""
+    cleared: str = ""               # what the surface says when the ring fills
+
+
+@dataclass
+class Place:
+    id: str
+    name: str
+    threshold: str                  # what the TOME says on the cover
+    arrival: str                    # the first thing the Bearer sees
+    crucible: str
+    crucible_text: str = ""
+    lore: list[str] = field(default_factory=list)       # truths the place gives up to Clue beats and Speak
+    rumors: list[str] = field(default_factory=list)
+    leaves: list[PlaceLeaf] = field(default_factory=list)
+    npcs: dict[str, NPCSpec] = field(default_factory=dict)
+    narration: dict[str, list[str]] = field(default_factory=dict)
+
+    def leaves_of(self, kind: str, rank: str) -> list[PlaceLeaf]:
+        return [x for x in self.leaves if x.kind == kind and x.rank in ("", rank)]
+
+    def validate(self) -> None:
+        for leaf in self.leaves:
+            if leaf.kind not in ("hostile", "hazard", "relic", "witness"):
+                raise ValueError(f"place {self.id}: leaf {leaf.id} has unknown kind {leaf.kind!r}")
+            for n in leaf.npcs:
+                if n not in self.npcs:
+                    raise ValueError(f"place {self.id}: leaf {leaf.id}: unknown npc {n!r}")
         ids = [n.numeric_id for n in self.npcs.values()]
         if len(set(ids)) != len(ids) or 0 in ids:
             raise ValueError("npc numeric_id values must be unique and non-zero")
-
-
-def _item(d: dict) -> Item:
-    return Item(name=d["name"], tags=tuple(d.get("tags", ())), bonus=dict(d.get("bonus", {})),
-                uses=d.get("uses"), light=d.get("light", 0))
 
 
 def _npc(d: dict) -> NPCSpec:
@@ -93,41 +193,37 @@ def _npc(d: dict) -> NPCSpec:
     )
 
 
-def load_scenario(name_or_path: str | Path = "hollow_lantern") -> Scenario:
+def load_place(name_or_path: str | Path) -> Place:
     path = Path(name_or_path)
     if not path.suffix:
-        path = CONTENT_DIR / f"{name_or_path}.toml"
+        path = PLACES_DIR / f"{name_or_path}.toml"
     with open(path, "rb") as f:
         raw = tomllib.load(f)
-    meta = raw["scenario"]
-    obstacles = {
-        oid: Obstacle(id=oid, name=o["name"], kind=o["kind"], pips=list(o["pips"]), harm=o.get("harm", 1),
-                      stress=o.get("stress", 0), text=o.get("text", ""), defeat_text=o.get("defeat_text", ""),
-                      blocking=o.get("blocking", True))
-        for oid, o in raw.get("obstacles", {}).items()
-    }
-    chapters = {
-        c["id"]: Chapter(id=c["id"], act=c["act"], kind=c["kind"], title=c["title"], text=c["text"],
-                         obstacles=list(c.get("obstacles", [])), npcs=list(c.get("npcs", [])),
-                         clues=list(c.get("clues", [])), respite=c.get("respite", False),
-                         light=c.get("light", 0), exit_text=c.get("exit_text", ""))
-        for c in raw["chapters"]
-    }
-    scenario = Scenario(
-        id=meta["id"], title=meta["title"], intro=meta["intro"], per_act=meta.get("per_act", 2),
-        lumen_interval=meta.get("lumen_interval", 3), lore=list(meta.get("lore", [])),
-        backgrounds={
-            b["id"]: Background(id=b["id"], name=b["name"], grit=b["grit"], guile=b["guile"],
-                                insight=b["insight"], hull=b["hull"], items=[_item(i) for i in b.get("items", [])])
-            for b in raw["backgrounds"]
-        },
-        obstacles=obstacles,
-        hazards={int(k.removeprefix("act")): list(v) for k, v in raw.get("hazards", {}).items()},
-        chapters=chapters,
+    meta = raw["place"]
+    place = Place(
+        id=meta["id"], name=meta["name"], threshold=meta["threshold"], arrival=meta["arrival"],
+        crucible=meta["crucible"], crucible_text=meta.get("crucible_text", ""), lore=list(meta.get("lore", [])),
+        rumors=list(meta.get("rumors", [])),
+        leaves=[PlaceLeaf(id=x["id"], kind=x["kind"], title=x["title"], rank=x.get("rank", ""),
+                          text={r: x[r] for r in REGISTERS if x.get(r)}, npcs=list(x.get("npcs", [])),
+                          clue=x.get("clue", ""), cleared=x.get("cleared", ""))
+                for x in raw.get("leaves", [])],
         npcs={n["id"]: _npc(n) for n in raw.get("npcs", [])},
-        clocks=[Clock(id=c["id"], name=c["name"], segments=c["segments"], consequence=c.get("consequence", ""))
-                for c in raw.get("clocks", [])],
         narration={k: list(v) for k, v in raw.get("narration", {}).items()},
     )
-    scenario.validate()
-    return scenario
+    place.validate()
+    return place
+
+
+def place_ids() -> list[str]:
+    """Local TOML place packs (the Forge's places come from ``Codex.places``)."""
+    return sorted(p.stem for p in PLACES_DIR.glob("*.toml"))
+
+
+def all_places(codex: Codex) -> dict[str, Place]:
+    """The Forge's places, plus any local TOML pack the Forge does not have."""
+    places = {place_key(k): v for k, v in codex.places().items()}
+    for pid in place_ids():
+        if place_key(pid) not in places:
+            places[place_key(pid)] = load_place(pid)
+    return places

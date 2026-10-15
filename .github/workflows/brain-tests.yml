@@ -31,7 +31,7 @@ jobs:
 
   local-llm:
     # Real llama.cpp, in-process, against a tiny random-weight GGUF generated on the runner.
-    # No model is downloaded; llama.cpp is compiled without libcurl.
+    # No model is downloaded: the test model is written locally by tests/tiny_gguf.py.
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -42,7 +42,7 @@ jobs:
           cache: pip
       - name: Install CPU torch, then the brain with llama.cpp built from source
         env:
-          CMAKE_ARGS: "-DLLAMA_CURL=OFF -DGGML_NATIVE=OFF"
+          CMAKE_ARGS: "-DGGML_NATIVE=OFF"
         run: |
           python -m pip install -q --upgrade pip
           pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cpu

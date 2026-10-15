@@ -10,7 +10,7 @@ class IWebSocket;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FTomeFrameEvent, const FTomeFrame&, Frame);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FTomeThinkingEvent);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FTomeWelcomeEvent, const FString&, Scenario, bool, bLanguageModelOnline);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FTomeWelcomeEvent, const FString&, BearerClass, bool, bLanguageModelOnline);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FTomeConnectionEvent, bool, bConnected);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FTomeErrorEvent, const FString&, Message);
 
@@ -23,12 +23,16 @@ struct VOIDLITTOME_API FTomeSessionOptions
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tome")
 	int32 Seed = 0;
 
-	/** salvager | marine | engineer | medic | pilot | archivist; empty = random */
+	/** breacher | archivist | vessel | hauler | pilgrim | fence; empty = the TOME chooses */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tome")
-	FString Background;
+	FString BearerClass;
+
+	/** a place pack such as hollow_lantern; empty = a Threshold roll */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tome")
+	FString Place;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tome")
-	FString PlayerName = TEXT("Wanderer");
+	FString PlayerName = TEXT("Bearer");
 };
 
 /** WebSocket link to the Tome's mind (`python -m voidlit serve`). Reconnects with backoff. */

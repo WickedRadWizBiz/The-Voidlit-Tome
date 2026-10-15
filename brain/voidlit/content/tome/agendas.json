@@ -1,0 +1,54 @@
+{
+  "collection": "agendas",
+  "schemaVersion": 1,
+  "entries": [
+    {
+      "id": "agenda-1",
+      "last_threshold": "Open the door it came through, or seal it with the TOME inside.",
+      "notes": "",
+      "order": 1,
+      "roll": "1",
+      "wants": "To go home. Every trial has moved it closer to a place still dark on the Atlas."
+    },
+    {
+      "id": "agenda-2",
+      "last_threshold": "Unmake the maker, or let the maker unmake the TOME.",
+      "notes": "",
+      "order": 2,
+      "roll": "2",
+      "wants": "Its maker. It has been hunting whoever made it, through you."
+    },
+    {
+      "id": "agenda-3",
+      "last_threshold": "Become the TOME's body, or burn the Brands out.",
+      "notes": "",
+      "order": 3,
+      "roll": "3",
+      "wants": "A body. Every Brand is a piece of one."
+    },
+    {
+      "id": "agenda-4",
+      "last_threshold": "Break the last lock, or become the new warden.",
+      "notes": "",
+      "order": 4,
+      "roll": "4",
+      "wants": "Out. It is a prison, and each Crucible was a warden."
+    },
+    {
+      "id": "agenda-5",
+      "last_threshold": "Deliver the map, or destroy it and lose your Atlas.",
+      "notes": "",
+      "order": 5,
+      "roll": "5",
+      "wants": "A map. The Atlas you have been filling is a chart for something that is coming."
+    },
+    {
+      "id": "agenda-6",
+      "last_threshold": "Take its place, or refuse and end the line.",
+      "notes": "",
+      "order": 6,
+      "roll": "6",
+      "wants": "An heir. It has been testing Bearers to choose the next TOME."
+    }
+  ]
+}

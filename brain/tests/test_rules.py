@@ -1,113 +1,132 @@
 import random
 
-from voidlit.rules import (Approach, Chapter, Character, Clock, Lumen, Obstacle, Outcome, PoolRoll, SectorDeck,
-                           deplete, panic_check, resolve_exchange, roll_pool)
-from voidlit.rules.panic import PANIC_TABLE
+from voidlit.rules import (ACCEPTS, KINDS, LUMEN_MAX, STATS, Campaign, Kind, PoolRoll, Result, Stat, Trial,
+                           ask, build_deck, make_bearer, opening_roll, push, roll_pool)
+from voidlit.rules.trial import CRUCIBLE_DEPTH, DEPTH
 
 
-def roll(dice, pool=None):
-    pool = len(dice) if pool is None else pool
-    hits = sum(1 for d in dice if (d == 6 if pool == 0 else d >= 5))
-    return PoolRoll(tuple(dice), pool, hits, sum(1 for d in dice if d == 6))
+def bearer(codex, cls="breacher", seed=0):
+    return make_bearer(codex.classes[cls], "Ash", random.Random(seed), codex.entries("origins"))
 
 
-def test_outcomes_follow_hit_counts():
-    assert roll([1, 2, 3]).outcome is Outcome.FAIL
-    assert roll([5, 2]).outcome is Outcome.MIXED
-    assert roll([5, 6]).outcome is Outcome.SUCCESS
-    assert roll([6, 6, 1]).outcome is Outcome.CRITICAL
+def test_hits_are_fives_and_sixes_and_difficulty_decides():
+    assert PoolRoll((5, 6, 1), 3, difficulty=2).result is Result.SUCCESS
+    assert PoolRoll((5, 2, 1), 3, difficulty=2).result is Result.SHORT
+    assert PoolRoll((1, 2, 4), 3, difficulty=1).result is Result.FAIL
 
 
-def test_zero_pool_only_counts_sixes():
+def test_zero_pool_rolls_one_die_that_hits_only_on_six():
     rng = random.Random(1)
     for _ in range(200):
         r = roll_pool(0, rng)
-        assert len(r.dice) == 1 and r.pool == 0
-        assert r.hits == (1 if r.dice[0] == 6 else 0)
+        assert len(r.dice) == 1 and r.hits == (1 if r.dice[0] == 6 else 0)
 
 
-def test_pool_is_clamped_and_hits_are_fives_and_sixes():
-    rng = random.Random(2)
-    r = roll_pool(20, rng)
-    assert len(r.dice) == 8
-    assert r.hits == sum(d >= 5 for d in r.dice)
+def test_pool_is_capped_at_six():
+    assert len(roll_pool(11, random.Random(2)).dice) == 6
 
 
-def test_depletion_only_loses_ones():
+def test_push_rerolls_misses_and_ones_cost_stress():
     rng = random.Random(3)
-    for _ in range(50):
-        d = deplete(6, rng)
-        assert d.after == 6 - sum(1 for x in d.dice if x == 1)
+    for _ in range(100):
+        r = roll_pool(4, rng)
+        p = push(r, rng)
+        assert p.pushed and sum(1 for d in p.dice if d >= 5) >= sum(1 for d in r.dice if d >= 5)
+        assert p.push_ones == p.dice.count(1)       # kept dice are Hits, so every 1 is a reroll
 
 
-def test_harm_overflows_into_last_light():
-    rng = random.Random(4)
-    c = Character("Ash", "Salvager", grit=3, guile=1, insight=1, hull_max=3)
-    r = c.take_harm(2, rng)
-    assert c.hull == 1 and r.last_light is None
-    r = c.take_harm(3, rng)
-    assert c.hull == 0 and r.last_light is not None
-    assert r.dead == (r.last_light.hits == 0)
-    if not r.dead:
-        assert c.grit < 3 and "bleeding" in c.conditions
+def test_classes_match_the_forge(codex):
+    for cid, c in codex.classes.items():
+        b = bearer(codex, cid)
+        assert b.grit == 5 and b.stress == b.min_stress
+        assert {s.value: b.base(s) for s in STATS} == {k: int(c[k]) for k in ("might", "grace", "wits", "nerve")}
+        assert b.find_item("medkit") is not None
 
 
-def test_stress_triggers_panic_threshold_and_panic_rows_are_valid():
-    c = Character("Ash", "Medic", 1, 1, 1, 4)
-    assert not c.add_stress(3)
-    assert c.add_stress(1)
-    rng = random.Random(5)
-    c.stress = 10
-    checks = [panic_check(c, rng) for _ in range(100)]
-    panicked = [p for p in checks if not p.held]
-    assert panicked, "stress 10 should panic on 2d6 most of the time"
-    assert all(0 <= p.row < len(PANIC_TABLE) for p in panicked)
+def test_opening_roll_never_raises_past_three(codex):
+    for seed in range(40):
+        b = bearer(codex, "archivist", seed)
+        op = opening_roll(b, random.Random(seed))
+        assert all(0 <= b.base(s) <= 4 for s in STATS)
+        if op.raised:
+            assert b.base(op.stat) <= 3
 
 
-def test_obstacle_exchange_matches_pips_and_bites():
-    ob = Obstacle("drone", "a drone", "enemy", ["grit", "guile"], harm=2, stress=1)
-    ex = resolve_exchange(ob, Approach.INSIGHT, roll([5, 1, 1]))
-    assert not ex.matched and ob.pips == ["grit", "guile"] and ex.bite_harm == 0  # one off-approach hit: nothing
-    ex = resolve_exchange(ob, Approach.INSIGHT, roll([5, 6, 1]))
-    assert ex.removed == ["grit"] and ob.pips == ["guile"]  # two off-approach hits strip one pip
-    ob.pips = ["grit", "guile"]
-    ex = resolve_exchange(ob, Approach.GRIT, roll([5, 1]))
-    assert ex.removed == ["grit"] and ex.bite_harm == 0 and ex.bite_stress == 1  # mixed: hits land, costs 1 stress
-    ex = resolve_exchange(ob, Approach.GUILE, roll([1, 2]))
-    assert ex.removed == [] and ex.bite_harm == 2 and ex.bite_stress == 1
+def test_kinds_accept_the_right_stats():
+    assert ACCEPTS[Kind.HOSTILE] == (Stat.MIGHT, Stat.GRACE, Stat.NERVE)
+    assert ACCEPTS[Kind.HAZARD] == (Stat.GRACE, Stat.MIGHT)
+    assert ACCEPTS[Kind.RELIC] == (Stat.WITS, Stat.MIGHT)
+    assert ACCEPTS[Kind.WITNESS] == (Stat.NERVE, Stat.WITS)
 
 
-def test_critical_strips_an_extra_pip_and_dark_bites_harder():
-    ob = Obstacle("x", "x", "enemy", ["grit", "insight", "guile"], harm=1)
-    ex = resolve_exchange(ob, Approach.GRIT, roll([6, 6]))
-    assert ex.removed == ["grit", "insight"] and ob.pips == ["guile"]
-    ex = resolve_exchange(ob, Approach.GRIT, roll([1]), dark=True)
-    assert ex.bite_harm == 2
+def test_the_deck_has_54_leaves():
+    deck = build_deck(0, random.Random(4))
+    assert len(deck) == 54
+    chapters = [x for x in deck if x.kind in {k.value for k in KINDS}]
+    assert len(chapters) == 36
+    assert len([x for x in deck if x.kind == "echo"]) == 12
+    assert len([x for x in deck if x.kind == "breather"]) == 4
+    assert len(build_deck(4, random.Random(4))) == 55     # a hungry TOME adds an Intervention
 
 
-def test_lumen_ticks_on_interval_and_restores():
-    lum = Lumen(dice=6, interval=3)
+def test_grit_soaks_harm_then_wounds_then_last_rites(codex):
+    b = bearer(codex, "hauler")
+    t = Trial.begin(b, random.Random(5))
     rng = random.Random(6)
-    assert lum.advance(rng) is None and lum.advance(rng) is None
-    assert lum.advance(rng) is not None
-    lum.burn(10)
-    assert lum.dark and lum.advance(rng) is None
-    assert lum.restore(2) == 2 and lum.fraction == 2 / 6
+    t.harm(3, rng, guardable=False)
+    assert b.grit == 2 and not b.wounds
+    for _ in range(12):
+        if t.pending:
+            break
+        t.harm(3, rng, guardable=False)
+    assert b.dead or (t.pending and t.pending["type"] == "bargain")
 
 
-def test_clock_fires_exactly_once():
-    c = Clock("c", "Clock", 4)
-    assert not c.tick(3)
-    assert c.tick(2)
-    assert not c.tick(1) and c.filled == 4
+def test_two_bargains_then_the_tome_takes_you(codex):
+    b = bearer(codex, "breacher")
+    t = Trial.begin(b, random.Random(7))
+    rng = random.Random(8)
+    for n in range(2):
+        t.last_rites(rng)
+        assert t.pending["type"] == "bargain"
+        t.decide_bargain(rng, True)
+        assert len(b.brands) == n + 1 and not b.dead
+    t.last_rites(rng)
+    assert b.dead and t.hunger_gain == 2
 
 
-def test_sector_deck_structure():
-    chapters = {f"{a}-{i}": Chapter(f"{a}-{i}", a, "passage", "t", "x") for a in range(5) for i in range(3)}
-    deck = SectorDeck.build(chapters, per_act=2, rng=random.Random(7))
-    acts = [chapters[c].act for c in deck.order]
-    assert acts == [0, 1, 1, 2, 2, 3, 3, 4]
-    assert len(set(deck.order)) == len(deck.order)
-    while deck.advance():
-        pass
-    assert deck.at_end and deck.progress == 1.0
+def test_stress_at_five_checks_for_panic(codex):
+    b = bearer(codex, "archivist")
+    t = Trial.begin(b, random.Random(9))
+    b.stress = 4
+    t.add_stress(1, random.Random(10))
+    assert b.stress == 5 and (t.log.has("panic") or t.log.has("held"))
+
+
+def test_lumen_starts_from_hunger_and_crucible_is_deep(codex):
+    b = bearer(codex, "pilgrim")
+    assert Trial.begin(b, random.Random(11)).lumen == LUMEN_MAX
+    assert Trial.begin(b, random.Random(11), hunger=5).lumen == 2
+    assert DEPTH == {"shallow": 2, "deep": 4, "abyssal": 6} and CRUCIBLE_DEPTH == 8
+
+
+def test_haven_resets_stress_and_grit(codex):
+    b = bearer(codex, "fence")
+    c = Campaign.begin(b, codex.entries("agendas"), random.Random(12))
+    b.stress, b.grit = 8, 1
+    c.haven()
+    assert b.stress >= b.min_stress and b.stress <= b.min_stress + 1 and b.grit == 5
+
+
+def test_opening_a_page_feeds_the_hunger(codex):
+    b = bearer(codex, "vessel")
+    c = Campaign.begin(b, codex.entries("agendas"), random.Random(13))
+    b.insight = 4
+    ok, _ = c.open_page("ward")
+    assert ok and c.hunger == 1 and "ward" in c.pages_open and b.insight == 0
+
+
+def test_oracle_likelihoods():
+    rng = random.Random(14)
+    yes = {k: sum(ask(k, rng).yes for _ in range(3000)) / 3000 for k in ("likely", "even", "unlikely")}
+    assert yes["likely"] > yes["even"] > yes["unlikely"]

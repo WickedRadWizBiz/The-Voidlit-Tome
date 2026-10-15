@@ -38,14 +38,16 @@ GENERATION_ERRORS = (RuntimeError, ValueError, KeyError, IndexError, TypeError, 
 
 SENSORY_SYSTEM = """You are the perception layer of a game master. Read the player's input and rate it.
 intent: what the player is trying to do (look, talk, fight, force, sneak, search, use, rest, advance, flee, other).
-approach: how (grit = force/violence/endurance, guile = stealth/trickery/precision, insight = analysis/systems/will,
+stat: which stat it rests on (might = force/endurance/melee/breaking, grace = speed/aim/stealth/piloting/escaping,
+wits = knowledge/repair/hacking/reading clues, nerve = resisting fear/lying/commanding/speaking to the TOME,
 none = no roll implied).
 target: who or what it is aimed at, from the allowed ids, else none.
 aggression: hostility or threat of violence. deception: lying or bluffing. leverage: bargaining power, offers,
 conditional threats. exposure: probing someone's hidden motives or secrets. rapport: warmth (+) or contempt (-).
 boldness: appetite for risk. Use two decimals. Be calibrated: most inputs are near 0 on most axes."""
 
-_REMOTE_MARKERS = ("://", "hf:", "hf.co/", "huggingface.co/")
+_URL_SCHEME = re.compile(r"^[a-z][a-z0-9+.\-]*://", re.IGNORECASE)
+_HUB_PREFIXES = ("hf:", "hf.co/", "huggingface.co/", "www.huggingface.co/")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 
@@ -64,22 +66,27 @@ class ChatModel(Protocol):
 
 
 def resolve_model_path(path: str | Path) -> Path:
-    """Accept only an existing local .gguf file. Anything that looks remote is refused outright."""
+    """Accept only an existing local .gguf file. URLs and model-hub references are refused outright.
+
+    The .gguf suffix is judged on the name given, so symlinks into content-addressed stores (such as a
+    Hugging Face cache snapshot pointing at an extensionless blob) still work.
+    """
     text = str(path).strip()
-    if any(marker in text.lower() for marker in _REMOTE_MARKERS):
+    if _URL_SCHEME.match(text) or text.lower().startswith(_HUB_PREFIXES):
         raise LocalModelError(f"refusing {text!r}: models must be local .gguf files, never URLs or hub names")
-    p = Path(text).expanduser().resolve()
-    if p.suffix.lower() != ".gguf":
-        raise LocalModelError(f"{p} is not a .gguf model file")
+    given = Path(text).expanduser()
+    if given.suffix.lower() != ".gguf":
+        raise LocalModelError(f"{given} is not a .gguf model file")
+    p = given.resolve()
     if not p.is_file():
-        raise LocalModelError(f"no model file at {p}")
+        raise LocalModelError(f"no model file at {given}")
     return p
 
 
 def _import_llama_cpp():
     try:
         import llama_cpp
-    except ImportError as e:
+    except (ImportError, OSError, RuntimeError) as e:  # OSError: the compiled library failed to load
         raise LocalModelError(
             "llama-cpp-python is not installed; run `pip install -e \".[llm]\"` in brain/ to use a local model"
         ) from e
@@ -99,9 +106,16 @@ class LocalLlama:
         self._llama_cpp = llama_cpp
         self._grammar_type = llama_cpp.LlamaGrammar
         self._valid_grammars: set[str] = set()
-        self._llama = llama_cpp.Llama(model_path=str(self.path), n_ctx=n_ctx, n_gpu_layers=n_gpu_layers,
-                                      seed=seed, n_threads=n_threads, verbose=False)
+        try:
+            self._llama = llama_cpp.Llama(model_path=str(self.path), n_ctx=n_ctx, n_gpu_layers=n_gpu_layers,
+                                          seed=seed, n_threads=n_threads, verbose=False)
+        except Exception as e:  # corrupt/unsupported GGUF, allocation failure, broken chat template...
+            raise LocalModelError(f"llama.cpp could not load {self.path}: {e}") from e
         self._lock = threading.Lock()  # a llama.cpp context must not be used from two threads at once
+        self.system_role = self._probe_system_role()
+        if not self.system_role:
+            log.info("%s: chat template has no usable system role; system text is merged into the user turn",
+                     self.path.name)
 
     @classmethod
     def load(cls, path: str | Path, *, n_ctx: int = 4096, n_gpu_layers: int = 0, seed: int = 0,
@@ -111,6 +125,32 @@ class LocalLlama:
             if key not in cls._cache:
                 cls._cache[key] = cls(key[0], n_ctx=n_ctx, n_gpu_layers=n_gpu_layers, seed=seed, n_threads=n_threads)
             return cls._cache[key]
+
+    def _probe_system_role(self) -> bool:
+        """Does this model's chat template accept [system, user]? Many (Gemma-2, Mistral) raise on a system
+        message, and llama-cpp-python's built-in 'mistral-instruct' formatter silently drops it."""
+        if getattr(self._llama, "chat_format", None) == "mistral-instruct":
+            return False
+        try:
+            self._llama.create_chat_completion(
+                messages=[{"role": "system", "content": "Reply."}, {"role": "user", "content": "Hi."}],
+                max_tokens=1, temperature=0.0)
+        except ValueError:
+            return False
+        return True
+
+    def layout(self, messages: list[dict]) -> list[dict]:
+        """Rewrite any message list into a shape every chat template accepts: an optional system turn (only if the
+        template supports one) followed by exactly one user turn. Our callers only send system text, context and a
+        user request, so nothing is lost: context that arrives as assistant turns is folded into the user text."""
+        system = "\n\n".join(m["content"] for m in messages if m["role"] == "system" and m["content"])
+        context = " ".join(m["content"] for m in messages if m["role"] == "assistant" and m["content"])
+        user = "\n\n".join(m["content"] for m in messages if m["role"] == "user" and m["content"])
+        if context:
+            user = f"Recent context: {context}\n\n{user}"
+        if system and self.system_role:
+            return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        return [{"role": "user", "content": f"{system}\n\n{user}" if system else user}]
 
     def check_grammar(self, grammar: str) -> None:
         """Parse a GBNF grammar with llama.cpp itself before sampling with it.
@@ -136,7 +176,7 @@ class LocalLlama:
                 self.check_grammar(grammar)
             compiled = self._grammar_type.from_string(grammar, verbose=False)
         with self._lock:
-            out = self._llama.create_chat_completion(messages=messages, temperature=temperature,
+            out = self._llama.create_chat_completion(messages=self.layout(messages), temperature=temperature,
                                                      max_tokens=max_tokens, grammar=compiled, seed=seed)
         return (out["choices"][0]["message"]["content"] or "").strip()
 
@@ -185,10 +225,9 @@ class LocalVoice:
     def speak(self, req: DialogueRequest) -> str:
         user = ("(The player has said nothing to you. Act on your own agenda.)" if req.unprompted
                 else f"{req.player_name} says: {req.player_text}")
-        messages = [{"role": "system", "content": req.system_prompt}]
         if req.history:
-            messages.append({"role": "assistant", "content": " ".join(req.history[-2:])})
-        messages.append({"role": "user", "content": user})
+            user = f"Recent narration (context only): {' '.join(req.history[-2:])}\n\n{user}"
+        messages = [{"role": "system", "content": req.system_prompt}, {"role": "user", "content": user}]
         try:
             out = clean_text(self.llm.chat(messages, temperature=self.temperature, max_tokens=90)).strip('"')
         except GENERATION_ERRORS as e:

@@ -2,9 +2,9 @@
 
 from .grammar import SensoryParseError, build_sensory_gbnf, parse_sensory_json, sanitize_id
 from .heuristic import HeuristicTransducer
-from .state import DEFAULT_APPROACH, NPC_CHANNELS, Intent, SensoryState
+from .state import DEFAULT_STAT, NPC_CHANNELS, Intent, SensoryState
 
 __all__ = [
     "SensoryParseError", "build_sensory_gbnf", "parse_sensory_json", "sanitize_id",
-    "HeuristicTransducer", "DEFAULT_APPROACH", "NPC_CHANNELS", "Intent", "SensoryState",
+    "HeuristicTransducer", "DEFAULT_STAT", "NPC_CHANNELS", "Intent", "SensoryState",
 ]

@@ -5,10 +5,8 @@
     {
       "id": "breacher",
       "ability": "Once per trial, ignore a Panic result.",
-      "aspiration": "Earn your way back into the Hush, or bring it down for sending you in blind.",
       "bond": "You have told the story so often you almost believe it: that you fought. You did not. When the squad went through the hatch you froze, and when you finally followed there was only the TOME, waiting, and it already knew your name.",
       "bond_question": "Why did the TOME spare you and not them?",
-      "faction": "hush",
       "gear_helps": "Rifle: ranged (Grace). Armor: Guard.",
       "grace": 2,
       "how_it_came": "It was your squad's objective. You are the only one who walked out.",
@@ -25,15 +23,17 @@
       "tag": "soldier",
       "talent": "Fighting and forcing entry",
       "talent_covers": "Hostile (fighting)",
+      "typical_tie": {
+        "aspiration": "Earn your way back into the Hush, or bring it down for sending you in blind.",
+        "faction": "hush"
+      },
       "wits": 1
     },
     {
       "id": "archivist",
       "ability": "Study: while the Archivist is in a chapter, its Depth is 1 lower (never below 1).",
-      "aspiration": "Be the first of the Stratum to read the glyphs, or publish everything the Stratum buried.",
       "bond": "You have spent your life reading the dead: their walls, their tools, their graves. The TOME is the first thing you ever dug up that read you back, and you have not slept well since.",
       "bond_question": "What was written beside it, and why have you told no one?",
-      "faction": "stratum",
       "gear_helps": "Scanner: Relic and Hazard, +1 die, spends a Use.",
       "grace": 2,
       "how_it_came": "You excavated it from a vault older than the planet's crust.",
@@ -50,15 +50,18 @@
       "tag": "scientist",
       "talent": "Reading glyphs, ruins, data and hazards",
       "talent_covers": "Relic and Hazard",
+      "typical_tie": {
+        "aspiration": "Be the first of the Stratum to read the glyphs, or publish everything the Stratum buried.",
+        "faction": "stratum"
+      },
       "wits": 3
     },
     {
       "id": "vessel",
       "ability": "The TOME runs through you: when you would Panic, remove 1 Lumen die instead. In the Crucible, or once the Lumen is out, a would-be Panic costs your next action instead. Panic results 9 and 11 still apply, as glitches in your code. Medkits do not work on you; repair kits do.",
-      "aspiration": "Find whoever wrote the instruction, or prove you no longer need one.",
       "bond": "You have one instruction, carry it, and no memory of choosing it. Every time you want something for yourself, you wonder whether the wanting is a fault in your code, and whether the TOME put it there.",
       "bond_question": "What does the TOME call you, and why does it hurt?",
-      "faction": "maker",
+      "drive": "Find whoever wrote the instruction, or prove you no longer need one.",
       "gear_helps": "Tool-arm: melee (Might). Internal battery: Relic, +1 die, spends a Use.",
       "grace": 2,
       "how_it_came": "You were built to carry it. You do not remember who built you.",
@@ -75,15 +78,14 @@
       "tag": "android",
       "talent": "Machines, hazards and the TOME",
       "talent_covers": "Relic and Hazard",
+      "typical_tie": null,
       "wits": 3
     },
     {
       "id": "hauler",
       "ability": "Once per trial, repair any broken item to 1 Use.",
-      "aspiration": "Get back on the Lanes with your name clean, or finish the delivery and learn what you were really carrying.",
       "bond": "You only ever wanted the job done and the pay sent home. You opened the crate because you were tired, curious and alone on a long haul. You have not been home since, and you are no longer sure the people there would know you.",
       "bond_question": "Who was supposed to receive it, and are they still waiting?",
-      "faction": "lanes",
       "gear_helps": "Cutting torch: melee (Might). Toolbelt: Hazard and Relic, +1 die, spends a Use.",
       "grace": 1,
       "how_it_came": "It was cargo marked DO NOT OPEN. You opened it.",
@@ -100,15 +102,17 @@
       "tag": "teamster",
       "talent": "Repair, lifting, piloting heavy craft",
       "talent_covers": "Hazard",
+      "typical_tie": {
+        "aspiration": "Get back on the Lanes with your name clean, or finish the delivery and learn what you were really carrying.",
+        "faction": "lanes"
+      },
       "wits": 2
     },
     {
       "id": "pilgrim",
       "ability": "When you Panic, you may instead take 1 Harm and feel nothing.",
-      "aspiration": "Reach the Last Altar and be proven right, or come home and tell the Choir what it is really worshipping.",
       "bond": "You prayed every night of your life to be chosen. Now you have been, and the voice that answers is colder than the one you prayed to. You carry it anyway, because doubting it would mean every prayer was wasted.",
       "bond_question": "What will happen at the Last Altar, and do you want it?",
-      "faction": "choir",
       "gear_helps": "Relic blade: melee (Might). Prayer cords: Witness, +1 die, spends a Use.",
       "grace": 2,
       "how_it_came": "Your order chose you to carry it to the Last Altar.",
@@ -125,15 +129,17 @@
       "tag": "devout",
       "talent": "Faith, endurance, hazards, resisting the TOME's voice",
       "talent_covers": "Witness and Hazard",
+      "typical_tie": {
+        "aspiration": "Reach the Last Altar and be proven right, or come home and tell the Choir what it is really worshipping.",
+        "faction": "choir"
+      },
       "wits": 2
     },
     {
       "id": "fence",
       "ability": "Once per trial, declare you already had the item you need, if it is small.",
-      "aspiration": "Pay off the buyer and fly free, or become the one who sets the price on slabs.",
       "bond": "You have sold a thousand things without wanting any of them. That was the trick: never care. Then the TOME came across your counter, the buyer had already paid, and for the first time in your life you could not let go.",
       "bond_question": "Who paid for it, and what did they do to the last person who cheated them?",
-      "faction": "market",
       "gear_helps": "Pistol: ranged (Grace). Lockpicks: Relic, +1 die, spends a Use.",
       "grace": 3,
       "how_it_came": "You stole it. Whoever owned it wants it back.",
@@ -150,6 +156,10 @@
       "tag": "smuggler",
       "talent": "Stealth, theft, lying",
       "talent_covers": "Hostile (hiding) and Witness",
+      "typical_tie": {
+        "aspiration": "Pay off the buyer and fly free, or become the one who sets the price on slabs.",
+        "faction": "market"
+      },
       "wits": 2
     }
   ]

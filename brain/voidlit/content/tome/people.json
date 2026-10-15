@@ -150,8 +150,9 @@
         }
       ],
       "color": "#ffb347",
+      "faction": "hush",
       "name": "Marcus Hale",
-      "notes": "From The Voidlit Tome app.",
+      "notes": "From The Voidlit Tome app. Faction mark: the Hush (ex-Hush warden, a mirror for the Breacher), suggested by the lore thread. Pending Steven's OK (ties rework, 2026-10-15).",
       "numeric_id": 2,
       "order": 2,
       "persona": "The station's warden. Believes everyone left alive is Hymn-touched, himself included. Clipped, paranoid, decent underneath, armed.",

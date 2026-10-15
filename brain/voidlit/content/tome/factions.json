@@ -4,6 +4,11 @@
   "entries": [
     {
       "id": "hush",
+      "aspirations": [
+        "Earn your way back in.",
+        "Make them admit what they sent you into.",
+        "Find out what the Hush does with the slabs it recovers."
+      ],
       "description": "An outfit that boards silent ships, recovers or destroys what is aboard, and keeps it quiet. Nobody agrees whether the Hush is a company, a navy or something older.",
       "name": "the Hush",
       "notes": "The game's recurring hunter. Knows what to do with survivors.",
@@ -13,6 +18,11 @@
     },
     {
       "id": "stratum",
+      "aspirations": [
+        "Be the first to read the glyphs.",
+        "Publish what the Stratum buried.",
+        "Keep a dig, and the people on it, alive."
+      ],
       "description": "A survey charter that digs the ancient ruins and catalogs glyphs nobody can read. Knows more than it admits.",
       "name": "the Stratum",
       "notes": "Relic Leaves can carry a Stratum seal.",
@@ -22,6 +32,11 @@
     },
     {
       "id": "lanes",
+      "aspirations": [
+        "Get back on the Lanes with your name clean.",
+        "Finish a delivery that was never finished.",
+        "Pay a crew back for what you cost them."
+      ],
       "description": "A haulers' union whose crews know every Haven on the old trade routes. Ordinary freight lines carry slabs without knowing.",
       "name": "the Lanes",
       "notes": "",
@@ -31,6 +46,11 @@
     },
     {
       "id": "choir",
+      "aspirations": [
+        "Reach the Last Altar.",
+        "Tell the Choir what it is really worshipping.",
+        "Bring someone home from the order."
+      ],
       "description": "One of the cults that speak of black books that answer prayers. It waited generations for a book to answer, and has never seen the Last Altar it sends Pilgrims to.",
       "name": "the Choir",
       "notes": "",
@@ -40,21 +60,17 @@
     },
     {
       "id": "market",
+      "aspirations": [
+        "Pay off a debt and fly free.",
+        "Set the price on slabs.",
+        "Find who is buying slabs, and why."
+      ],
       "description": "The black market where slabs change hands. Links to the Hauler's quiet trade.",
       "name": "the market",
       "notes": "",
       "order": 5,
       "status": "placeholder",
       "summary": "The black market where slabs change hands."
-    },
-    {
-      "id": "maker",
-      "description": "Whoever wrote the Vessel's one instruction. Each hidden Agenda can explain who it was.",
-      "name": "your maker",
-      "notes": "Deliberately unnamed.",
-      "order": 6,
-      "status": "placeholder",
-      "summary": "Whoever wrote the Vessel's instruction. Unknown by design."
     }
   ]
 }

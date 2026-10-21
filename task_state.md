@@ -66,7 +66,14 @@ contradiction**. Copies are in the session scratchpad (`upload/aura_engine.js`, 
 committed.
 - [x] Read both sources; wrote the spec package to the scratchpad.
 - [ ] Reconciliation workflow (run the spec gates, audit AURA-X, map against the build, skeptic pass).
-- [ ] Ask the user about the confirmed contradictions.
+- [x] User decisions (2026-10-21):
+  - **Truth:** the Tome may *omit* important details until the player asks (lying by omission) and may make
+    self-serving suggestions framed as helping the player, or as having no other choice. It still never states a
+    falsehood about a resolved fact. (My reading; confirm if a case is unclear.)
+  - **Voice:** AURA-X *is* the Tome; drop the name. Its readouts show how the player's choices change the Tome's
+    opinion of them and its mood. Prose stays diegetic.
+  - **Stack:** "a little bit of each", following my suggestion. Hybridize everything into one complex, novel network.
+- [ ] Ask about any further contradictions the workflow confirms (not covered by the decisions above).
 - [ ] Implement the compatible merges plus the chosen paths, with honest tests; commit and push to the work branch.
 
 ## Next immediate action

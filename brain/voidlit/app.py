@@ -24,12 +24,20 @@ def load_models(model: str | Path | None = None, senses_model: str | Path | None
 
 def build_engine(seed: int = 0, background: str | None = None, name: str = "Wanderer",
                  scenario: str = "hollow_lantern", voice_llm: ChatModel | None = None,
-                 senses_llm: ChatModel | None = None) -> tuple[TomeEngine, bool]:
-    """Returns (engine, llm_in_use). Without models the game runs fully offline."""
+                 senses_llm: ChatModel | None = None, brain: str = "net") -> tuple[TomeEngine, bool]:
+    """Returns (engine, llm_in_use). Without models the game runs fully offline.
+
+    ``brain="net"`` (the default) runs the Tome's one spiking network; ``"director"`` runs the classic rules engine
+    whose beats come from the stand-alone Director SNN (faster to start, used for tests and comparisons)."""
     sc = load_scenario(scenario)
     offline = OfflineVoice(sc.narration, seed=seed)
     transducer = LocalTransducer(senses_llm) if senses_llm is not None else None
     voice = LocalVoice(voice_llm, offline) if voice_llm is not None else offline
-    engine = TomeEngine(sc, transducer=transducer, voice=voice, seed=seed, background=background,
-                        player_name=name)
+    if brain not in ("net", "director"):
+        raise ValueError(f"unknown brain {brain!r}: use 'net' or 'director'")
+    cls = TomeEngine
+    if brain == "net":
+        from .tome.net_engine import TomeNetEngine
+        cls = TomeNetEngine
+    engine = cls(sc, transducer=transducer, voice=voice, seed=seed, background=background, player_name=name)
     return engine, voice_llm is not None or senses_llm is not None

@@ -33,7 +33,8 @@ class Streams:
         key = self._keys.get(stream)
         if key is None:
             key = self._keys[stream] = _key(self.seed, self.partition, stream)
-        return np.random.Generator(np.random.Philox(key=key, counter=[int(tick), 0, 0, 0]))
+        # the tick goes in a high counter word: drawing advances the lowest word, so ticks never share draws
+        return np.random.Generator(np.random.Philox(key=key, counter=[0, 0, int(tick), 0]))
 
     def normal(self, stream: str, tick: int, shape) -> np.ndarray:
         return self.gen(stream, tick).standard_normal(shape, dtype=np.float32)

@@ -17,6 +17,7 @@ from .jaxpart import network as NW
 from .jaxpart import params as PR
 
 ANATOMY_SEED = 0   # the Tome's wiring is the same in every game; the run seed only keys its noise
+MAX_W = 4          # the JAX loop is compiled once for windows of up to MAX_W ms
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class BusEdge:
     comp: int
     w: float
     delay: int
+    src_range: tuple[int, int] | None = None     # only these rows of the source (topographic projections)
 
 
 class Partition:
@@ -60,16 +62,25 @@ class JaxPartition(Partition):
 
     name = "jax"
 
+    GRADED = {"J.nm": 4}      # graded bus rows: the four neuromodulator concentrations
+
     def __init__(self, run_seed: int, edges: list[BusEdge] = (), outputs: dict[str, str | list[str]] | None = None,
-                 flags: dict | None = None, net: NW.Net | None = None) -> None:
+                 flags: dict | None = None, net: NW.Net | None = None, graded: tuple[str, ...] = ()) -> None:
         import jax
 
         self.net = net or NW.build(seed=ANATOMY_SEED)
-        self.window = NW.make_window(self.net, flags=flags)
+        self.window = NW.make_window(self.net, flags=flags, max_w=MAX_W)
         self.state = NW.init_state(self.net, jax.random.PRNGKey(run_seed))
         self.out_idx = {name: self._cells(spec) for name, spec in (outputs or {}).items()}
         self.outputs = {name: len(idx) for name, idx in self.out_idx.items()}
-        self.edges = [self._compile(e) for e in edges]
+        self.graded = tuple(graded)
+        self.outputs.update({g: self.GRADED[g] for g in self.graded})
+        groups: dict[tuple[str, int], object] = {}
+        for e in edges:                      # one sparse matrix per (source, delay): all its projections summed
+            e, mat = self._compile(e)
+            key = (e.src, e.delay)
+            groups[key] = mat if key not in groups else groups[key] + mat
+        self.edges = [(src, delay, mat.T.tocsr()) for (src, delay), mat in groups.items()]
         self.ext_fn = None          # optional (t0, W) -> ext currents [W, N]
         self.glucose = 1.0
 
@@ -78,38 +89,53 @@ class JaxPartition(Partition):
         return np.concatenate([np.arange(self.net.idx(n).start, self.net.idx(n).stop) for n in names])
 
     def _compile(self, e: BusEdge):
-        rng = np.random.default_rng(int.from_bytes(hashlib.sha256(f"{e.src}>{e.dst}".encode()).digest()[:4], "little"))
+        tag = f"{e.src}{e.src_range}>{e.dst}".encode()
+        rng = np.random.default_rng(int.from_bytes(hashlib.sha256(tag).digest()[:4], "little"))
         rows, slots, ws = [], [], []
+        lo, hi = e.src_range or (0, e.src_width)
         for post in self._cells(e.dst):
-            for pre in rng.choice(e.src_width, size=min(e.K, e.src_width), replace=False):
+            for pre in lo + rng.choice(hi - lo, size=min(e.K, hi - lo), replace=False):
                 jitter = rng.uniform(0.7, 1.3)
                 for r in e.recs:
                     rows.append(pre)
                     slots.append(self.net.slot(int(post), e.comp, r))
                     ws.append(e.w * jitter * (0.5 if r == PR.NMDA else 1.0))
-        return e, np.array(rows), np.array(slots), np.array(ws, np.float32)
+        from scipy import sparse
+        # one sparse matrix per projection: source line -> receptor slot (duplicate entries sum)
+        mat = sparse.csr_matrix((np.array(ws, np.float32), (np.array(rows), np.array(slots))),
+                                shape=(e.src_width, self.net.n_slot + 1))
+        return e, mat
 
     def gather(self, bus: SpikeBus, t0: int, W: int) -> np.ndarray:
+        """Bus conductance per receptor slot for each tick of the window (each tick's column is summed in the same
+        order whatever W is, so windowed and lockstep runs agree bitwise)."""
         g = np.zeros((W, self.net.n_slot + 1), np.float32)
-        for e, rows, slots, ws in self.edges:
-            arriving = bus.read(e.src, t0, W, e.delay)
-            contrib = arriving[:, rows] * ws
-            for t in range(W):
-                g[t] += np.bincount(slots, weights=contrib[t], minlength=self.net.n_slot + 1).astype(np.float32)
-        return g
+        for src, delay, matT in self.edges:
+            arriving = bus.read(src, t0, W, delay)
+            for t in np.flatnonzero(arriving.any(1)):
+                g[t] += matT @ arriving[t]        # always the single-vector product: scipy's multi-vector kernel
+        return g                                  # sums in another order, which would break W=4 == W=1
 
     def dispatch(self, bus: SpikeBus, t0: int, W: int):
         import jax.numpy as jnp
 
-        ext = self.ext_fn(t0, W) if self.ext_fn else np.zeros((W, self.net.n), np.float32)
-        gbus = self.gather(bus, t0, W)
-        self.state, (s, _) = self.window(self.state, jnp.asarray(ext), self.glucose, None, jnp.asarray(gbus))
-        return s                      # still computing; np.asarray() joins
+        if W > MAX_W:
+            raise ValueError(f"window {W} ms exceeds the compiled maximum of {MAX_W}")
+        ext = np.zeros((MAX_W, self.net.n), np.float32)
+        if self.ext_fn:
+            ext[:W] = self.ext_fn(t0, W)
+        gbus = np.zeros((MAX_W, self.net.n_slot + 1), np.float32)
+        gbus[:W] = self.gather(bus, t0, W)
+        self.state, s, probe = self.window(self.state, jnp.asarray(ext), self.glucose, jnp.asarray(gbus), W)
+        return s, probe, W            # still computing; np.asarray() joins
 
     def finish(self, pending) -> dict[str, np.ndarray]:
-        s = np.asarray(pending)
+        s, probe = np.asarray(pending[0])[:pending[2]], np.asarray(pending[1])[:pending[2]]
         self.last = s
-        return {name: s[:, idx] for name, idx in self.out_idx.items()}
+        out = {name: s[:, idx] for name, idx in self.out_idx.items()}
+        if "J.nm" in self.graded:
+            out["J.nm"] = probe[:, 2:6]
+        return out
 
     def step(self, bus: SpikeBus, t0: int, W: int) -> dict[str, np.ndarray]:
         return self.finish(self.dispatch(bus, t0, W))

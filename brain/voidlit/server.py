@@ -37,12 +37,13 @@ MAX_INPUT = 2000
 
 class TomeSession:
     def __init__(self, ws: ServerConnection, voice_llm: ChatModel | None, senses_llm: ChatModel | None,
-                 save_root: Path, debug: bool) -> None:
+                 save_root: Path, debug: bool, brain: str = "net") -> None:
         self.ws = ws
         self.voice_llm = voice_llm
         self.senses_llm = senses_llm
         self.save_root = save_root
         self.debug = debug
+        self.brain = brain
         self.engine = None
         self.lock = asyncio.Lock()
 
@@ -56,7 +57,7 @@ class TomeSession:
         engine, llm = await asyncio.to_thread(
             build_engine, int(options.get("seed", 0)), options.get("background"),
             str(options.get("name", "Wanderer"))[:32], options.get("scenario", "hollow_lantern"),
-            self.voice_llm, self.senses_llm,
+            self.voice_llm, self.senses_llm, self.brain,
         )
         self.engine = engine
         await self.send({
@@ -119,14 +120,14 @@ def ensure_loopback(host: str) -> None:
 
 async def run_server(host: str = "127.0.0.1", port: int = 8765, voice_llm: ChatModel | None = None,
                      senses_llm: ChatModel | None = None, save_root: str | Path = "saves", debug: bool = False,
-                     ready: asyncio.Event | None = None) -> None:
+                     ready: asyncio.Event | None = None, brain: str = "net") -> None:
     ensure_loopback(host)
     if debug:
         require_dev("--debug")
     root = Path(save_root)
 
     async def handler(ws: ServerConnection) -> None:
-        session = TomeSession(ws, voice_llm, senses_llm, root, debug)
+        session = TomeSession(ws, voice_llm, senses_llm, root, debug, brain)
         try:
             async for raw in ws:
                 try:

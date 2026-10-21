@@ -219,6 +219,7 @@ class TomeEngine:
             return self._frame([text_block("system", "The Tome is closed. Begin a new run.")], Turn(text=text))
         t = Turn(text=text, checks_from=len(self.checks.records))
         t.sensory = self.transducer.extract(text, self._targets())
+        self._before_act(t)
         st.turn += 1
         st.chapter_turns += 1
         st.since_threat += 1
@@ -777,7 +778,7 @@ class TomeEngine:
     def _beat(self, t: Turn) -> None:
         st = self.state
         allowed = self._allowed_beats(spoke=bool(t.npc_lines))
-        beat, probs = self.director.choose(self._features(t), self.rng, allowed)
+        beat, probs = self._choose_beat(t, allowed)
         t.beat, t.beat_probs = beat, probs
         if beat in TOME_BEAT_CHECKS:
             attr, against = TOME_BEAT_CHECKS[beat]
@@ -817,6 +818,13 @@ class TomeEngine:
         elif beat is Beat.ADVANCE:
             t.beat_fact = self.chapter.exit_text
             t.beat_note = "Draw the player's eye to the way onward; this place has nothing more to give."
+
+    def _before_act(self, t: Turn) -> None:
+        """Hook: runs after the senses read the input and before the rules resolve it."""
+
+    def _choose_beat(self, t: Turn, allowed: set[Beat]) -> tuple[Beat, dict[str, float]]:
+        """The Director samples a beat from its pacing distribution (the Tome's network overrides this)."""
+        return self.director.choose(self._features(t), self.rng, allowed)
 
     def _beat_fizzles(self, t: Turn, beat: Beat) -> None:
         """The Tome reached for something and missed. The player only ever sees a quieter moment."""

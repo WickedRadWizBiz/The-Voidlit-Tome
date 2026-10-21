@@ -137,6 +137,7 @@ ASSEMBLIES: dict[str, tuple[str, int, int]] = {
     "P.bend": ("P.L5ET", 56, 72),
     **{f"P.counter{i}": ("P.L5IT", 24 + 4 * i, 28 + 4 * i) for i in range(12)},
     **{f"P.vavl{i}": ("P.MTX", 4 * i, 4 * i + 4) for i in range(18)},
+    "CA1.ctx": ("CA1", 0, 32),            # the CA1 lines that reach the striatum
 }
 
 # ------------------------------------------------------------------ connectome

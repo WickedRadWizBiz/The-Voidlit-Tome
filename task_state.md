@@ -132,11 +132,14 @@ committed.
       §20 (CV2, fitted background SD, v_ER 2.0, Vogels eta 0.01, stable chaos, chunked delivery).
 - [x] **M1 (done):** `tomebrain/bus.py`, `rng.py`, `partition.py`, `clock.py`, `persist.py`; G6a-e, G7, G22 pass.
       The anatomy seed is fixed (`ANATOMY_SEED`); the run seed keys noise only.
-- [ ] Next: M3 SJ habit + fused BG + race (G10), M4 nuclei/energy/BN
-      amygdala/needs/RPE (G3b, G23, G24), M5 ledger/truth guard/VoiceStyle (G11, G12), M6 cerebellum/upper hand
+- [x] **M3 (done):** `tomebrain/sjpart/` (habit = Director prior, fused BG, three-factor + tags), `brain.py`
+      (TomeBrain: Phase A/B, race commit), `tome/net_engine.py` (TomeNetEngine, now the default `--brain net`).
+      G10a/b pass; W-invariance on the real brain; ~293 ms/turn median. Departures in design §20.
+- [ ] Next: M4 nuclei/energy/BN amygdala/needs/RPE + the quiet interval Q (G3b, G23, G24), M5 ledger/truth guard/VoiceStyle (G11, G12), M6 cerebellum/upper hand
       (G20), M7 ToM/Witness/counters (G18, G19, G15).
 - [ ] M8 corruption (NPC + player tiers, Rune, `resist` message, Unreal tap + CLI Enter).
 
 ## Next immediate action
-M3: SpikingJelly habit cortex (the Director prior, 16 clock ms), fused BG population (3 loops, VS critic, 3-factor
-+ tags), race-to-threshold commit on P VA/VL; gates G10a-c. Then a `TomeNetEngine` so the network picks the beats.
+Check G10c (balance, `pytest -m balance tests/tomebrain/test_g10c_game.py`), commit M3. Then M4: BindsNET
+amygdala partition, VTA reward current and RPE (G24), needs/drive/desperation readouts (G23), energy G3b, the quiet
+interval Q, and the Tome's check modifiers from the network (replace `TomeEngine.tome_mods` provisional values).

@@ -1879,3 +1879,43 @@ different connectome; both hold only if the anatomy does not depend on the run s
 anatomy; its experience (plastic state, glia, energy, noise) is what differs. Partitions save the seeds of their
 noise streams, so loading restores the run seed too.
 
+
+### M3: the network chooses the beats (done)
+
+`tomebrain/sjpart/` holds the SpikingJelly partition: `nodes.py` (a per-neuron LIF node), `habit.py` (the
+unchanged Director, run exactly as trained on 16 clock ms of Philox-keyed Poisson spikes, driving 32 habit cells) and
+`basal_ganglia.py` (one fused population of 894 neurons: D1/D2, FSI, GPe, STN, GPi in three loops of 8 + 6 + 4
+channels, and the ventral-striatum critic, with three-factor learning on synaptic tags). `tomebrain/brain.py`
+(`TomeBrain`) runs Phase A, then Phase B with the race-to-threshold readout on the JAX VA/VL cells.
+`tome/net_engine.py` (`TomeNetEngine`) overrides only the beat choice and saves the brain with the campaign. It is now
+the default (`--brain net`; `--brain director` keeps the classic engine).
+
+| Gate | Result |
+|---|---|
+| G10a | 150 races: winner = argmax over allowed beats of (log p + Gumbel) in ≥ 85%, chosen log p within 0.15 of exact sampling, fallback ≤ 5% (a 100-trial check gave 91%, 0%, 0.11). With masks a forbidden beat never commits. Mutant without the Gumbel term: the race takes the argmax and the log-p test fails. |
+| G10b | KL(network beat histogram ‖ teacher) ≤ 0.15 over 300 sampled states |
+| G10c | balance marker, see the result below |
+| G6b on the real brain | W = 4 and W = 1 give identical commits and an identical state digest |
+| speed | a smart-bot game: median 293 ms per turn, p95 455 ms (the hard limit is 500) |
+
+Departures and fixes, each found by measurement:
+
+1. **Stronger thalamic gate.** GPi → VA/VL is 12 nS (design 2.5) and VA/VL get +220 pA. With 2.5 nS a released
+   channel's VA/VL either stayed silent or every channel fired.
+2. **MSN collateral inhibition** between the channels of a loop (0.5 per spike) makes the race winner-take-all;
+   **hyperdirect gain 0.5** (design 1.5), because at 1.5 the winner's GPi stayed at about 25% and its thalamus never
+   fired (8% fallbacks).
+3. **The Gumbel excitability ramps with the habit trace** (1 − e^{−t/20 ms}). At full strength from t = 0 it decided
+   races before the prior arrived (hits fell to about 70%). The four habit cells of a beat start a quarter-cycle apart,
+   and every decision starts with the MSNs in their down-state (no head start for the last winner).
+4. **Dopamine is read against its own running tonic level** (6 s of brain time) and only bursts or dips beyond 25%
+   teach. Comparing it with a fixed "rest" value gave a constant positive error that inflated every tagged synapse;
+   after about 100 turns the race was at chance (17%).
+5. **Fallback tie-break**: when no VA/VL fired, the channel with the most suppressed GPi wins, not the first in list
+   order (which had biased fallbacks toward calm).
+6. **Determinism fixes found by the window-invariance gate**: the Philox tick now lives in a high counter word
+   (ticks shared draws before); the JAX loop is compiled once with a dynamic trip count (XLA inlined a one-step scan
+   differently from a four-step one); sparse bus products always use the single-vector kernel.
+7. Not yet built: Daw arbitration (κ_h = 1 until the cerebellum exists, M6), the quiet interval Q (M4), and meaning
+   for the RHETORIC and FRAME loops (they race and are recorded, but nothing uses them before M5). The thalamic
+   encoder is minimal: Director features to S, senses to T, body to I.

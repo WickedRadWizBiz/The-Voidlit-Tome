@@ -353,11 +353,12 @@ def mg_block(v):
 
 
 def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: dict | None = None,
-                record: bool = False):
+                record: bool = False, max_w: int | None = None):
     """Return a jitted ``window(state, ext[W, N], glucose, gclamp=None, gbus=None)``
     -> ``(state, (spikes[W, N], probe[W, 2]))``. ``gbus[W, n_slot + 1]`` is conductance arriving over the bus.
 
-    ``probe`` holds the mean excitatory and inhibitory conductance (nS) on the L2/3 PCs each ms."""
+    ``probe[W, 6]`` holds, each ms, the mean excitatory and inhibitory conductance (nS) on the L2/3 PCs and the
+    DA, NE, 5-HT and ACh concentrations."""
     import jax
     import jax.numpy as jnp
     from jax import lax
@@ -586,7 +587,8 @@ def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: di
         st = dict(st, nm=nm * nm_k + 0.05 * src_spk, t=t + 1)
         # probe: mean excitatory and inhibitory synaptic conductance on the L2/3 PCs (all compartments)
         G3 = G[o3:o2].reshape(n3, 3, PR.N_REC)
-        probe = jnp.stack([G3[..., :2].sum((1, 2)).mean(), G3[..., 2:].sum((1, 2)).mean()])
+        probe = jnp.concatenate([jnp.stack([G3[..., :2].sum((1, 2)).mean(), G3[..., 2:].sum((1, 2)).mean()]),
+                                 st["nm"]])
         if record:   # per-ms soma voltage and peak tuft voltage of the L2/3 cells (cell-level gates)
             return st, (s, probe, jnp.stack([st["V"][:n3], va_max]))
         return st, (s, probe)
@@ -599,7 +601,25 @@ def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: di
             gbus = jnp.zeros((W, n_slot + 1), f)
         return lax.scan(ms_step, st, (ext, jnp.full((W,), glucose, f), gclamp, gbus))
 
-    return jax.jit(window)
+    if max_w is None:
+        return jax.jit(window)
+
+    def window_n(st, ext, glucose, gbus, n_ms):
+        """The first ``n_ms`` <= max_w ms of padded [max_w, ...] inputs, with a dynamic trip count: one compiled
+        loop for every window size, so W = 1 and W = 4 execute identical machine code (gate G6b)."""
+        g = jnp.asarray(glucose, f)
+        z = jnp.zeros(n3, f)
+        out_s = jnp.zeros((max_w, n), f)
+        out_p = jnp.zeros((max_w, 6), f)
+
+        def body(i, carry):
+            st, out_s, out_p = carry
+            st, outs = ms_step(st, (ext[i], g, z, gbus[i]))
+            return st, out_s.at[i].set(outs[0]), out_p.at[i].set(outs[1])
+
+        return lax.fori_loop(0, n_ms, body, (st, out_s, out_p))
+
+    return jax.jit(window_n)
 
 
 _OWNER_CACHE: dict = {}

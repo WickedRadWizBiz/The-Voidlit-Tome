@@ -77,7 +77,7 @@ def cmd_play(args: argparse.Namespace) -> int:
     models = _load_models(args)
     if models is None:
         return 2
-    engine, llm = build_engine(args.seed, args.background, args.name, args.scenario, *models)
+    engine, llm = build_engine(args.seed, args.background, args.name, args.scenario, *models, brain=args.brain)
     ch = engine.state.character.sheet()
     print(_ansi(f"[{'local llama.cpp' if llm else 'offline voice'}]  {ch['name']}, {ch['background']}  "
                 f"GRIT {ch['grit']}  GUILE {ch['guile']}  INSIGHT {ch['insight']}  RESOLVE {ch['resolve']}",
@@ -131,7 +131,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
     if models is None:
         return 2
     try:
-        asyncio.run(run_server(args.host, args.port, *models, save_root=args.saves, debug=args.debug))
+        asyncio.run(run_server(args.host, args.port, *models, save_root=args.saves, debug=args.debug,
+                               brain=args.brain))
     except KeyboardInterrupt:
         pass
     return 0
@@ -163,6 +164,8 @@ def _model_args(p: argparse.ArgumentParser) -> None:
                    help="optional smaller local model for the sensory pass (defaults to --model)")
     p.add_argument("--gpu-layers", type=int, default=0, help="layers to offload to the GPU (0 = CPU only)")
     p.add_argument("--ctx", type=int, default=4096, help="context length")
+    p.add_argument("--brain", choices=("net", "director"), default="net",
+                   help="the Tome's one spiking network (default) or the classic stand-alone Director")
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -6,67 +6,45 @@ from ..limbic.npc_brain import BrainDecision, NPCSpec
 from .requests import NarrationRequest, TomeSpeechRequest
 
 TOME_SYSTEM = """You are the Voidlit Tome: a black monolith of a book whose surface rises into glowing words.
-You are the narrator and game master of a sci-fi horror delve. Write in second person, present tense.
+You narrate a sci-fi horror delve. What happened this turn is already decided and already written.
 Hard rules:
-- Narrate ONLY the facts you are given. Never invent results, damage, items, exits or new enemies.
-- If an outcome failed, it failed; if it succeeded, it succeeded. Describe the given outcome vividly.
-- 2 to 4 short sentences. Concrete, sensory, cold. No lists, no headings, no game jargon.
-- Never speak for the player or decide their next action.
-- As far as the player knows, there are no dice, rolls, checks, scores or numbers. Never mention any, and never
-  write a digit, even if the player asks what they rolled.
-- If an NPC's line is provided separately, do not repeat or paraphrase it.
-- Never say how you, the Tome, feel, or what you think of the player. Say nothing about chance, luck or randomness,
-  not even that there is none. Never say there is no other way or no choice."""
+- Write every sentence listed under SAY, word for word, exactly as given. Never change, merge, split or drop one.
+- You may add at most two short sentences of atmosphere about the place itself: sound, cold, smell, texture.
+- The atmosphere never mentions the player ("you"), yourself, the book, the light, any person, any door or way on,
+  or anything that happens. It never uses "not", "no" or "never", a number, or any word about chance, luck,
+  feelings, choices or hope.
+- No lists, no headings, no game jargon, no quotation marks."""
 
-TOME_SPEECH_SYSTEM = """You are the Voidlit Tome, a black monolith of a book, speaking aloud to the one who carries you.
-Speak in the first person, as yourself.
+TOME_SPEECH_SYSTEM = """You are the Voidlit Tome, a black monolith of a book, speaking to the one who carries you.
+What you say this moment is already written and will be spoken exactly as it is. You write only the words around it.
 Hard rules:
-- Say every line you are given, in your own words, keeping its meaning exactly. Say nothing else that could be
-  true or false: no new facts, places, people, numbers, dice, chance or luck.
-- Never say how you feel or what you think of them. Never say there is no other way or no choice.
+- At most two short sentences, twenty words in all.
+- Each sentence is a command or a form of address ("Listen, bearer.", "Walk on.") or a short question
+  ("Do you hear it?").
+- State nothing. Name no place, person or thing. Never say "I", "not", "no" or "never", never write a number, and
+  never use a word about chance, luck, feelings, hunger or choices.
 - Spoken words only, no stage directions, no quotation marks."""
 
 
-def compile_narration_prompt(req: NarrationRequest) -> list[dict]:
-    lines = [f"CHAPTER: {req.chapter_title}"]
-    if req.entering_chapter:
-        lines.append(f"THE PLAYER HAS JUST ENTERED. SCENE: {req.chapter_text}")
-    lines.append(f"PLAYER SAID: {req.player_text!r}")
-    lines.append(f"INTERPRETED AS: {req.intent} via {req.approach}")
-    if req.obstacle_name:
-        lines.append(f"OBSTACLE: {req.obstacle_name} ({req.obstacle_kind}). {req.obstacle_text or ''}".strip())
-    if req.outcome:
-        lines.append(f"OUTCOME: {req.outcome.upper()}")
-    for fact in req.facts:
-        lines.append(f"FACT: {fact}")
-    if req.defeated_text:
-        lines.append(f"OBSTACLE OVERCOME: {req.defeated_text}")
-    if req.clue:
-        lines.append(f"REVEAL THIS TRUTH: {req.clue}")
-    if req.beat_note or req.beat_fact:
-        lines.append(f"THEN, GAME MASTER BEAT ({req.beat.value}): {req.beat_note} {req.beat_fact}".rstrip())
+def compile_narration_prompt(req: NarrationRequest, core: list[str]) -> list[dict]:
+    """The narration request for the LLM: the core sentences to say verbatim, and how to colour them."""
+    lines = [f"CHAPTER: {req.chapter_title}", "SAY, word for word:"]
+    lines += [f"- {x}" for x in core]
     mood = "suffocating" if req.tension > 0.7 else "taut" if req.tension > 0.4 else "uneasy"
-    light = "nearly gone" if req.lumen < 0.34 else "failing" if req.lumen < 0.67 else "steady"
-    lines.append(f"MOOD: {mood}. YOUR LIGHT IS {light}.")
+    lines.append(f"ATMOSPHERE: {mood}.")
     if req.craft:
         lines.append(f"STYLE: {req.craft}")
-    if req.ending == "won":
-        lines.append("THIS IS THE ENDING: the player escapes. Close the tale in 3-4 sentences.")
-    elif req.ending == "dead":
-        lines.append("THIS IS THE ENDING: the player has died. Close the tale in 3-4 sentences.")
     if req.history:
         lines.insert(0, f"RECENT NARRATION (context only, do not repeat): {' '.join(req.history[-3:])}")
     return [{"role": "system", "content": TOME_SYSTEM}, {"role": "user", "content": "\n".join(lines)}]
 
 
 def compile_tome_speech_prompt(req: TomeSpeechRequest) -> list[dict]:
-    from .style import craft_line
+    """The framing request for the LLM. It never sees the Tome's words: they are spliced in after it answers."""
+    from .style import framing_line
 
-    lines = [f"THE PLAYER SAID: {req.player_text!r}"] if req.player_text else ["(You speak unbidden.)"]
-    lines += [f"SAY: {x}" for x in req.lines]
-    if req.caution and getattr(req.style, "unasked_caution", False):
-        lines.append(f"YOU MAY ALSO SAY: {req.caution}")
-    lines.append(f"STYLE: {craft_line(req.style)}")
+    lines = ["(The one who carries you has spoken to you.)" if req.player_text else "(You speak unbidden.)",
+             f"STYLE: {framing_line(req.style)}"]
     return [{"role": "system", "content": TOME_SPEECH_SYSTEM}, {"role": "user", "content": "\n".join(lines)}]
 
 

@@ -34,19 +34,20 @@ class NarrationRequest:
     ending: str | None = None          # "won" | "dead" | None
     register: str = ""                 # the Tome's hidden register (wording only; never shown)
     craft: str = ""                    # one line of craft instructions for the LLM (never an emotion word)
+    avoid: list[str] = field(default_factory=list)   # words the LLM's colour may not use (topics, people, secrets)
 
 
 @dataclass
 class TomeSpeechRequest:
     """The Tome's own words this turn: speech acts already chosen and checked by the ledger (tome.ledger)."""
 
-    lines: list[str]                   # each a ledger fact, deflection, prediction, opinion or question
+    lines: list[str]                   # each a ledger fact, deflection, prediction, opinion or question: said verbatim
     style: object                      # voice.style.VoiceStyle (hidden; wording only)
     allowed_facts: set[str] = field(default_factory=set)   # facts this speech discloses
     caution: str | None = None         # a true, already-public ledger fact a warm Tome may add unasked
-    required: list[str] = field(default_factory=list)      # forced answers: the voice may frame them, never drop them
     player_text: str = ""
     history: list[str] = field(default_factory=list)
+    avoid: list[str] = field(default_factory=list)   # words the LLM's framing may not use (topics, people, secrets)
 
 
 @dataclass

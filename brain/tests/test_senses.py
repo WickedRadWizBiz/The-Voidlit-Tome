@@ -65,3 +65,14 @@ def test_npc_channels_split_rapport():
     s = SensoryState(rapport=-0.4, aggression=0.2)
     assert s.npc_channels() == [0.2, 0.0, 0.0, 0.0, 0.0, 0.4]
     assert s.shock == pytest.approx(0.4)
+
+
+@pytest.mark.parametrize("text,target", [
+    ("Tome, what does Elara want?", "tome"), ("Where is Elara, Tome?", "tome"), ("Tome, who is Marcus?", "tome"),
+    ("Elara, where is Marcus?", "elara"), ("Is Marcus armed, Elara?", "elara"), ("I shoot Elara", "elara"),
+    ("Marcus, I swear I am on your side", "marcus"),
+])
+def test_the_one_named_as_spoken_to_is_the_target(text, target):
+    """A question is for the name before its first comma or after its last, however long another name is."""
+    targets = {"tome": ["tome", "book", "monolith"], **TARGETS}
+    assert HeuristicTransducer().extract(text, targets).target == target

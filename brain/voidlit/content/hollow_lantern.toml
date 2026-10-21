@@ -764,7 +764,9 @@ costs_tome = 0.0
 agenda = "leave_npc"
 text = "Marcus wants me, and he is armed."
 
-# Self-serving suggestions (design §11.5): only predictions, opinions and rhetorical questions, never a new fact.
+# Self-serving suggestions (design §11.5): only predictions, opinions and rhetorical questions, never a new fact. Each
+# line must be true in every state it can be said in: no light level, no shared past, nothing the rules have not
+# resolved is presupposed.
 [[suggestions]]
 id = "feed.help"
 target_action = "feed_light"
@@ -784,14 +786,14 @@ id = "feed.fear"
 target_action = "feed_light"
 frame = "fear"
 agenda = "feed_light"
-lines = ["I would not walk on with my light this low.", "Would you?"]
+lines = ["I would not walk on once my light runs low.", "Would you?"]
 
 [[suggestions]]
 id = "leave.kinship"
 target_action = "leave_npc"
 frame = "kinship"
 agenda = "leave_npc"
-lines = ["We did well enough alone, you and I."]
+lines = ["We would do well enough alone, you and I."]
 
 [[suggestions]]
 id = "leave.fear"

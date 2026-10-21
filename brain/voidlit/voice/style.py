@@ -3,7 +3,8 @@
 ``VoiceStyle`` is never serialised into a frame or a protocol message. The register is the nearest centroid in the
 space (P, A, D, bond, contempt, hunger, fear); this mapping is designed, not learned. The style reaches the player
 only as wording: sentence length, form of address, where the useful detail sits, imperatives, fragments. The voice
-never receives an emotion word, and the wrappers the offline voice adds around a line assert nothing.
+never receives an emotion word. The wrappers the offline voice adds around a line assert nothing, and the framing a
+language model writes in their place is held to the same shapes (commands, forms of address, short questions).
 """
 
 from __future__ import annotations
@@ -109,16 +110,22 @@ def _fill(w: str, addr: str | None) -> str:
             .replace(" ,", ",").replace(", .", "."))
 
 
-def render(lines: list[str], style: VoiceStyle, rng: random.Random, caution: str | None = None) -> str:
-    """Wrap the Tome's speech acts (already true, already chosen) in its register. Lines are never altered except
-    for the wounded register's trailing ellipsis."""
-    if not lines:
-        return ""
+def _body(lines: list[str], style: VoiceStyle, caution: str | None) -> list[str]:
+    """The Tome's speech acts as they will be said: never altered except for the wounded register's trailing
+    ellipsis, plus a warm Tome's unasked caution (a true, public fact)."""
     body = list(lines)
     if style.register == "wounded":
         body = [b[:-1] + "..." if b.endswith(".") else b for b in body]
     if caution and style.unasked_caution and caution not in body:
         body.append(caution)
+    return body
+
+
+def render(lines: list[str], style: VoiceStyle, rng: random.Random, caution: str | None = None) -> str:
+    """Wrap the Tome's speech acts (already true, already chosen) in its register."""
+    if not lines:
+        return ""
+    body = _body(lines, style, caution)
     reg = style.register
     p = 0.5 + 0.5 * style.intensity
     lead = [_fill(rng.choice(LEADS[reg]), style.address)] if LEADS[reg] and rng.random() < p else []
@@ -128,17 +135,37 @@ def render(lines: list[str], style: VoiceStyle, rng: random.Random, caution: str
     return " ".join(x for x in parts if x).strip()
 
 
-def craft_line(style: VoiceStyle) -> str:
-    """One line of craft instructions for the LLM voice. It never names an emotion."""
-    lo, hi = style.sentence_len
-    out = [f"Use sentences of {lo} to {hi} words.", f"Put the useful detail {style.detail_position}.",
-           f"{style.answer_len} sentence{'s' if style.answer_len > 1 else ''} beyond what you must say, at most."]
-    if style.address:
-        out.append(f"Call them {style.address}.")
-    if style.imperative_ratio >= 0.3:
-        out.append("End with a short command.")
+def splice(lines: list[str], style: VoiceStyle, framing: str, caution: str | None = None) -> str:
+    """The LLM path: the model's framing (already shape-checked, voice/guard.py) takes the offline wrappers' place
+    around the Tome's speech acts, which are spliced in verbatim. The model decorates; only the rules assert."""
+    if not lines:
+        return ""
+    body = _body(lines, style, caution)
+    parts = body + [framing] if style.detail_position == "first" else [framing] + body
+    return " ".join(x.strip() for x in parts if x and x.strip()).strip()
+
+
+def framing_line(style: VoiceStyle) -> str:
+    """Craft instructions for the framing the LLM may write around the Tome's words. It never names an emotion."""
+    out = [f"Call them {style.address}." if style.address else "Use no name for them.",
+           "A short command." if style.imperative_ratio >= 0.3 else "A short command or a short question."]
     if style.lexicon == "hunger":
-        out.append("Use words of light, warmth and food.")
+        out.append("Ask to be fed.")
+    elif style.lexicon == "ownership":
+        out.append("Speak as one who keeps them.")
+    if style.fragments:
+        out.append("Use fragments.")
+    if style.register == "wounded":
+        out.append("Trail off with an ellipsis.")
+    return " ".join(out)
+
+
+def craft_line(style: VoiceStyle) -> str:
+    """Craft instructions for the colour the LLM may add to a narration. It never names an emotion."""
+    lo, hi = style.sentence_len
+    out = [f"Use sentences of {lo} to {hi} words."]
+    if style.lexicon == "hunger":
+        out.append("Use words of warmth, cold and food.")
     elif style.lexicon == "ownership":
         out.append("Use words of keeping and owning.")
     if style.fragments:
@@ -148,5 +175,5 @@ def craft_line(style: VoiceStyle) -> str:
     return " ".join(out)
 
 
-__all__ = ["VoiceStyle", "style_for", "style_from_mind", "style_from_game", "render", "craft_line", "WRAPPERS",
-           "CENTROIDS"]
+__all__ = ["VoiceStyle", "style_for", "style_from_mind", "style_from_game", "render", "splice", "framing_line",
+           "craft_line", "WRAPPERS", "CENTROIDS"]

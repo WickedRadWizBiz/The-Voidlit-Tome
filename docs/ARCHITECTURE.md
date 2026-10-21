@@ -4,7 +4,7 @@ The Voidlit Tome is a Dungeon Master built from three kinds of machinery, each d
 
 | Layer | Library | Learns | Decides | Never does |
 |---|---|---|---|---|
-| **Rules** (`voidlit/rules`) | plain Python | — | every outcome: dice, harm, stress, light, movement | improvise |
+| **Rules** (`voidlit/rules`) | plain Python | — | every outcome: invisible d20/d6 checks, harm, stress, light, movement | improvise |
 | **Limbic system** (`voidlit/limbic`) | **BindsNET** | online, every turn (R-STDP, structural plasticity) | each NPC's motive and tactic | write words |
 | **Cortex** (`voidlit/cortex`) | **SpikingJelly** | offline (surrogate-gradient BPTT) | the DM's pacing beat | touch the dice |
 | **Transducer / Voice** (`voidlit/voice`) | **llama.cpp**, in-process (llama-cpp-python, local `.gguf`) | — | how things are *said* | decide what happens |
@@ -20,7 +20,7 @@ surface and talks to the brain over a localhost WebSocket ([PROTOCOL.md](PROTOCO
  │ Unreal 5.8   │ ──── input ───────────▶ │ voidlit serve  (Python sidecar)              │
  │ ATomeMonolith│ ◀─── frame ──────────── │                                              │
  └──────────────┘                         │ 1 senses   llama.cpp GBNF pass → SensoryState│
-                                          │ 2 rules    dice pools, obstacles, items      │
+                                          │ 2 rules    hidden checks, obstacles, items   │
                                           │ 3 limbic   BindsNET NPC brains (R-STDP)      │
                                           │ 4 pressure panic, the Lumen gutters          │
                                           │ 5 cortex   SpikingJelly Director → beat      │

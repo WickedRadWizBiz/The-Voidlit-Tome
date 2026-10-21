@@ -96,11 +96,7 @@ void FTomeTypesetter::AppendBlock(const FTomeBlock& Block)
 		AppendWrapped(Block.Spans, 0, 2, false, 1.f);
 		AppendBlank();
 	}
-	else if (Block.Role == TEXT("dice"))
-	{
-		AppendWrapped(Block.Spans, 1, 3, false, 0.9f);
-	}
-	else  // event and anything unknown
+	else  // system and anything unknown
 	{
 		AppendWrapped(Block.Spans, 1, 3, false, 0.8f);
 	}

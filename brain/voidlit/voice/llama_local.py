@@ -26,6 +26,7 @@ from typing import Protocol
 from ..senses.grammar import SensoryParseError, build_sensory_gbnf, parse_sensory_json
 from ..senses.heuristic import HeuristicTransducer
 from ..senses.state import SensoryState
+from .guard import leaks_mechanics
 from .narrator import OfflineVoice
 from .prompts import compile_narration_prompt
 from .requests import DialogueRequest, NarrationRequest
@@ -219,6 +220,9 @@ class LocalVoice:
         except GENERATION_ERRORS as e:
             log.warning("narration fell back to offline voice: %s", e)
             return self.fallback.narrate(req)
+        if out and leaks_mechanics(out):
+            log.warning("narration fell back to offline voice: it named a mechanic or a number")
+            out = ""
         return out or self.fallback.narrate(req)
 
     def speak(self, req: DialogueRequest) -> str:
@@ -232,4 +236,7 @@ class LocalVoice:
         except GENERATION_ERRORS as e:
             log.warning("dialogue fell back to offline voice: %s", e)
             return self.fallback.speak(req)
+        if out and leaks_mechanics(out, allow_digits=True):
+            log.warning("dialogue fell back to offline voice: it named a mechanic")
+            out = ""
         return out or self.fallback.speak(req)

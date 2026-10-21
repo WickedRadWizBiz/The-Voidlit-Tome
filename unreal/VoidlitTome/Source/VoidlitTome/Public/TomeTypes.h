@@ -39,7 +39,7 @@ struct VOIDLITTOME_API FTomeBlock
 {
 	GENERATED_BODY()
 
-	/** title | echo | dice | narration | npc | event | prompt */
+	/** title | echo | narration | npc | prompt | system */
 	UPROPERTY(BlueprintReadOnly, Category = "Tome")
 	FString Role;
 
@@ -57,9 +57,6 @@ struct VOIDLITTOME_API FTomeMood
 
 	UPROPERTY(BlueprintReadOnly, Category = "Tome")
 	float Lumen = 1.f;
-
-	UPROPERTY(BlueprintReadOnly, Category = "Tome")
-	float Tension = 0.f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Tome")
 	float Stress = 0.f;

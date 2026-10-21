@@ -2,7 +2,7 @@
 
 A text-first sci-fi horror RPG whose Dungeon Master is a **monolith**: a dense black slab, like the one in
 *2001: A Space Odyssey*, whose surface is a field of machined voxels. Flush, they vanish into the matte black.
-Raised a millimetre, they glow in brilliant colour and become words, dice and the faces of the things hunting you.
+Raised a millimetre, they glow in brilliant colour and become words and the faces of the things hunting you.
 
 The Tome's mind is a **split brain**:
 
@@ -13,11 +13,17 @@ The Tome's mind is a **split brain**:
   good DM does.
 * **llama.cpp** is only a transducer and a voice, running **in-process from a local `.gguf` file**: no server,
   no URLs, no downloads. A GBNF-locked pass reads your intent and tone; a second pass gives the Tome and its NPCs
-  words. It never decides what happens: the dice do.
+  words. It never decides what happens: the dice do, and you never see them.
 
-The rules are original, in the spirit of **Voidlight**, **Mothership** and **Escape the Dark Sector**: d6 pools
-where 5–6 hit, Stress and Panic, obstacles as rows of approach symbols, a chapter deck that escalates by act, and
-the **Lumen**, a dying light that is both the run's clock and the brightness of the voxels.
+The Tome is being rebuilt as **one hybrid spiking network** (JAX + SpikingJelly + BindsNET on one clock) that
+feels, needs and schemes; it lies only by omission. The design and its validation gates are in
+[docs/TOME_BRAIN_DESIGN.md](docs/TOME_BRAIN_DESIGN.md).
+
+The rules are original, in the spirit of **Voidlight**, **Mothership** and **Escape the Dark Sector**: four
+attributes (Grit, Guile, Insight, Resolve), **invisible** checks for every action by anyone (d20 + modifier for
+direct actions, d6 for passive events), Stress and Panic, a chapter deck that escalates by act, and the **Lumen**, a
+dying light that is both the run's clock and the brightness of the voxels. It is brutal: a sensible player escapes
+about one run in five.
 
 ## Quick start (terminal, no GPU or LLM needed)
 
@@ -26,7 +32,7 @@ cd brain
 pip install torch --index-url https://download.pytorch.org/whl/cpu   # or a CUDA build
 pip install -e ".[dev]"
 python -m voidlit play --background medic --name Ash
-python -m voidlit play --debug          # watch the NPC brains and the Director think
+VOIDLIT_DEV=1 python -m voidlit play --debug   # developers: watch the brains think and every hidden check
 ```
 
 With a local language model (llama.cpp compiled into the brain's own process by llama-cpp-python):
@@ -51,7 +57,7 @@ Then copy `unreal/VoidlitTome` into your project's `Plugins/` folder (see [unrea
 
 ```
 brain/                      Python sidecar: the Tome's mind
-  voidlit/rules/            dice pools, characters, obstacles, panic, Lumen, clocks, sector deck
+  voidlit/rules/            invisible checks, characters, obstacles, panic, Lumen, clocks, sector deck
   voidlit/senses/           SensoryState, per-scene GBNF grammar, offline heuristic transducer
   voidlit/limbic/           BindsNET NPC brains, dendritic nodes, R-STDP, structural plasticity, gossip
   voidlit/cortex/           SpikingJelly Director (+ trained weights) and its pacing teacher

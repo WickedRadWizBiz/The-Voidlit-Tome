@@ -24,7 +24,7 @@ INTENT_CUES: dict[Intent, tuple[str, ...]] = {
     Intent.FORCE: ("force", "pry", "break", "smash", "kick", "lift", "shove", "bash", "ram", "wrench",
                    "cut through", "tear", "climb", "haul", "brace", "jump"),
     Intent.SNEAK: ("sneak", "hide", "slip past", "creep", "tiptoe", "quietly", "pick the lock", "distract",
-                   "steal", "pickpocket", "crawl", "stay low", "shadow", "unseen"),
+                   "steal", "pickpocket", "crawl", "stay low", "shadow", "unseen", "cover", "smother", "shade"),
     Intent.SEARCH: ("search", "examine", "inspect", "analyze", "analyse", "scan", "hack", "investigate",
                     "study", "decode", "check", "listen", "read", "rummage", "loot", "figure out", "trace"),
     Intent.USE: ("use", "activate", "apply", "inject", "light the", "turn on", "plug", "equip", "drink",
@@ -47,12 +47,13 @@ APPROACH_CUES: dict[Approach, tuple[str, ...]] = {
                        "weak point", "weakness", "pattern", "focus"),
 }
 
-AGGRESSION = ("kill", "hurt you", "i'll hurt", "hurt them", "threaten", "shoot", "die", "or else", "gun", "knife", "blade", "shut up",
-              "damn", "destroy", "crush", "break your", "attack", "stab", "punch", "blood", "scream at")
+AGGRESSION = ("kill", "hurt you", "i'll hurt", "hurt them", "threaten", "shoot", "die", "or else", "gun", "knife",
+              "blade", "shut up", "damn", "destroy", "crush", "break your", "break you", "or i will", "or i'll",
+              "attack", "stab", "punch", "blood", "scream at")
 DECEPTION = ("lie", "pretend", "bluff", "trick", "fake", "trust me", "disguise", "mislead", "make up",
-             "fabricate", "claim to be", "i'm from", "i am from", "act like", "pose as")
+             "fabricate", "claim to be", "i'm from", "i am from", "act like", "pose as", "i swear", "honestly")
 LEVERAGE = ("offer", "trade", "pay", "deal", "bargain", "i have", "you need", "unless", "if you",
-            "in exchange", "codes", "key", "ration", "supplies", "favor", "owe")
+            "in exchange", "codes", "key", "ration", "supplies", "favor", "owe", "give you", "i'll give")
 EXPOSURE = ("hiding", "truth", "who sent", "why are you", "you're lying", "you are lying", "admit",
             "i know you", "i saw you", "secret", "betray", "accuse", "what really", "choir", "confess",
             "what happened", "explain yourself")
@@ -99,6 +100,8 @@ class HeuristicTransducer:
         target = self._match_target(low, tokens, targets or {})
         if target != "none" and scores[Intent.TALK] > 0:
             scores[Intent.TALK] += 1.0
+        if target != "none" and self._vocative(low, target, targets or {}):
+            scores[Intent.TALK] += 3.0  # "Elara, ..." / "Tome, ...": words addressed to someone
         best = max(scores.items(), key=lambda kv: kv[1])
         intent = best[0] if best[1] > 0 else (Intent.TALK if target != "none" else Intent.OTHER)
 
@@ -134,6 +137,14 @@ class HeuristicTransducer:
             deception=deception, leverage=leverage, exposure=exposure, rapport=rapport,
             boldness=boldness,
         ).clamped()
+
+    @staticmethod
+    def _vocative(low: str, target: str, targets: Mapping[str, Sequence[str]]) -> bool:
+        head = low.lstrip("\"“' ").split(",", 1)
+        if len(head) < 2:
+            return False
+        names = {target, *(a.lower() for a in targets.get(target, ()))}
+        return head[0].strip().removeprefix("the ") in names
 
     @staticmethod
     def _match_target(low: str, tokens: set[str], targets: Mapping[str, Sequence[str]]) -> str:

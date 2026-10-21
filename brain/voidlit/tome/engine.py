@@ -3,7 +3,7 @@
 One player input runs through this pipeline::
 
     senses     transducer (llama.cpp GBNF pass, or heuristics) -> SensoryState
-    rules      intent + approach -> dice pools, obstacles, harm, stress, items, movement
+    rules      intent + approach -> invisible d20 checks, obstacles, harm, stress, items, movement
     limbic     every NPC in the scene perceives (BindsNET, R-STDP); the addressed one answers
     pressure   panic checks, the Lumen gutters
     cortex     the Director (SpikingJelly) picks a beat; the rules apply it
@@ -13,6 +13,11 @@ One player input runs through this pipeline::
 The LLM never decides an outcome. By the time the voice is called, every die
 has been rolled and every consequence applied. It is only told what
 happened.
+
+Dice are invisible. Every action by any character (the player, an NPC, the
+Tome) is a d20 + modifier check and every passive event a d6 check
+(``rules/relevance.py``), but no die, number or check ever reaches a frame:
+the player learns outcomes only from the narration and the status bar.
 """
 
 from __future__ import annotations
@@ -26,9 +31,12 @@ from ..cortex.director import Director
 from ..cortex.features import Beat, DirectorFeatures
 from ..limbic.contagion import gossip
 from ..limbic.npc_brain import BrainDecision, NPCBrain
+from ..rules import checks
+from ..rules.attributes import Attribute, mod
 from ..rules.character import Approach, Character, PANIC_THRESHOLD
+from ..rules.checks import CheckLog, CheckRecord, as_pool
 from ..rules.clocks import Clock
-from ..rules.dice import Outcome, PoolRoll
+from ..rules.dice import Outcome
 from ..rules.lumen import LUMEN_MAX, Lumen
 from ..rules.obstacles import Obstacle, resolve_exchange
 from ..rules.panic import panic_check
@@ -39,10 +47,43 @@ from ..voice.narrator import OfflineVoice
 from ..voice.prompts import compile_npc_prompt
 from ..voice.requests import DialogueRequest, NarrationRequest
 from .content import Scenario, load_scenario
-from .frames import APPROACH_GLYPH, PALETTE, Block, Span, TomeFrame, dice_block, text_block
+from .frames import PALETTE, Block, Span, TomeFrame, text_block
 
 ENGAGING = {Intent.FIGHT, Intent.FORCE, Intent.SNEAK, Intent.SEARCH, Intent.USE}
-SAVE_VERSION = 1
+SAVE_VERSION = 2
+TWIST_PIPS = ("grit", "grit", "guile", "guile", "insight", "insight")
+APPROACH_WORDS = {"grit": "force", "guile": "stealth or a trick", "insight": "careful study"}
+TOME_ALIASES = ("tome", "book", "monolith")
+# NPC tactics that are checked (the attribute, and the player attribute that sets the DC); others are unopposed.
+NPC_TACTIC_CHECKS = {
+    "npc.misdirect": ("guile", "insight"), "npc.bargain": ("guile", "insight"),
+    "npc.probe": ("insight", "guile"), "npc.interrogate": ("grit", "resolve"), "npc.menace": ("grit", "resolve"),
+}
+# A failed lie or offer leaves a true tell in the narration.
+TELLS = {
+    "misdirect": "Something in how {name} says it does not sit right.",
+    "bargain": "{name}'s offer comes a little too fast, and smells wrong.",
+}
+TOME_BEAT_CHECKS = {Beat.ESCALATE: ("grit", "guile"), Beat.HAZARD: ("grit", "insight"),
+                    Beat.TWIST: ("insight", "guile")}
+_SWAY = {Outcome.CRITICAL: 1.25, Outcome.SUCCESS: 1.25, Outcome.MIXED: 1.0, Outcome.FAIL: 0.5}
+
+# The Tome's own first-person words when the player turns on it. Never a falsehood about what has happened;
+# it may say what it wants and what it will do.
+TOME_LINES: dict[str, tuple[str, ...]] = {
+    "answer": (
+        "I am the only light you have. Ask me something precise, and I will answer it.",
+        "I was the lamp of this station. Now I am what is left of it.",
+        "Keep walking. I will tell you what you need to know when you need to know it.",
+        "I hear you. I have heard everything said aboard this station for forty days.",
+    ),
+    "struck": ("You would break your only light?", "Do that again and we both go dark."),
+    "unmoved": ("That did nothing.", "You will tire long before I do."),
+    "smother_fail": ("You cannot hide me. I am the only thing here that shines.",),
+    "lie_noticed": ("I heard that. I will remember it.", "Say it again, slower."),
+    "cowed": ("Very well.", "As you wish. For now."),
+    "scorn": ("Threats need light behind them.", "And then what? You walk on in the dark?"),
+}
 
 
 @dataclass
@@ -65,7 +106,8 @@ class GameState:
     last_outcome: str | None = None
     rest_used: bool = False
     light_taken: bool = False
-    position_bonus: int = 0
+    position_bonus: int = 0  # d20 modifier points on the next roll
+    shadow_bonus: int = 0    # d20 points on the next Guile roll (the Tome's light smothered)
     lose_turn: bool = False
     twisted: list[str] = field(default_factory=list)
     history: list[str] = field(default_factory=list)
@@ -80,7 +122,8 @@ class GameState:
             "obstacle_pips0": self.obstacle_pips0, "npcs_present": self.npcs_present, "npcs_met": self.npcs_met,
             "clues_revealed": self.clues_revealed, "tension": self.tension, "since_threat": self.since_threat,
             "since_respite": self.since_respite, "last_outcome": self.last_outcome, "rest_used": self.rest_used,
-            "light_taken": self.light_taken, "position_bonus": self.position_bonus, "lose_turn": self.lose_turn,
+            "light_taken": self.light_taken, "position_bonus": self.position_bonus,
+            "shadow_bonus": self.shadow_bonus, "lose_turn": self.lose_turn,
             "twisted": self.twisted,
             "history": self.history, "over": self.over, "won": self.won,
         }
@@ -103,8 +146,8 @@ class Turn:
     text: str
     sensory: SensoryState | None = None
     facts: list[str] = field(default_factory=list)
-    dice: list[Block] = field(default_factory=list)
-    events: list[Block] = field(default_factory=list)
+    asides: list[str] = field(default_factory=list)   # told outright, after the narration (no numbers)
+    notes: list[str] = field(default_factory=list)    # internal bookkeeping, dev debug only
     npc_lines: list[Block] = field(default_factory=list)
     effects: list[dict] = field(default_factory=list)
     decisions: dict[str, BrainDecision] = field(default_factory=dict)
@@ -124,9 +167,11 @@ class Turn:
     variant: str | None = None
     npc_name: str | None = None
     flee_npc: str | None = None
+    checks_from: int = 0
 
-    def event(self, text: str, color_key: str, glow: float = 0.5, effect: str = "rise") -> None:
-        self.events.append(text_block("event", text, color_key, glow=glow, effect=effect))
+    def event(self, text: str, *_: object, **__: object) -> None:
+        """Internal note (dev debug only). Players learn outcomes from the narration and status bar."""
+        self.notes.append(text)
 
 
 class TomeEngine:
@@ -139,6 +184,7 @@ class TomeEngine:
         self.director = director or Director(seed=seed)
         self.player_name = player_name
         self.rng = random.Random(seed)
+        self.checks = CheckLog()
         self.seq = 0
         bg_id = background or self.rng.choice(sorted(self.scenario.backgrounds))
         bg = self.scenario.backgrounds[bg_id]
@@ -165,13 +211,13 @@ class TomeEngine:
         blocks = [text_block("title", self.scenario.title.upper(), glow=0.9, effect="ripple"),
                   text_block("title", self.chapter.title, glow=0.6),
                   text_block("narration", narration)]
-        return self._frame(blocks + t.npc_lines + t.events + [self._prompt_block()], t)
+        return self._frame(blocks + t.npc_lines + self._aside_blocks(t) + [self._prompt_block()], t)
 
     def turn(self, text: str) -> TomeFrame:
         st = self.state
         if st.over:
             return self._frame([text_block("system", "The Tome is closed. Begin a new run.")], Turn(text=text))
-        t = Turn(text=text)
+        t = Turn(text=text, checks_from=len(self.checks.records))
         t.sensory = self.transducer.extract(text, self._targets())
         st.turn += 1
         st.chapter_turns += 1
@@ -180,8 +226,9 @@ class TomeEngine:
 
         if st.lose_turn:
             st.lose_turn = False
+            self.checks.note("player", "player.lost_turn")
             t.facts.append("Panic steals the moment; whatever the player meant to do, they don't.")
-            t.event("PANIC holds you. You lose the moment.", "stress", effect="flicker")
+            t.asides.append("Panic holds you. The moment passes without you.")
         else:
             self._act(t)
         if not st.over:
@@ -196,6 +243,62 @@ class TomeEngine:
             st.over, t.ending = True, "dead"
         return self._compose(t)
 
+    # ================================================================ checks (all invisible)
+    def _dc(self) -> int:
+        """The obstacle DC: 12 + 2 per act (+1 in the dark), plus the scenario's global offset."""
+        sc = self.scenario
+        return sc.dc_base + sc.dc_per_act * self.chapter.act + sc.dc_offset + (1 if self.state.lumen.dark else 0)
+
+    def _pmod(self, attr: str) -> int:
+        """The player's plain modifier, as an opponent's DC sees it."""
+        return mod(self.state.character.attribute(Attribute(attr)))
+
+    def _nmod(self, nid: str, attr: str) -> int:
+        return mod(self.scenario.npc_attributes[nid].score(attr))
+
+    def tome_mods(self) -> dict[str, int]:
+        """The Tome's own check modifiers, each in [-2, +6].
+
+        Provisional until the Tome's network supplies them (docs/TOME_BRAIN_DESIGN.md §8.6): its power over the
+        station (Grit) follows its light, the rest sit at a steady middle.
+        """
+        grit = max(-2, min(6, round(-2 + 8 * self.state.lumen.fraction)))
+        return {"grit": grit, "guile": 2, "insight": 2, "resolve": 3}
+
+    def _upper_hand(self) -> bool:
+        """A significant upper hand over the Tome: two or more rules-verifiable facts (design §8.7 floor)."""
+        st, ch = self.state, self.state.character
+        facts = 0
+        if st.lumen.dice <= 2 and any("light" in i.tags and i.uses != 0 for i in ch.inventory):
+            facts += 1
+        if any(self._is_ally(n) for n in st.npcs_present):
+            facts += 1
+        if self.tome_mods()["grit"] <= 0:
+            facts += 1
+        return facts >= 2
+
+    def _check(self, action: str, attr: Attribute | Approach, dc: int, *, intent: str = "", bonus: int = 0,
+               positional: bool = False, upper_hand: bool = False) -> CheckRecord:
+        st = self.state
+        if positional:
+            bonus += st.position_bonus
+            st.position_bonus = 0
+        if attr in (Approach.GUILE, Attribute.GUILE) and st.shadow_bonus:
+            bonus += st.shadow_bonus
+            st.shadow_bonus = 0
+        return st.character.check(action, attr, dc, self.rng, self.checks, intent=intent, bonus=bonus,
+                                  upper_hand=upper_hand)
+
+    def _tome_check(self, action: str, attr: str, dc: int) -> CheckRecord:
+        return checks.d20(self.rng, self.checks, "tome", action, attr, self.tome_mods()[attr], dc)
+
+    def _tome_says(self, t: Turn, key: str) -> None:
+        line = self.rng.choice(TOME_LINES[key])
+        color = PALETTE["lumen"]
+        t.npc_lines.append(Block(role="npc", speaker="The Tome", data={"npc": "tome"},
+                                 spans=[Span("THE TOME: ", color=color, glow=0.8),
+                                        Span(f"“{line}”", color=color, glow=0.45)]))
+
     # ================================================================ rules: actions
     def _act(self, t: Turn) -> None:
         s, st = t.sensory, self.state
@@ -204,11 +307,10 @@ class TomeEngine:
 
         if intent is Intent.USE and self._use_item(t, ob):
             return
+        if s.target == "tome" and self._at_tome(t):
+            return
         if intent is Intent.FIGHT and s.target in st.npcs_present:
-            name = self.scenario.npcs[s.target].name
-            t.facts.append(f"The player attacks {name}, who twists away and puts distance between them.")
-            t.variant, t.npc_name = "npc_attack", name
-            t.flee_npc = s.target
+            self._attack_npc(t, s.target)
             return
         if ob is not None and intent in ENGAGING:
             self._engage(t, ob, s)
@@ -216,8 +318,7 @@ class TomeEngine:
         if intent is Intent.SEARCH:
             self._search(t)
         elif intent is Intent.LOOK:
-            t.describe = True
-            t.facts.append("The player takes in their surroundings.")
+            self._look(t)
         elif intent is Intent.REST:
             self._rest(t)
         elif intent is Intent.ADVANCE:
@@ -226,6 +327,7 @@ class TomeEngine:
             self._flee(t, ob)
         elif intent is Intent.TALK:
             if not st.npcs_present:
+                self.checks.note("player", "player.talk_alone")
                 t.facts.append("The player speaks, but no one is here to answer.")
                 t.variant = "alone"
             elif s.target in st.npcs_present or len(st.npcs_present) == 1:
@@ -233,7 +335,11 @@ class TomeEngine:
                 self._social_roll(t)
                 if t.outcome is not None:
                     t.variant = None
+            else:
+                self.checks.note("player", "player.chat_npc")
+                t.facts.append("The player speaks to no one in particular.")
         else:
+            self.checks.note("player", "player.idle")
             t.facts.append("The player acts; nothing in the scene resists or changes.")
 
     def _engage(self, t: Turn, ob: Obstacle, s: SensoryState) -> None:
@@ -241,15 +347,13 @@ class TomeEngine:
         approach = s.effective_approach
         if approach is Approach.NONE:
             approach = Approach.GRIT
-        bonus, helper = self._help(s)
-        roll, notes = st.character.roll(approach, self.rng, intent=s.intent.value,
-                                        bonus=st.position_bonus + bonus)
-        notes += self._bonus_notes(st.position_bonus, helper)
-        st.position_bonus = 0
-        ex = resolve_exchange(ob, approach, roll, dark=st.lumen.dark)
-        t.obstacle, t.outcome = ob, roll.outcome
-        self._show_roll(t, roll, approach, notes)
-        t.facts.append(f"The player tackles {ob.name} with {approach.value}. Result: {roll.outcome.value}.")
+        bonus = self._help(t, approach)
+        upper = ob.id in st.twisted and self._upper_hand()  # opposing the Tome's own adaptation
+        rec = self._check("player.engage", approach, self._dc(), intent=s.intent.value, bonus=bonus,
+                          positional=True, upper_hand=upper)
+        ex = resolve_exchange(ob, approach, as_pool(rec), dark=st.lumen.dark)
+        t.obstacle, t.outcome = ob, rec.degree
+        t.facts.append(f"The player tackles {ob.name} with {approach.value}. Result: {rec.degree.value}.")
         if not ex.matched and not ex.removed:
             t.facts.append(f"That approach finds no purchase on {ob.name}; it is unharmed.")
             t.variant = "unmatched"
@@ -260,110 +364,120 @@ class TomeEngine:
         if ex.cleared:
             t.defeated = ob.defeat_text
             st.obstacles.remove(ob)
-            t.event(f"OVERCOME: {ob.name}", "success", glow=0.9, effect="ripple")
-            if st.character.relieve_stress(1):
-                t.event("-1 STRESS", "hull", glow=0.3)
+            t.event(f"OVERCOME: {ob.name}")
+            st.character.relieve_stress(1)
             if not self._blocking():
                 t.facts.append(f"The way on is open. {self.chapter.exit_text}")
-        else:
-            t.event(f"{ob.name}  {self._pips(ob)}", "system")
         self._bite(t, ex.bite_harm, ex.bite_stress, ob.name)
-        if not ex.cleared and roll.outcome is Outcome.FAIL and not (ob.harm or ob.stress):
+        if not ex.cleared and rec.degree is Outcome.FAIL and not (ob.harm or ob.stress):
             t.facts.append("The failed attempt is loud, and the noise carries deep into the station.")
             self._tick_worst_clock(t, 1)
-        self._tension_from(roll.outcome)
+        self._tension_from(rec.degree)
 
-    @staticmethod
-    def _bonus_notes(position: int, helper: str | None) -> list[str]:
-        notes = [f"+{position} position"] if position else []
-        return notes + ([f"+1 {helper} helps"] if helper else [])
-
-    def _help(self, s: SensoryState) -> tuple[int, str | None]:
-        """An NPC whose dominant plot is alliance lends a hand (+1 die); schemers and the attacked don't."""
+    def _help(self, t: Turn, approach: Approach) -> int:
+        """An NPC whose dominant plot is alliance tries to help: its own check (d20 vs 10) gives +2 on success.
+        Schemers and the attacked don't help."""
         for nid in self.state.npcs_present:
-            if nid != s.target and self._is_ally(nid):
-                return 1, self.scenario.npcs[nid].name.split()[0]
-        return 0, None
+            if nid != t.sensory.target and self._is_ally(nid):
+                attr = approach.attribute.value
+                rec = checks.d20(self.rng, self.checks, nid, "npc.help", attr, self._nmod(nid, attr), 10)
+                name = self.scenario.npcs[nid].name.split()[0]
+                if rec.degree.succeeded:
+                    t.facts.append(f"{name} helps the player.")
+                    return 2
+                t.facts.append(f"{name} tries to help, but it comes to nothing.")
+                return 0
+        return 0
 
     def _search(self, t: Turn) -> None:
         st = self.state
-        bonus, helper = self._help(t.sensory)
-        roll, notes = st.character.roll(Approach.INSIGHT, self.rng, intent="search",
-                                        bonus=st.position_bonus + bonus)
-        notes += self._bonus_notes(st.position_bonus, helper)
-        st.position_bonus = 0
-        t.outcome = roll.outcome
-        self._show_roll(t, roll, Approach.INSIGHT, notes)
-        if roll.outcome is Outcome.FAIL:
+        bonus = self._help(t, Approach.INSIGHT)
+        rec = self._check("player.search", Approach.INSIGHT, self._dc(), intent="search", bonus=bonus,
+                          positional=True)
+        t.outcome = rec.degree
+        if rec.degree is Outcome.FAIL:
             t.facts.append("The search turns up nothing but the feeling of being watched.")
             self._bite(t, 0, 1, "the dark")
         else:
             clue = self._next_clue(lore=True)
             if clue:
                 t.clue = clue
-            if roll.outcome.succeeded and self.chapter.light and not st.light_taken:
+            if rec.degree.succeeded and self.chapter.light and not st.light_taken:
                 st.light_taken = True
-                gained = st.lumen.restore(self.chapter.light)
-                if gained:
+                if st.lumen.restore(self.chapter.light):
                     t.facts.append("The player finds a light source and feeds it to the Tome.")
-                    t.event(f"+{gained} LUMEN", "lumen", glow=1.0, effect="ripple")
+                    t.asides.append("You find a light source. The Tome drinks it in and burns brighter.")
                     t.effects.append({"kind": "flare", "strength": 0.8})
-            if roll.outcome is Outcome.MIXED:
+            if rec.degree is Outcome.MIXED:
                 t.facts.append("It takes too long; something in the station notices the delay.")
                 self._tick_worst_clock(t, 1)
-        self._tension_from(roll.outcome)
+        self._tension_from(rec.degree)
+
+    def _look(self, t: Turn) -> None:
+        """Looking never hurts. A good look adds one true detail: what an obstacle would give to."""
+        t.describe = True
+        t.facts.append("The player takes in their surroundings.")
+        rec = self._check("player.look", Approach.INSIGHT, 10 + self.chapter.act)
+        active = [o for o in self._active() if o.pips]
+        if rec.degree.succeeded and active:
+            ob = active[0]
+            t.asides.append(f"You study {ob.name}. It looks like it would give to {APPROACH_WORDS[ob.pips[0]]}.")
 
     def _rest(self, t: Turn) -> None:
         st, ch = self.state, self.chapter
         active = self._active()
         if active:
+            self.checks.note("player", "player.rest_refused")
             t.facts.append(f"There is no rest with {active[0].name} here.")
             t.obstacle, t.variant = active[0], "denied"
             self._bite(t, 0, 1, active[0].name)
             return
         if st.rest_used:
+            self.checks.note("player", "player.rest_refused")
             t.facts.append("The player tries to rest again, but the station won't allow it twice.")
             t.variant = "spent"
             return
         st.rest_used = True
-        big = ch.respite
-        healed = st.character.heal(3 if big else 2)
-        relieved = st.character.relieve_stress(3 if big else 2)
+        rec = self._check("player.rest", Attribute.RESOLVE, 8 + ch.act)
+        if rec.degree.succeeded:
+            heal = relief = 3 if ch.respite else 2
+        elif rec.degree is Outcome.MIXED:
+            heal = relief = 1
+        else:
+            heal, relief = 1, 0
+            t.facts.append("Sleep will not come; every sound in the dark pulls the player back awake.")
+        st.character.heal(heal)
+        st.character.relieve_stress(relief)
         st.tension = max(0.0, st.tension - 0.2)
         st.since_respite = 0
         t.facts.append("The player rests, briefly and uneasily.")
-        if healed:
-            t.event(f"+{healed} HULL", "hull", glow=0.6)
-        if relieved:
-            t.event(f"-{relieved} STRESS", "hull", glow=0.4)
 
     def _advance(self, t: Turn) -> None:
         st = self.state
         blocking = self._blocking()
         if blocking:
+            self.checks.note("player", "player.advance_blocked")
             t.facts.append(f"{blocking[0].name} still blocks the way on.")
             t.obstacle, t.variant = blocking[0], "blocked"
             return
         hazards = self._active()
         if hazards:
             ob = hazards[0]
-            roll, notes = st.character.roll(Approach.GUILE, self.rng, intent="advance", bonus=st.position_bonus)
-            notes += self._bonus_notes(st.position_bonus, None)
-            st.position_bonus = 0
-            t.obstacle, t.outcome = ob, roll.outcome
-            self._show_roll(t, roll, Approach.GUILE, notes)
-            t.facts.append(f"The player dashes past {ob.name}. Result: {roll.outcome.value}.")
-            if roll.outcome is Outcome.FAIL:
+            rec = self._check("player.advance_hazard", Approach.GUILE, self._dc(), intent="advance", positional=True)
+            t.obstacle, t.outcome = ob, rec.degree
+            t.facts.append(f"The player dashes past {ob.name}. Result: {rec.degree.value}.")
+            if rec.degree is Outcome.FAIL:
                 self._bite(t, ob.harm, ob.stress, ob.name)
-            elif roll.outcome is Outcome.MIXED and (ob.harm or ob.stress):
+            elif rec.degree is Outcome.MIXED and (ob.harm or ob.stress):
                 self._bite(t, 0, 1, ob.name)
-            self._tension_from(roll.outcome)
+            self._tension_from(rec.degree)
             if st.character.dead:
                 return
+        else:
+            self.checks.note("player", "player.advance_open")
         if st.deck.at_end:
             st.over, st.won, t.ending = True, True, "won"
             t.facts.append("The player escapes the sector.")
-            t.event("ESCAPED", "lumen", glow=1.0, effect="ripple")
             return
         st.deck.advance()
         self._enter_chapter(t, st.deck.current)
@@ -371,22 +485,22 @@ class TomeEngine:
     def _flee(self, t: Turn, ob: Obstacle | None) -> None:
         st = self.state
         if ob is None:
+            self.checks.note("player", "player.flee_nothing")
             t.facts.append("The player backs away, but nothing pursues.")
             return
-        roll, notes = st.character.roll(Approach.GUILE, self.rng, intent="flee")
-        t.obstacle, t.outcome = ob, roll.outcome
-        self._show_roll(t, roll, Approach.GUILE, notes)
-        if roll.outcome.succeeded or roll.outcome is Outcome.MIXED:
-            st.position_bonus = 1
-            t.facts.append(f"The player breaks contact with {ob.name} and finds a better position (+1 die next roll).")
+        rec = self._check("player.flee", Approach.GUILE, self._dc(), intent="flee")
+        t.obstacle, t.outcome = ob, rec.degree
+        if rec.degree is not Outcome.FAIL:
+            st.position_bonus = 2
+            t.facts.append(f"The player breaks contact with {ob.name} and finds a better position.")
             if not ob.blocking:
                 st.obstacles.remove(ob)
                 t.facts.append(f"{ob.name} is left behind.")
-        if roll.outcome is Outcome.FAIL:
+        if rec.degree is Outcome.FAIL:
             self._bite(t, ob.harm, ob.stress, ob.name)
-        elif roll.outcome is Outcome.MIXED:
+        elif rec.degree is Outcome.MIXED:
             self._bite(t, 0, 1, ob.name)
-        self._tension_from(roll.outcome)
+        self._tension_from(rec.degree)
 
     def _use_item(self, t: Turn, ob: Obstacle | None) -> bool:
         """Light and healing items have their own effect. Returns False to fall through to an engage."""
@@ -399,47 +513,116 @@ class TomeEngine:
         if item is None:
             return False
         if "light" in item.tags:
+            self.checks.note("player", "player.feed_light")
             st_char.spend_item(item)
-            gained = st.lumen.restore(item.light)
+            st.lumen.restore(item.light)
             t.facts.append(f"The player spends the {item.name}; its light pours into the Tome.")
-            t.event(f"+{gained} LUMEN  ({item.name})", "lumen", glow=1.0, effect="ripple")
             t.effects.append({"kind": "flare", "strength": 1.0})
             t.variant = "light"
             return True
         if "heal" in item.tags:
             st_char.spend_item(item)
-            healed = st_char.heal(2)
-            st_char.relieve_stress(1)
+            rec = self._check("player.heal", Approach.INSIGHT, 8, intent="heal")
+            if rec.degree.succeeded:
+                st_char.heal(2)
+                st_char.relieve_stress(1)
+            else:
+                st_char.heal(1)
+                t.facts.append("Shaking hands make a poor job of it; it only half helps.")
             t.facts.append(f"The player uses the {item.name} on their wounds.")
-            t.event(f"+{healed} HULL  ({item.name})", "hull", glow=0.7)
             t.variant = "heal"
             return True
         return False
 
     def _social_roll(self, t: Turn) -> None:
-        """Lies and threats aimed at an NPC are rolled; the result changes what the NPC *feels*."""
+        """Words aimed at an NPC are checked against that NPC; the result changes what the NPC *hears*."""
         s, st = t.sensory, self.state
+        nid = s.target if s.target in st.npcs_present else st.npcs_present[0]
         if s.deception > 0.5:
-            roll, notes = st.character.roll(Approach.GUILE, self.rng, intent="talk")
-            self._show_roll(t, roll, Approach.GUILE, notes)
-            t.outcome = roll.outcome
-            if roll.outcome.succeeded:
+            rec = self._check("player.lie_npc", Approach.GUILE, 10 + self._nmod(nid, "insight"), intent="talk")
+            t.outcome = rec.degree
+            if rec.degree.succeeded:
                 s.deception *= 0.25
                 t.facts.append("The lie lands. They believe it, for now.")
-            elif roll.outcome is Outcome.FAIL:
+            elif rec.degree is Outcome.FAIL:
                 s.deception = min(1.0, s.deception + 0.3)
                 s.exposure = min(1.0, s.exposure + 0.2)
                 t.facts.append("The lie is transparent. They see straight through it.")
         elif s.aggression > 0.6:
-            roll, notes = st.character.roll(Approach.GRIT, self.rng, intent="talk")
-            self._show_roll(t, roll, Approach.GRIT, notes)
-            t.outcome = roll.outcome
-            if roll.outcome.succeeded:
+            rec = self._check("player.threaten_npc", Approach.GRIT, 10 + self._nmod(nid, "resolve"), intent="talk")
+            t.outcome = rec.degree
+            if rec.degree.succeeded:
                 s.leverage = min(1.0, s.leverage + 0.4)
                 t.facts.append("The threat lands. They are afraid of the player now.")
-            elif roll.outcome is Outcome.FAIL:
+            elif rec.degree is Outcome.FAIL:
                 s.rapport = max(-1.0, s.rapport - 0.3)
                 t.facts.append("The threat rings hollow and only earns contempt.")
+        elif s.leverage > 0.5:
+            rec = self._check("player.bargain_npc", Approach.GUILE, 10 + self._nmod(nid, "insight"), intent="talk")
+            s.leverage = min(1.0, s.leverage * _SWAY[rec.degree])
+        elif s.exposure > 0.5:
+            rec = self._check("player.probe_npc", Approach.INSIGHT, 10 + self._nmod(nid, "guile"), intent="talk")
+            s.exposure = min(1.0, s.exposure * _SWAY[rec.degree])
+        elif s.rapport > 0.3:
+            rec = self._check("player.appeal_npc", Approach.INSIGHT, 10 + self._nmod(nid, "insight"), intent="talk")
+            s.rapport = min(1.0, s.rapport * _SWAY[rec.degree])
+        else:
+            self.checks.note("player", "player.chat_npc")
+
+    def _attack_npc(self, t: Turn, nid: str) -> None:
+        name = self.scenario.npcs[nid].name
+        rec = self._check("player.attack_npc", Approach.GRIT, 10 + self._nmod(nid, "guile"), intent="fight")
+        if rec.degree.succeeded:
+            t.facts.append(f"The player's blow lands before {name} twists away and puts distance between them.")
+            t.asides.append(f"Your blow lands before {name.split()[0]} gets clear.")
+        else:
+            t.facts.append(f"The player attacks {name}, who twists away and puts distance between them.")
+        t.variant, t.npc_name = "npc_attack", name
+        t.flee_npc = nid
+
+    def _at_tome(self, t: Turn) -> bool:
+        """The player turns on the Tome itself. Returns False to treat the act as an ordinary one."""
+        s, st = t.sensory, self.state
+        low = t.text.lower()
+        tm = self.tome_mods()
+        upper = self._upper_hand()
+        if s.intent in (Intent.FIGHT, Intent.FORCE):
+            rec = self._check("player.strike_tome", Approach.GRIT, 10 + tm["grit"], intent="fight", upper_hand=upper)
+            if rec.degree.succeeded and st.lumen.dice > 0:
+                st.lumen.burn(1)
+                t.facts.append("The player strikes the Tome. One of its lights cracks and goes out.")
+                t.effects.append({"kind": "dim", "strength": 0.5})
+                self._tome_says(t, "struck")
+            else:
+                t.facts.append("The player strikes the Tome; the blow skids off its black face.")
+                self._tome_says(t, "unmoved")
+            return True
+        if s.intent is Intent.SNEAK or any(w in low for w in ("smother", "cover", "shade", "hide the", "dim")):
+            rec = self._check("player.smother_tome", Approach.GUILE, 10 + tm["insight"], intent="sneak",
+                              upper_hand=upper)
+            if rec.degree.succeeded:
+                st.shadow_bonus = 2
+                t.facts.append("The player smothers the Tome's glow; for a moment they are hard to see.")
+            else:
+                t.facts.append("The player tries to smother the Tome's glow, but it bleeds through their fingers.")
+                self._tome_says(t, "smother_fail")
+            return True
+        if s.intent is Intent.TALK:
+            if s.deception > 0.5:
+                rec = self._check("player.lie_tome", Approach.GUILE, 10 + tm["insight"], intent="talk",
+                                  upper_hand=upper)
+                if not rec.degree.succeeded:
+                    self._tome_says(t, "lie_noticed")
+            elif s.aggression > 0.6:
+                rec = self._check("player.threaten_tome", Approach.GRIT, 10 + tm["resolve"], intent="talk",
+                                  upper_hand=upper)
+                self._tome_says(t, "cowed" if rec.degree.succeeded else "scorn")
+            else:
+                self.checks.note("player", "player.ask_tome")
+                self._tome_says(t, "answer")
+            t.facts.append("The player speaks to the Tome, and it answers in its own voice (shown separately).")
+            return True
+        return False
 
     # ================================================================ limbic: NPCs listen
     def _listen(self, t: Turn) -> None:
@@ -485,6 +668,23 @@ class TomeEngine:
                                  spans=[Span(f"{spec.name}: ", color=spec.color, glow=0.7),
                                         Span(f"“{line}”", color=spec.color, glow=0.35)]))
         t.facts.append(f"{spec.name} speaks to the player (their words are shown separately).")
+        self._tactic_check(t, nid, spec.tactics[decision.tactic].id)
+
+    def _tactic_check(self, t: Turn, nid: str, tactic: str) -> None:
+        """What an NPC does with its words is an action too: misdirection, pressure and offers are checked."""
+        action = f"npc.{tactic}"
+        name = self.scenario.npcs[nid].name.split()[0]
+        if action not in NPC_TACTIC_CHECKS:
+            self.checks.note(nid, action)
+            return
+        attr, against = NPC_TACTIC_CHECKS[action]
+        rec = checks.d20(self.rng, self.checks, nid, action, attr, self._nmod(nid, attr), 10 + self._pmod(against))
+        if tactic in ("probe", "interrogate", "menace"):
+            if rec.degree.succeeded:
+                t.facts.append(f"{name}'s pressure gets under the player's skin.")
+                self._bite(t, 0, 1, name)
+        elif not rec.degree.succeeded:
+            t.asides.append(TELLS[tactic].format(name=name))
 
     def _npc_name_by_numeric(self, numeric_id: int) -> str | None:
         for spec in self.scenario.npcs.values():
@@ -496,36 +696,33 @@ class TomeEngine:
     def _bite(self, t: Turn, harm: int, stress: int, source: str) -> None:
         ch = self.state.character
         if harm > 0:
-            res = ch.take_harm(harm, self.rng)
+            res = ch.take_harm(harm, self.rng, self.checks)
             t.facts.append(f"{source} hurts the player.")
-            t.event(f"-{res.hull_lost} HULL" if res.hull_lost else "HULL BREACHED", "fail", glow=0.8, effect="pulse")
+            t.event(f"-{res.hull_lost} HULL" if res.hull_lost else "HULL BREACHED")
             t.effects.append({"kind": "shudder", "strength": min(1.0, 0.3 * harm)})
             self.state.tension = min(1.0, self.state.tension + 0.05 * harm)
             if res.last_light is not None:
-                lr = res.last_light
-                t.dice.append(dice_block(list(lr.dice), lr.pool, lr.hits, lr.outcome.value, "grit", ["last light"]))
                 if res.dead:
                     t.facts.append("The player's last light fails. They die.")
-                    t.event("YOU DIE", "fail", glow=1.0, effect="flicker")
                 else:
                     t.facts.append("Past their limit, the player stays standing through sheer grit, but bleeding.")
-                    t.event(f"-{res.attribute_lost} GRIT  (bleeding)", "fail", glow=0.8)
+                    t.asides.append("Past your limit, you stay on your feet through grit alone. You are bleeding.")
         if stress > 0:
             if ch.add_stress(stress):
                 t.panic_due = True
-            t.event(f"+{stress} STRESS  ({ch.stress})", "stress", glow=0.5, effect="flicker")
+            t.event(f"+{stress} STRESS ({ch.stress})")
 
     def _panic(self, t: Turn) -> None:
         ch = self.state.character
-        check = panic_check(ch, self.rng)
+        check = panic_check(ch, self.rng, self.checks)
         if check.held:
-            t.event(f"PANIC CHECK {check.dice[0]}+{check.dice[1]}+{ch.insight} vs {check.stress}: you hold", "system")
             return
         eff = check.effect
         ch.relieve_stress(2)  # the fear discharges into the panic itself
-        t.event(f"PANIC: {eff.name.upper()}", "stress", glow=1.0, effect="flicker")
+        t.event(f"PANIC: {eff.name.upper()}")
         t.effects.append({"kind": "panic", "strength": 1.0})
         t.facts.append(f"The player panics: {eff.text}")
+        t.asides.append(f"Panic takes you. {eff.text}")
         for e in eff.effects:
             kind, _, arg = e.partition(":")
             if kind == "stress":
@@ -539,8 +736,9 @@ class TomeEngine:
             elif kind == "lose_turn":
                 self.state.lose_turn = True
             elif kind == "drop_item" and ch.inventory:
-                dropped = ch.inventory.pop(self.rng.randrange(len(ch.inventory)))
-                t.event(f"LOST: {dropped.name}", "fail")
+                dropped = ch.inventory.pop(checks.d6_table(self.rng, self.checks, "passive.drop_item",
+                                                           len(ch.inventory)))
+                t.asides.append(f"You lose the {dropped.name} somewhere in the dark.")
             elif kind == "harm":
                 self._bite(t, int(arg), 0, "panic")
             elif kind == "lumen":
@@ -555,14 +753,18 @@ class TomeEngine:
         lum = self.state.lumen
         was_dark = lum.dark
         roll = lum.advance(self.rng)
+        if roll is not None:
+            self.checks.add(CheckRecord("world", "passive.lumen", "d6", "pool", roll.before, 0, roll.lost,
+                                        total=roll.lost))
         if roll is not None and roll.lost:
-            t.event(f"-{roll.lost} LUMEN  ({lum.dice}/{LUMEN_MAX})", "lumen", glow=0.3, effect="flicker")
+            t.event(f"-{roll.lost} LUMEN ({lum.dice}/{LUMEN_MAX})")
             t.effects.append({"kind": "dim", "strength": 0.4 * roll.lost})
             t.facts.append("The Tome's light gutters and shrinks.")
+            t.asides.append("The Tome's light gutters and shrinks.")
             if lum.dice <= 2 and self.state.character.add_stress(1):
                 t.panic_due = True
         if lum.dark and not was_dark:
-            t.event("THE LUMEN IS OUT. THE DARK HAS THE SECTOR.", "dread", glow=1.0, effect="flicker")
+            t.asides.append("The Tome's light goes out. The dark has the sector now.")
             t.facts.append("The Tome's light goes out entirely. Everything here can see the player now.")
 
     def _tension_from(self, outcome: Outcome) -> None:
@@ -577,6 +779,14 @@ class TomeEngine:
         allowed = self._allowed_beats(spoke=bool(t.npc_lines))
         beat, probs = self.director.choose(self._features(t), self.rng, allowed)
         t.beat, t.beat_probs = beat, probs
+        if beat in TOME_BEAT_CHECKS:
+            attr, against = TOME_BEAT_CHECKS[beat]
+            rec = self._tome_check(f"tome.{beat.value}", attr, 10 + self._pmod(against))
+            if rec.degree is Outcome.FAIL:
+                self._beat_fizzles(t, beat)
+                return
+        else:
+            self.checks.note("tome", f"tome.{beat.value}")
         if beat is Beat.CALM:
             st.tension = max(0.0, st.tension - 0.08)
             t.beat_note = "Let the moment breathe with quiet, unsettling atmosphere. Nothing new happens."
@@ -607,6 +817,20 @@ class TomeEngine:
         elif beat is Beat.ADVANCE:
             t.beat_fact = self.chapter.exit_text
             t.beat_note = "Draw the player's eye to the way onward; this place has nothing more to give."
+
+    def _beat_fizzles(self, t: Turn, beat: Beat) -> None:
+        """The Tome reached for something and missed. The player only ever sees a quieter moment."""
+        st = self.state
+        t.event(f"{beat.value} fizzles")
+        if beat is Beat.HAZARD:
+            # it shows its hand: the hazard comes, but the player saw it coming
+            st.since_threat = 0
+            self._hazard_beat(t)
+            st.position_bonus = 2
+            t.facts.append("The player sees the danger coming a moment before it arrives.")
+            return
+        t.beat = Beat.CALM
+        t.beat_note = "Let the moment breathe with quiet, unsettling atmosphere. Nothing new happens."
 
     def _allowed_beats(self, spoke: bool = False) -> set[Beat]:
         st = self.state
@@ -657,13 +881,12 @@ class TomeEngine:
             return
         clock = max(live, key=lambda c: (c.fraction, -self.state.clocks.index(c)))
         fired = clock.tick(n)
-        t.event(f"⟳ {clock.name}  {clock.filled}/{clock.segments}", "dread", glow=0.6)
+        t.event(f"{clock.name} {clock.filled}/{clock.segments}")
         if fired:
-            t.event(f"{clock.name.upper()}", "dread", glow=1.0, effect="ripple")
             if clock.consequence == "lumen":
                 lost = self.state.lumen.burn(2)
                 t.beat_fact = f"{clock.name}: the station's power lurches and the Tome's light is dragged down with it."
-                t.event(f"-{lost} LUMEN", "lumen", effect="flicker")
+                t.event(f"-{lost} LUMEN")
                 t.effects.append({"kind": "dim", "strength": 0.8})
             elif clock.consequence:
                 ob = self._add_obstacle(clock.consequence)
@@ -695,7 +918,8 @@ class TomeEngine:
             act = max(1, min(3, self.chapter.act))
             pool = self.scenario.hazards.get(act) or [o for ids in self.scenario.hazards.values() for o in ids]
             if pool:
-                ob = self._add_obstacle(self.rng.choice(sorted(pool)))
+                pool = sorted(pool)
+                ob = self._add_obstacle(pool[checks.d6_table(self.rng, self.checks, "passive.hazard_pick", len(pool))])
                 t.beat_fact = ob.text
                 t.beat_note = "The environment turns dangerous: describe the new hazard."
                 return
@@ -709,14 +933,14 @@ class TomeEngine:
         if active:
             ob = active[0]
             st.twisted.append(ob.id)
-            pip = self.rng.choice(["grit", "guile", "insight"])
+            pip = TWIST_PIPS[checks.d6_table(self.rng, self.checks, "passive.twist_pip", 6)]
             ob.pips.append(pip)
             t.beat_fact = f"{ob.name} changes, adapting to the player."
-            t.event(f"{ob.name} adapts  +{APPROACH_GLYPH[pip]}", "dread", glow=0.6)
+            t.event(f"{ob.name} adapts +{pip}")
         elif st.lumen.dice > 3:
             st.lumen.burn(1)
             t.beat_fact = "One of the Tome's lights gutters out, for no reason at all."
-            t.event(f"-1 LUMEN  ({st.lumen.dice}/{LUMEN_MAX})", "lumen", effect="flicker")
+            t.event(f"-1 LUMEN ({st.lumen.dice}/{LUMEN_MAX})")
             t.effects.append({"kind": "dim", "strength": 0.4})
         else:
             self._tick_worst_clock(t, 1)
@@ -730,7 +954,7 @@ class TomeEngine:
             healed, relieved = st.character.heal(1), st.character.relieve_stress(1)
             if healed or relieved:
                 t.facts.append("Between decks, the player finds a moment to steady themselves.")
-                t.event(f"BETWEEN DECKS  +{healed} HULL  -{relieved} STRESS", "hull", glow=0.4)
+                t.asides.append("Between decks, you find a moment to steady yourself.")
         followers = [nid for nid in st.npcs_present if self._is_ally(nid)]
         if gossip_ok:
             self._offscreen(t)
@@ -745,16 +969,14 @@ class TomeEngine:
         t.facts.append(f"The player enters {ch.title}.")
         for nid in followers:
             t.facts.append(f"{self.brains[nid].spec.name} follows the player.")
-        for ob in st.obstacles:
-            t.event(f"{ob.name}  {self._pips(ob)}", "system")
 
     def _offscreen(self, t: Turn) -> None:
         """Between chapters, NPCs who know the player talk about them behind their back."""
         met = [n for n in self.state.npcs_met if n in self.brains]
         for a in met:
             for b in sorted(self.brains):
-                if a == b or self.rng.random() > 0.5:
-                    continue
+                if a == b or checks.d6_table(self.rng, self.checks, "passive.gossip", 6) < 3:
+                    continue  # they only talk on a 4+
                 trust = self.brains[b].spec.trust.get(a, 0.0)
                 if trust == 0.0:
                     continue
@@ -790,7 +1012,7 @@ class TomeEngine:
         return (non_blocking or active or [None])[0]
 
     def _targets(self) -> dict[str, list[str]]:
-        targets: dict[str, list[str]] = {}
+        targets: dict[str, list[str]] = {"tome": list(TOME_ALIASES)}
         for nid in self.state.npcs_present:
             targets[nid] = list(self.scenario.npcs[nid].aliases)
         for o in self._active():
@@ -807,13 +1029,6 @@ class TomeEngine:
                     st.clues_revealed.append(clue)
                 return clue
         return None
-
-    @staticmethod
-    def _pips(ob: Obstacle) -> str:
-        return " ".join(APPROACH_GLYPH[p] for p in ob.pips)
-
-    def _show_roll(self, t: Turn, roll: PoolRoll, approach: Approach, notes: list[str]) -> None:
-        t.dice.append(dice_block(list(roll.dice), roll.pool, roll.hits, roll.outcome.value, approach.value, notes))
 
     def _remember(self, text: str) -> None:
         if text:
@@ -839,22 +1054,20 @@ class TomeEngine:
         blocks: list[Block] = [text_block("echo", f"> {t.text}", effect="none")]
         if t.entering:
             blocks.append(text_block("title", t.entering.title, glow=0.6, effect="ripple"))
-        blocks += t.dice
         blocks.append(text_block("narration", narration))
         blocks += t.npc_lines
-        blocks += t.events
+        blocks += self._aside_blocks(t)
         if not st.over:
             blocks.append(self._prompt_block())
         return self._frame(blocks, t)
 
+    @staticmethod
+    def _aside_blocks(t: Turn) -> list[Block]:
+        return [text_block("narration", a, glow=0.5) for a in dict.fromkeys(t.asides)]
+
     def _prompt_block(self) -> Block:
-        active = self._active()
-        spans = []
-        for o in active:
-            spans.append(Span(f"{o.name} ", color=PALETTE["dread"], glow=0.4))
-            for p in o.pips:
-                spans.append(Span(APPROACH_GLYPH[p], color=PALETTE[p], glow=0.8, effect="pulse"))
-            spans.append(Span("   ", effect="none"))
+        spans = [Span(f"{o.name[0].upper()}{o.name[1:]}.   ", color=PALETTE["dread"], glow=0.4)
+                 for o in self._active()]
         spans.append(Span("What do you do?", color=PALETTE["system"], glow=0.2))
         return Block(role="prompt", spans=spans)
 
@@ -862,28 +1075,29 @@ class TomeEngine:
         st = self.state
         ch = st.character
         self.seq += 1
+        # Protocol v2: the status bar carries game state only. No dice, checks, pips, clock counters, item
+        # counts or attribute numbers; no trace of the Tome's mood or opinion.
         status = {
-            "character": {"name": ch.name, "background": ch.background, "grit": ch.grit, "guile": ch.guile,
-                          "insight": ch.insight, "conditions": sorted(ch.conditions)},
             "hull": [ch.hull, ch.hull_max], "stress": ch.stress, "lumen": [st.lumen.dice, LUMEN_MAX],
             "chapter": {"id": self.chapter.id, "title": self.chapter.title, "act": self.chapter.act,
                         "index": st.deck.index, "total": len(st.deck.order)},
-            "obstacles": [{"id": o.id, "name": o.name, "kind": o.kind, "pips": list(o.pips)} for o in self._active()],
-            "clocks": [{"id": c.id, "name": c.name, "filled": c.filled, "segments": c.segments} for c in st.clocks],
-            "inventory": [{"name": i.name, "uses": i.uses} for i in ch.inventory],
-            "npcs": [{"id": n, "name": self.scenario.npcs[n].name, "color": self.scenario.npcs[n].color}
-                     for n in st.npcs_present],
             "won": st.won,
+            "scene": {
+                "inventory": [i.name for i in ch.inventory if i.uses != 0],
+                "npcs": [{"id": n, "name": self.scenario.npcs[n].name, "color": self.scenario.npcs[n].color}
+                         for n in st.npcs_present],
+            },
         }
         mood = {
-            "lumen": round(st.lumen.fraction, 3), "tension": round(st.tension, 3),
-            "stress": round(ch.stress / 10, 3), "dark": st.lumen.dark,
+            "lumen": round(st.lumen.fraction, 3), "stress": round(ch.stress / 10, 3), "dark": st.lumen.dark,
             "pulse": "heartbeat" if ch.stress >= PANIC_THRESHOLD else "breath",
         }
-        debug = {
+        debug = {  # dev builds only (VOIDLIT_DEV=1); never part of a release frame
             "sensory": t.sensory.to_dict() if t.sensory else None,
             "beat": t.beat.value, "beat_probs": t.beat_probs,
             "decisions": {k: v.to_dict() for k, v in t.decisions.items()}, "gossip": t.gossip,
+            "notes": t.notes, "tension": round(st.tension, 3), "tome_mods": self.tome_mods(),
+            "checks": [r.to_dict() for r in self.checks.records[t.checks_from:]],
         }
         return TomeFrame(seq=self.seq, blocks=blocks, status=status, mood=mood, effects=t.effects,
                          over=st.over, debug=debug)

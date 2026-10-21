@@ -97,7 +97,6 @@ namespace TomeJson
 		{
 			double Value = 0.0;
 			if ((*Mood)->TryGetNumberField(TEXT("lumen"), Value)) Out.Mood.Lumen = static_cast<float>(Value);
-			if ((*Mood)->TryGetNumberField(TEXT("tension"), Value)) Out.Mood.Tension = static_cast<float>(Value);
 			if ((*Mood)->TryGetNumberField(TEXT("stress"), Value)) Out.Mood.Stress = static_cast<float>(Value);
 			(*Mood)->TryGetBoolField(TEXT("dark"), Out.Mood.bDark);
 			FString Pulse;

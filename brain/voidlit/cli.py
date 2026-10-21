@@ -48,6 +48,15 @@ def render_ansi(frame: TomeFrame | dict) -> str:
     return "\n".join(out)
 
 
+def _dev_ok() -> bool:
+    from .dev import dev_mode, DEV_ENV
+
+    if not dev_mode():
+        print(f"voidlit: --debug is a developer feature; set {DEV_ENV}=1 to enable it", file=sys.stderr)
+        return False
+    return True
+
+
 def _load_models(args: argparse.Namespace):
     """Load the local .gguf models named on the command line; None, None when there are none."""
     from .app import load_models
@@ -63,13 +72,16 @@ def _load_models(args: argparse.Namespace):
 def cmd_play(args: argparse.Namespace) -> int:
     from .app import build_engine
 
+    if args.debug and not _dev_ok():
+        return 2
     models = _load_models(args)
     if models is None:
         return 2
     engine, llm = build_engine(args.seed, args.background, args.name, args.scenario, *models)
-    ch = engine.state.character
-    print(_ansi(f"[{'local llama.cpp' if llm else 'offline voice'}]  {ch.name}, {ch.background}  "
-                f"GRIT {ch.grit}  GUILE {ch.guile}  INSIGHT {ch.insight}", "#6f7a8f", 0.0))
+    ch = engine.state.character.sheet()
+    print(_ansi(f"[{'local llama.cpp' if llm else 'offline voice'}]  {ch['name']}, {ch['background']}  "
+                f"GRIT {ch['grit']}  GUILE {ch['guile']}  INSIGHT {ch['insight']}  RESOLVE {ch['resolve']}",
+                "#6f7a8f", 0.0))
     print(render_ansi(engine.start()))
     while True:
         try:
@@ -93,7 +105,11 @@ def cmd_play(args: argparse.Namespace) -> int:
         print(render_ansi(frame))
         if args.debug:
             dbg = frame.debug
-            print(_ansi(f"  beat={dbg['beat']} probs={dbg['beat_probs']}", "#555c6a", 0.0))
+            print(_ansi(f"  beat={dbg['beat']} probs={dbg['beat_probs']} tome={dbg['tome_mods']}", "#555c6a", 0.0))
+            for c in dbg["checks"]:
+                print(_ansi(f"  {c['actor']} {c['action']} {c['die']}={c['natural']}+{c['mod']}"
+                            f"{'+' + str(c['upper_hand_d6']) if c['upper_hand_d6'] else ''} vs {c['dc']}"
+                            f" -> {c['degree']}", "#555c6a", 0.0))
             for nid, dec in dbg["decisions"].items():
                 print(_ansi(f"  {nid}: plot={dec['dominant_plot']} tactic={dec['tactic']} C={dec['momentum']} "
                             f"R={dec['reward']} events={dec['events']}", "#555c6a", 0.0))
@@ -108,6 +124,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         ensure_loopback(args.host)
     except ValueError as e:
         print(f"voidlit: {e}", file=sys.stderr)
+        return 2
+    if args.debug and not _dev_ok():
         return 2
     models = _load_models(args)
     if models is None:
@@ -158,7 +176,7 @@ def main(argv: list[str] | None = None) -> int:
     play.add_argument("--name", default="Wanderer")
     play.add_argument("--scenario", default="hollow_lantern")
     _model_args(play)
-    play.add_argument("--debug", action="store_true", help="show the brains' decisions each turn")
+    play.add_argument("--debug", action="store_true", help="show the brains' decisions and every check (needs VOIDLIT_DEV=1)")
     play.set_defaults(fn=cmd_play)
 
     srv = sub.add_parser("serve", help="serve the Unreal client over WebSocket")
@@ -166,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     srv.add_argument("--port", type=int, default=8765)
     _model_args(srv)
     srv.add_argument("--saves", default="saves")
-    srv.add_argument("--debug", action="store_true", help="include brain internals in every frame")
+    srv.add_argument("--debug", action="store_true", help="include brain internals in every frame (needs VOIDLIT_DEV=1)")
     srv.set_defaults(fn=cmd_serve)
 
     tr = sub.add_parser("train-director", help="retrain the Director SNN from the pacing teacher")

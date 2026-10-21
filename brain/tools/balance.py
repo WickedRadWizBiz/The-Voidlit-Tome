@@ -16,8 +16,10 @@ from voidlit.playtest import bot_command  # noqa: E402
 from voidlit.tome import TomeEngine, load_scenario  # noqa: E402
 
 
-def run(smart: bool, runs: int, max_turns: int = 200) -> str:
+def run(smart: bool, runs: int, max_turns: int = 200, offset: int | None = None) -> str:
     sc, model = load_scenario(), load_director()
+    if offset is not None:
+        sc.dc_offset = offset
     outcomes, deaths, beats, turns = collections.Counter(), collections.Counter(), collections.Counter(), []
     for seed in range(runs):
         e = TomeEngine(sc, director=Director(model, seed=seed), seed=seed)
@@ -39,9 +41,10 @@ def run(smart: bool, runs: int, max_turns: int = 200) -> str:
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--runs", type=int, default=40)
+    p.add_argument("--offset", type=int, default=None, help="override the scenario's global DC offset")
     args = p.parse_args()
     for smart in (True, False):
-        print(run(smart, args.runs))
+        print(run(smart, args.runs, offset=args.offset), flush=True)
 
 
 if __name__ == "__main__":

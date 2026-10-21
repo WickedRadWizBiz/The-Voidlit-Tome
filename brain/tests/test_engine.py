@@ -19,8 +19,11 @@ def test_start_frame(scenario, director_model):
     f = e.start()
     roles = [b.role for b in f.blocks]
     assert roles[:3] == ["title", "title", "narration"] and roles[-1] == "prompt"
-    assert f.status["character"]["background"] == "Engineer"
+    assert set(f.status) == {"hull", "stress", "lumen", "chapter", "won", "scene"}
     assert f.status["lumen"] == [6, 6]
+    assert set(f.mood) == {"lumen", "stress", "dark", "pulse"}
+    sheet = e.state.character.sheet()
+    assert sheet["background"] == "Engineer" and sheet["resolve"] == 1
     json.dumps(f.to_dict(include_debug=True))
 
 

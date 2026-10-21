@@ -3,7 +3,7 @@
 Protocol (JSON text messages; see docs/PROTOCOL.md):
 
 client -> server
-    {"type": "hello", "protocol": 1, "options": {"seed": 7, "background": "medic", "name": "Ash"}}
+    {"type": "hello", "protocol": 2, "options": {"seed": 7, "background": "medic", "name": "Ash"}}
     {"type": "input", "text": "I pry the door open"}
     {"type": "command", "name": "new" | "save" | "load", "args": {...}}
     {"type": "ping"}
@@ -27,6 +27,7 @@ from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
 from .app import build_engine
+from .dev import require_dev
 from .tome.frames import PROTOCOL_VERSION
 from .voice.llama_local import ChatModel
 
@@ -61,7 +62,7 @@ class TomeSession:
         await self.send({
             "type": "welcome", "protocol": PROTOCOL_VERSION, "scenario": engine.scenario.title,
             "backgrounds": {k: v.name for k, v in engine.scenario.backgrounds.items()},
-            "character": engine.state.character.to_dict(), "llm": llm,
+            "character": engine.state.character.sheet(), "llm": llm,
         })
         await self.send_frame(await asyncio.to_thread(engine.start))
 
@@ -120,6 +121,8 @@ async def run_server(host: str = "127.0.0.1", port: int = 8765, voice_llm: ChatM
                      senses_llm: ChatModel | None = None, save_root: str | Path = "saves", debug: bool = False,
                      ready: asyncio.Event | None = None) -> None:
     ensure_loopback(host)
+    if debug:
+        require_dev("--debug")
     root = Path(save_root)
 
     async def handler(ws: ServerConnection) -> None:

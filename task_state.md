@@ -114,9 +114,20 @@ committed.
 - [x] Reconcile audit: the spec's gates fail 3 of 5 as written (Gate 1 NaN, Gate 2 frequency test, Gate 3 E/I ratio), and
       several checks are tautological. Build the real models (stable integrators, Graupner-Brunel theta_p = 1.3, ...)
       with honest tests. Evidence is in scratchpad `reconcile/`.
-- [ ] Design workflow `wf_b488a148-81d` (restarted with every decision; 3 architects, 2 judges, synthesis) -> scratchpad `design/TOME_BRAIN_DESIGN.md`.
-- [ ] Ask about any further contradictions the workflow confirms (not covered by the decisions above).
-- [ ] Implement the compatible merges plus the chosen paths, with honest tests; commit and push to the work branch.
+- [x] Design workflow `wf_b488a148-81d` done. Both judges chose the "biophysical" design; grafts from the other two
+      applied. Final spec committed as **`docs/TOME_BRAIN_DESIGN.md`** (the source of truth for the Tome's network,
+      checks, corruption, truth guard and gates G1-G24). Prototypes stay in the scratchpad (`design/`), not committed.
+- [x] §19 open decisions use the design defaults (no further questions): cross-run memory **keep**; Tier 2
+      `access_mult` 1.0 with the setting available; Elara serves via offering/misdirect, Marcus via escort/orders;
+      Rune +4 vs seals, hidden cost 1 Hull -> 1 Lumen per use and +30 exposure, found in the Chapel of Static;
+      attribute scores shown only on the `welcome` sheet; no NPC seize mechanic; NPC corruption cap (itself >= 60%).
+- [ ] **M2 rules (in progress):** `rules/attributes.py`, `rules/checks.py` (d20 degrees m>=10 crit, >=0 success,
+      >=-5 mixed; nat 20/1 shift one step; adapter to pool hits), `rules/relevance.py` (action table + no-check
+      list), Resolve on backgrounds (2,2,1,2,1,2), NPC attributes (Elara 1/3/2/2, Marcus 3/1/2/3), panic
+      d6+Resolve+3>Stress, Last Light d6+Grit>=5+overflow, DC_ob = 12+2*act (+1 dark), Tome beat checks with
+      provisional mods (Grit_T from Lumen) until the network supplies them, frames v2, protocol 2.
+- [ ] M0/M1 network core (JAX partition + calibration G5/G4, clock/bus/persist G6/G7), then M3-M7 per design §16.
+- [ ] M8 corruption (NPC + player tiers, Rune, `resist` message, Unreal tap + CLI Enter).
 
 ## Next immediate action
-Wait for the design workflow; review the design; ask only about contradictions not already decided; then implement.
+Finish M2 (engine wiring, frames v2, tests G13/G21, balance re-measure), commit, push. Then M0.

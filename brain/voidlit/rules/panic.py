@@ -1,8 +1,8 @@
 """Panic: when Stress gets loud enough, fear takes the wheel.
 
-A panic check rolls 2d6 and adds your Insight (will, wits). Beat your Stress
-and you hold steady. Otherwise you panic; the row is ``d6 + Stress // 2`` (clamped), so higher Stress pulls
-worse results. Panicking discharges 2 Stress before the row's effect lands.
+A panic check is a passive event: d6 + Resolve + 3. Beat your Stress (+1 with a phobia) and you hold steady.
+Otherwise you panic; the row is ``d6 + Stress // 2`` (clamped), so higher Stress pulls worse results. Panicking
+discharges 2 Stress before the row's effect lands. The player never sees either die.
 """
 
 from __future__ import annotations
@@ -10,8 +10,9 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 
+from . import checks
 from .character import Character
-from .dice import roll_2d6
+from .checks import CheckLog
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,7 @@ PANIC_TABLE: tuple[PanicEffect, ...] = (
 
 @dataclass(frozen=True)
 class PanicCheck:
-    dice: tuple[int, int]
+    die: int
     stress: int
     held: bool
     row: int | None
@@ -48,15 +49,15 @@ class PanicCheck:
 
     def to_dict(self) -> dict:
         return {
-            "dice": list(self.dice), "stress": self.stress, "held": self.held,
+            "die": self.die, "stress": self.stress, "held": self.held,
             "effect": None if self.effect is None else {"name": self.effect.name, "text": self.effect.text},
         }
 
 
-def panic_check(char: Character, rng: random.Random) -> PanicCheck:
+def panic_check(char: Character, rng: random.Random, log: CheckLog | None = None) -> PanicCheck:
     effective = char.stress + (1 if "phobia" in char.conditions else 0)
-    dice = roll_2d6(rng)
-    if sum(dice) + char.insight > effective:
-        return PanicCheck(dice, effective, True, None, None)
+    rec = checks.d6(rng, log, "player", "passive.panic", "resolve", char.resolve + 3, effective, strict=True)
+    if rec.degree.succeeded:
+        return PanicCheck(rec.natural, effective, True, None, None)
     row = max(0, min(len(PANIC_TABLE) - 1, rng.randint(1, 6) + effective // 2 - 1))
-    return PanicCheck(dice, effective, False, row, PANIC_TABLE[row])
+    return PanicCheck(rec.natural, effective, False, row, PANIC_TABLE[row])

@@ -35,7 +35,7 @@ public:
  *   row 0      status bar (hull, stress, lumen, chapter)
  *   row 1      rule
  *   ...        the tail of the log
- *   Rows-2     the current prompt (obstacle pips, "What do you do?")
+ *   Rows-2     the current prompt (the obstacles present, "What do you do?")
  *   Rows-1     the player's input line, with a cursor
  */
 class VOIDLITTOME_API FTomeTypesetter

@@ -47,20 +47,21 @@ def test_harm_overflows_into_last_light():
     assert c.hull == 1 and r.last_light is None
     r = c.take_harm(3, rng)
     assert c.hull == 0 and r.last_light is not None
-    assert r.dead == (r.last_light.hits == 0)
+    assert r.last_light.die == "d6" and r.last_light.dc == 5 + 2  # overflow 2
+    assert r.dead == (r.last_light.natural + 3 < 7)
     if not r.dead:
-        assert c.grit < 3 and "bleeding" in c.conditions
+        assert c.grit == 2 and "bleeding" in c.conditions
 
 
 def test_stress_triggers_panic_threshold_and_panic_rows_are_valid():
-    c = Character("Ash", "Medic", 1, 1, 1, 4)
+    c = Character("Ash", "Medic", 1, 1, 1, 4, resolve=1)
     assert not c.add_stress(3)
     assert c.add_stress(1)
     rng = random.Random(5)
     c.stress = 10
     checks = [panic_check(c, rng) for _ in range(100)]
     panicked = [p for p in checks if not p.held]
-    assert panicked, "stress 10 should panic on 2d6 most of the time"
+    assert len(panicked) == 100, "d6 + Resolve 1 + 3 can never beat Stress 10"
     assert all(0 <= p.row < len(PANIC_TABLE) for p in panicked)
 
 

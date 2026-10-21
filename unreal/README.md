@@ -2,8 +2,9 @@
 
 The plugin renders the Tome: a 1:4:9 matte-black slab whose face is a grid of machined voxels. By default that
 is 320 × 720 voxels at 1.25 mm, filling a 40 × 90 cm face. Flush voxels vanish into the black; raised ones (about
-1 mm) glow and spell out the game. Everything on screen is voxels: your typing, the narration, NPC voices, dice,
-obstacle pips, the status bar, and the Lumen dimming as your light runs out.
+1 mm) glow and spell out the game. Everything on screen is voxels: your typing, the narration, NPC voices, the
+Tome's own voice, the status bar, and the Lumen dimming as your light runs out. No dice are ever shown: every
+check is invisible (protocol v2).
 
 > **Status:** written against the UE 5.8 C++ API but not yet compiled. This repo's CI has no Unreal toolchain.
 > Expect small fixes on the first build; the Python brain it talks to is fully tested.
@@ -34,7 +35,7 @@ obstacle pips, the status bar, and the Lumen dimming as your light runs out.
 | `ATomeMonolithActor` | `TomeMonolithActor.*` | Slab, voxel face, brain link, invisible Slate text box capturing the keyboard, optional sidecar process |
 | `UTomeVoxelSurfaceComponent` | `TomeVoxelSurfaceComponent.*` | ISM of cubes (one per voxel, column/row in PerInstanceCustomData) plus two state textures; diffs each new page and starts only the transitions that changed |
 | `FTomeTypesetter` | `TomeTypesetter.*` | Word-wraps frame blocks into a scrolling log; composes the page (status bar, log tail, prompt, input line) |
-| `FTomeGlyphFont` | `TomeGlyphData.inl` | 8×16 voxel glyphs from DejaVu Sans Mono Bold (`Tools/gen_tome_glyphs.py`), including ▲ ◆ ● for approach pips |
+| `FTomeGlyphFont` | `TomeGlyphData.inl` | 8×16 voxel glyphs from DejaVu Sans Mono Bold (`Tools/gen_tome_glyphs.py`), including ▲ ◆ ● (no longer drawn; dice and pips are invisible) |
 | `UTomeBrainClient` | `TomeBrainClient.*` | WebSocket client for [docs/PROTOCOL.md](../docs/PROTOCOL.md), with reconnect backoff and Blueprint events |
 | `TomeVoxel.ush` | `Shaders/` | All animation on the GPU: smoothstep rises with typewriter delays, pulse and flicker, page ripples, the "thinking" breath, panic jolts, the heartbeat, Lumen dimming and the dread-red Dark |
 

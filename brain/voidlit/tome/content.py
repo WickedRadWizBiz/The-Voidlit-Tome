@@ -25,10 +25,25 @@ class Background:
     insight: int
     hull: int
     items: list[Item]
+    resolve: int = 2
 
     def make_character(self, name: str) -> Character:
         return Character(name=name, background=self.name, grit=self.grit, guile=self.guile,
-                         insight=self.insight, hull_max=self.hull, inventory=copy.deepcopy(self.items))
+                         insight=self.insight, resolve=self.resolve, hull_max=self.hull,
+                         inventory=copy.deepcopy(self.items))
+
+
+@dataclass(frozen=True)
+class Attributes:
+    """An NPC's check scores (kept beside its brain spec; the brain itself never rolls)."""
+
+    grit: int = 1
+    guile: int = 1
+    insight: int = 1
+    resolve: int = 1
+
+    def score(self, attr: str) -> int:
+        return getattr(self, attr)
 
 
 @dataclass
@@ -46,6 +61,10 @@ class Scenario:
     npcs: dict[str, NPCSpec]
     clocks: list[Clock]
     narration: dict[str, list[str]] = field(default_factory=dict)
+    dc_base: int = 12      # obstacle DC = base + per_act * act + offset (+1 in the dark)
+    dc_per_act: int = 2
+    dc_offset: int = 0     # the one global balance knob (fitted by the balance gate)
+    npc_attributes: dict[str, Attributes] = field(default_factory=dict)
 
     def new_obstacle(self, obstacle_id: str) -> Obstacle:
         return copy.deepcopy(self.obstacles[obstacle_id])
@@ -118,7 +137,8 @@ def load_scenario(name_or_path: str | Path = "hollow_lantern") -> Scenario:
         lumen_interval=meta.get("lumen_interval", 3), lore=list(meta.get("lore", [])),
         backgrounds={
             b["id"]: Background(id=b["id"], name=b["name"], grit=b["grit"], guile=b["guile"],
-                                insight=b["insight"], hull=b["hull"], items=[_item(i) for i in b.get("items", [])])
+                                insight=b["insight"], hull=b["hull"], items=[_item(i) for i in b.get("items", [])],
+                                resolve=b.get("resolve", 2))
             for b in raw["backgrounds"]
         },
         obstacles=obstacles,
@@ -128,6 +148,8 @@ def load_scenario(name_or_path: str | Path = "hollow_lantern") -> Scenario:
         clocks=[Clock(id=c["id"], name=c["name"], segments=c["segments"], consequence=c.get("consequence", ""))
                 for c in raw.get("clocks", [])],
         narration={k: list(v) for k, v in raw.get("narration", {}).items()},
+        dc_base=meta.get("dc_base", 12), dc_per_act=meta.get("dc_per_act", 2), dc_offset=meta.get("dc_offset", 0),
+        npc_attributes={n["id"]: Attributes(**n.get("attributes", {})) for n in raw.get("npcs", [])},
     )
     scenario.validate()
     return scenario

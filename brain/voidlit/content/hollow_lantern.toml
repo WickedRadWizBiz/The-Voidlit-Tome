@@ -30,6 +30,7 @@ grit = 3
 guile = 2
 insight = 1
 hull = 6
+resolve = 2
 items = [
     { name = "Plasma cutter", bonus = { grit = 1 } },
     { name = "Flare", tags = ["light"], uses = 2, light = 1 },
@@ -42,6 +43,7 @@ grit = 3
 guile = 2
 insight = 1
 hull = 7
+resolve = 2
 items = [
     { name = "Slug rifle", bonus = { fight = 1 } },
     { name = "Combat stim", tags = ["heal"], uses = 1 },
@@ -54,6 +56,7 @@ grit = 1
 guile = 2
 insight = 3
 hull = 5
+resolve = 1
 items = [
     { name = "Multitool", bonus = { insight = 1 } },
     { name = "Work lamp", tags = ["light"], uses = 3, light = 1 },
@@ -66,6 +69,7 @@ grit = 1
 guile = 3
 insight = 2
 hull = 5
+resolve = 2
 items = [
     { name = "Medkit", tags = ["heal"], uses = 3 },
     { name = "Scalpel", bonus = { guile = 1 } },
@@ -78,6 +82,7 @@ grit = 2
 guile = 3
 insight = 1
 hull = 6
+resolve = 1
 items = [
     { name = "Grapple gun", bonus = { guile = 1 } },
     { name = "Flare", tags = ["light"], uses = 1, light = 1 },
@@ -90,6 +95,7 @@ grit = 1
 guile = 2
 insight = 3
 hull = 5
+resolve = 2
 items = [
     { name = "Lexicon slate", bonus = { insight = 1, search = 1 } },
     { name = "Votive candle", tags = ["light"], uses = 1, light = 2 },
@@ -417,6 +423,7 @@ exit_text = "The lifeboat hatch stands open. Launch, and leave the Hollow Lanter
 id = "elara"
 name = "Elara Voss"
 numeric_id = 1
+attributes = { grit = 1, guile = 3, insight = 2, resolve = 2 }
 color = "#6fe3cf"
 aliases = ["elara", "voss", "engineer", "woman"]
 persona = "Station engineer. Has survived alone for forty days by rationing light and lying to herself. Wry, exhausted, practical; flinches at static."
@@ -499,6 +506,7 @@ weight = 0.45
 id = "marcus"
 name = "Marcus Hale"
 numeric_id = 2
+attributes = { grit = 3, guile = 1, insight = 2, resolve = 3 }
 color = "#ffb347"
 aliases = ["marcus", "hale", "warden", "man"]
 persona = "The station's warden. Believes everyone left alive is Choir-touched, himself included. Clipped, paranoid, decent underneath, armed."

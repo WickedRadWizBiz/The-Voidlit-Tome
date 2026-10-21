@@ -154,9 +154,11 @@ def test_local_llama_loads_once_and_speaks(tiny_model, scenario):
 
 
 @pytest.mark.parametrize("template_name", ["GEMMA2_TEMPLATE", "STRICT_TEMPLATE"])
-def test_strict_chat_templates_still_reach_the_model(tmp_path, template_name, scenario):
+def test_strict_chat_templates_still_reach_the_model(tmp_path, template_name, scenario, monkeypatch):
     """Templates that reject a system role or a leading assistant turn must not push us onto the fallbacks."""
     pytest.importorskip("llama_cpp", reason="llama-cpp-python not installed")
+    # a random tiny model writes noise (digits included); the mechanics guard is tested on its own below
+    monkeypatch.setattr("voidlit.voice.llama_local.leaks_mechanics", lambda text, allow_digits=False: False)
     pytest.importorskip("gguf", reason="gguf not installed")
     from voidlit.limbic.npc_brain import BrainDecision
     from voidlit.voice import DialogueRequest, LocalLlama, NarrationRequest
@@ -207,3 +209,30 @@ def test_model_text_is_cleaned_of_control_characters():
 def test_parse_rejects_truncated_output():
     with pytest.raises(SensoryParseError):
         parse_sensory_json('{"intent": "look", "approach": "none", "target": "none", "aggression": 0.')
+
+
+def test_voice_guard_sends_dice_talk_to_the_offline_voice(scenario):
+    from voidlit.voice import LocalVoice, NarrationRequest
+    from voidlit.voice.guard import leaks_mechanics
+
+    assert leaks_mechanics("You rolled a 17.") and leaks_mechanics("Make a DC 12 check.")
+    assert leaks_mechanics("A natural twenty!") and leaks_mechanics("Three dice clatter.")
+    assert leaks_mechanics("The door opens after 3 tries.")
+    assert not leaks_mechanics("The air rolls out of the iris, stale and cold.")
+    assert not leaks_mechanics("It waited 40 days.", allow_digits=True)
+
+    class Says:
+        def __init__(self, text):
+            self.text = text
+
+        def chat(self, messages, **kw):
+            return self.text
+
+    class Offline:
+        def narrate(self, req):
+            return "offline"
+
+    req = NarrationRequest(player_text="what did I roll?", intent="other", approach="none", chapter_title="T",
+                           chapter_text="A room.", entering_chapter=False, facts=[])
+    assert LocalVoice(Says("You rolled a natural 20."), Offline()).narrate(req) == "offline"
+    assert LocalVoice(Says("The dark does not answer."), Offline()).narrate(req) == "The dark does not answer."

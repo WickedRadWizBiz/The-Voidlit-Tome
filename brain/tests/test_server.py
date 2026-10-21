@@ -2,6 +2,8 @@ import asyncio
 import json
 import socket
 
+import pytest
+
 from websockets.asyncio.client import connect
 
 from voidlit.server import run_server
@@ -29,7 +31,8 @@ async def _session(tmp_path):
             await ws.send(json.dumps({"type": "hello", "options": {"seed": 3, "background": "pilot", "name": "Kit"}}))
             welcome = await recv()
             assert welcome["type"] == "welcome" and welcome["llm"] is False
-            assert welcome["character"]["background"] == "Pilot"
+            assert welcome["character"]["background"] == "Pilot" and welcome["protocol"] == 2
+            assert welcome["character"]["resolve"] == 1 and "uses" not in json.dumps(welcome)
             start = await recv()
             assert start["type"] == "frame" and start["blocks"][0]["role"] == "title"
 
@@ -56,5 +59,12 @@ async def _session(tmp_path):
             pass
 
 
-def test_websocket_protocol(tmp_path):
+def test_websocket_protocol(tmp_path, monkeypatch):
+    monkeypatch.setenv("VOIDLIT_DEV", "1")
     asyncio.run(_session(tmp_path))
+
+
+def test_debug_needs_dev_mode(tmp_path, monkeypatch):
+    monkeypatch.delenv("VOIDLIT_DEV", raising=False)
+    with pytest.raises(PermissionError):
+        asyncio.run(run_server("127.0.0.1", free_port(), save_root=tmp_path, debug=True))

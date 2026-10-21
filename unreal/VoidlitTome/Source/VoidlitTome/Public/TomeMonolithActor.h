@@ -18,7 +18,7 @@ class UTomeVoxelSurfaceComponent;
  *
  * Drop one in a level and press Play. It connects to the Tome's mind (`python -m voidlit serve`, optionally
  * spawned for you), captures the keyboard with an invisible text box, and renders everything (your typing,
- * the narration, NPC voices, dice and status) as voxels rising out of the surface.
+ * the narration, NPC voices and status) as voxels rising out of the surface.
  *
  * Typed commands: ":save [slot]", ":load [slot]", ":new".
  */

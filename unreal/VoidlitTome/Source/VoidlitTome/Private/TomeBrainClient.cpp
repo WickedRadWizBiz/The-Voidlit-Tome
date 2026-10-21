@@ -7,7 +7,7 @@
 #include "VoidlitTomeModule.h"
 #include "WebSocketsModule.h"
 
-static constexpr int32 TomeProtocolVersion = 1;
+static constexpr int32 TomeProtocolVersion = 2;
 
 void UTomeBrainClient::Connect(const FString& Url, const FTomeSessionOptions& Options)
 {

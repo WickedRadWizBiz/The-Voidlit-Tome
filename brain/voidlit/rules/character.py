@@ -1,4 +1,8 @@
-"""Characters: three attributes, a Hull track, Stress and a small kit."""
+"""Characters: four attributes, a Hull track, Stress and a small kit.
+
+Grit, Guile and Insight are also the three *approaches* a player can take to an obstacle. Resolve is will: it is
+never an approach, but it holds against panic, intimidation and corruption.
+"""
 
 from __future__ import annotations
 
@@ -6,17 +10,23 @@ import random
 from dataclasses import dataclass, field
 from enum import Enum
 
-from .dice import MAX_POOL, PoolRoll, roll_pool
+from . import checks
+from .attributes import Attribute, mod
+from .checks import CheckLog, CheckRecord
 
 
 class Approach(str, Enum):
     GRIT = "grit"        # force, endurance, violence
     GUILE = "guile"      # stealth, trickery, speed, precision
-    INSIGHT = "insight"  # analysis, systems, perception, will
+    INSIGHT = "insight"  # analysis, systems, perception
     NONE = "none"
 
+    @property
+    def attribute(self) -> Attribute:
+        return Attribute(self.value) if self is not Approach.NONE else Attribute.GRIT
 
-ATTRIBUTES = (Approach.GRIT, Approach.GUILE, Approach.INSIGHT)
+
+ATTRIBUTES = (Approach.GRIT, Approach.GUILE, Approach.INSIGHT)  # the approaches
 MAX_ATTRIBUTE = 4
 MAX_STRESS = 10
 PANIC_THRESHOLD = 4  # gaining stress at or above this triggers a panic check
@@ -26,7 +36,7 @@ PANIC_THRESHOLD = 4  # gaining stress at or above this triggers a panic check
 class Item:
     name: str
     tags: tuple[str, ...] = ()
-    bonus: dict[str, int] = field(default_factory=dict)  # approach or intent -> extra dice
+    bonus: dict[str, int] = field(default_factory=dict)  # approach or intent -> steps (+2 each on a d20)
     uses: int | None = None  # resource pool; None = never runs out
     light: int = 0  # Lumen dice restored when spent as a light source
 
@@ -47,7 +57,7 @@ class Item:
 class HarmResult:
     hull_lost: int
     attribute_lost: int
-    last_light: PoolRoll | None
+    last_light: CheckRecord | None
     dead: bool
 
 
@@ -59,6 +69,7 @@ class Character:
     guile: int
     insight: int
     hull_max: int
+    resolve: int = 2
     hull: int = -1
     stress: int = 0
     conditions: set[str] = field(default_factory=set)
@@ -69,18 +80,19 @@ class Character:
         if self.hull < 0:
             self.hull = self.hull_max
 
-    # -- dice -----------------------------------------------------------
-    def attribute(self, approach: Approach) -> int:
-        if approach is Approach.NONE:
+    # -- checks ---------------------------------------------------------
+    def attribute(self, attr: Attribute | Approach) -> int:
+        if attr is Approach.NONE:
             return 0
-        return getattr(self, approach.value)
+        return getattr(self, attr.value)
 
-    def pool_for(self, approach: Approach, intent: str = "") -> tuple[int, list[str]]:
-        """Pool size for an action plus a list of the reasons for each modifier."""
-        pool = self.attribute(approach)
+    def modifier_for(self, attr: Attribute | Approach, intent: str = "") -> tuple[int, list[str]]:
+        """d20 modifier for an action plus the reasons for each situational change (internal only)."""
+        value = mod(self.attribute(attr))
         notes: list[str] = []
-        best_item = None
-        best_bonus = 0
+        approach = attr if isinstance(attr, Approach) else (Approach(attr.value) if attr is not Attribute.RESOLVE
+                                                             else Approach.NONE)
+        best_item, best_bonus = None, 0
         for item in self.inventory:
             if item.uses == 0:
                 continue
@@ -88,20 +100,22 @@ class Character:
             if b > best_bonus:
                 best_item, best_bonus = item, b
         if best_item is not None:
-            pool += best_bonus
-            notes.append(f"+{best_bonus} {best_item.name}")
+            value += 2 * best_bonus
+            notes.append(f"+{2 * best_bonus} {best_item.name}")
         if "shaken" in self.conditions:
-            pool -= 1
-            notes.append("-1 shaken")
-        if "bleeding" in self.conditions and approach is Approach.GRIT:
-            pool -= 1
-            notes.append("-1 bleeding")
-        return max(0, min(MAX_POOL, pool)), notes
+            value -= 2
+            notes.append("-2 shaken")
+        if "bleeding" in self.conditions and attr in (Approach.GRIT, Attribute.GRIT):
+            value -= 2
+            notes.append("-2 bleeding")
+        return value, notes
 
-    def roll(self, approach: Approach, rng: random.Random, intent: str = "",
-             bonus: int = 0) -> tuple[PoolRoll, list[str]]:
-        pool, notes = self.pool_for(approach, intent)
-        return roll_pool(pool + bonus, rng), notes
+    def check(self, action: str, attr: Attribute | Approach, dc: int, rng: random.Random, log: CheckLog | None,
+              intent: str = "", bonus: int = 0, upper_hand: bool = False) -> CheckRecord:
+        """A direct action: d20 + modifier (+ situational ``bonus``) against ``dc``."""
+        value, _ = self.modifier_for(attr, intent)
+        name = attr.attribute.value if isinstance(attr, Approach) else attr.value
+        return checks.d20(rng, log, "player", action, name, value + bonus, dc, upper_hand=upper_hand)
 
     def spend_item(self, item: Item) -> int:
         """Spend one use of a limited item. Returns uses left (-1 = unlimited)."""
@@ -124,9 +138,9 @@ class Character:
         return None
 
     # -- harm & stress --------------------------------------------------
-    def take_harm(self, amount: int, rng: random.Random) -> HarmResult:
-        """Hull soaks harm first. Past zero Hull, Grit is the backup and a
-        Last Light save decides if you stay standing."""
+    def take_harm(self, amount: int, rng: random.Random, log: CheckLog | None = None) -> HarmResult:
+        """Hull soaks harm first. Past zero Hull, Grit is the backup, and a Last Light save (a passive
+        d6 + Grit against 5 + the overflow) decides if you stay standing."""
         if amount <= 0 or self.dead:
             return HarmResult(0, 0, None, self.dead)
         soaked = min(self.hull, amount)
@@ -134,14 +148,13 @@ class Character:
         overflow = amount - soaked
         if overflow <= 0:
             return HarmResult(soaked, 0, None, False)
-        save = roll_pool(self.grit, rng)
-        if save.hits == 0:
+        save = checks.d6(rng, log, "player", "passive.last_light", "grit", self.grit, 5 + overflow)
+        if not save.degree.succeeded:
             self.dead = True
             return HarmResult(soaked, 0, save, True)
-        lost = max(1, min(2, len(save.dice) - save.hits))
-        self.grit = max(0, self.grit - lost)
+        self.grit = max(0, self.grit - 1)
         self.conditions.add("bleeding")
-        return HarmResult(soaked, lost, save, False)
+        return HarmResult(soaked, 1, save, False)
 
     def heal(self, amount: int) -> int:
         before = self.hull
@@ -165,10 +178,16 @@ class Character:
         return before - self.stress
 
     # -- serialization ----------------------------------------------------
+    def sheet(self) -> dict:
+        """The character sheet a player may see at the start: scores, but no dice, counts or conditions."""
+        return {"name": self.name, "background": self.background, "grit": self.grit, "guile": self.guile,
+                "insight": self.insight, "resolve": self.resolve, "hull_max": self.hull_max,
+                "inventory": [i.name for i in self.inventory]}
+
     def to_dict(self) -> dict:
         return {
             "name": self.name, "background": self.background,
-            "grit": self.grit, "guile": self.guile, "insight": self.insight,
+            "grit": self.grit, "guile": self.guile, "insight": self.insight, "resolve": self.resolve,
             "hull_max": self.hull_max, "hull": self.hull, "stress": self.stress,
             "conditions": sorted(self.conditions),
             "inventory": [i.to_dict() for i in self.inventory], "dead": self.dead,
@@ -178,7 +197,7 @@ class Character:
     def from_dict(cls, d: dict) -> "Character":
         return cls(
             name=d["name"], background=d["background"], grit=d["grit"], guile=d["guile"],
-            insight=d["insight"], hull_max=d["hull_max"], hull=d["hull"], stress=d["stress"],
+            insight=d["insight"], resolve=d.get("resolve", 2), hull_max=d["hull_max"], hull=d["hull"], stress=d["stress"],
             conditions=set(d.get("conditions", ())),
             inventory=[Item.from_dict(i) for i in d.get("inventory", ())], dead=d.get("dead", False),
         )

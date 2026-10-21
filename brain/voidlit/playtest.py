@@ -23,8 +23,8 @@ def bot_command(engine: TomeEngine, smart: bool = True) -> str:
     if active:
         pips = active[0].pips
         if smart:
-            def value(a):  # matching hits strip a pip each; off-approach hits need two per pip
-                return ch.pool_for(Approach(a))[0] * (1.0 if a in pips else 0.5)
+            def value(a):  # a matching approach strips pips; off-approach success strips one, the hard way
+                return ch.modifier_for(Approach(a))[0] - (0 if a in pips else 6)
             return PIP_COMMAND[max(sorted(PIP_COMMAND), key=value)]
         return PIP_COMMAND[pips[0]]
     if (ch.hull <= ch.hull_max // 2 or ch.stress >= 4) and not st.rest_used:

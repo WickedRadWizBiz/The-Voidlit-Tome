@@ -75,7 +75,11 @@ committed.
     through wording in narration and dialogue. Frames must not carry them (debug mode excepted).
   - **Brain:** the Tome is **one singular hybrid neural network**. The user's biomimetic brain spec is part of its core
     logic, made as real as possible: it must feel, have emotions and needs, and be cunning. It replaces the separate
-    Director. NPC brains stay separate (working assumption).
+    Director.
+  - **NPCs (secondary story):** Elara and Marcus are *both* their own minds *and* corrupted by the Tome. Most of the
+    time they act as themselves (their own BindsNET brains); at times they are mildly influenced by the Tome, more so
+    as the Tome grows desperate. Design: a corruption projection from the Tome's network into their brains, gated by
+    the Tome's desperation. It must stay subtle and never be displayed.
   - **Stack:** "a little bit of each" (SpikingJelly + BindsNET + JAX), following my suggestion, all inside that one network.
 - [x] Reconcile audit: the spec's gates fail 3 of 5 as written (Gate 1 NaN, Gate 2 frequency test, Gate 3 E/I ratio), and
       several checks are tautological. Build the real models (stable integrators, Graupner-Brunel theta_p = 1.3, ...)

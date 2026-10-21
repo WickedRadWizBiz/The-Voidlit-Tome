@@ -166,10 +166,7 @@ class BNPartition(Partition):
                 obj, attr = self.net.connections[(path[0], path[1])], path[2]
             else:
                 obj, attr = self.net.connections[(path[0], path[1])].update_rule, path[2]
-            cur = getattr(obj, attr, None)
-            val = torch.from_numpy(np.array(arr))
-            if isinstance(cur, torch.Tensor):
-                val = val.to(cur.dtype)
+            val = torch.from_numpy(np.array(arr))    # keep the saved dtype: a run turns some bool spikes to float
             if attr == "w":
                 obj.w.data.copy_(val)
             else:

@@ -36,6 +36,8 @@ def _to_torch(obj):
 
     if isinstance(obj, np.ndarray):
         return torch.from_numpy(np.array(obj, order="C", copy=True))   # (ascontiguousarray turns 0-d into 1-d)
+    if isinstance(obj, np.generic):        # numpy scalars are not weights_only-safe: keep them as 0-d (same dtype)
+        return torch.from_numpy(np.array(obj)) if obj.dtype.kind in "biuf" else obj.item()
     if isinstance(obj, dict):
         return {k: _to_torch(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):

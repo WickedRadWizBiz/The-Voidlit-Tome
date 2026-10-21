@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "torch>=2.4",
-    "spikingjelly>=0.0.0.0.14",
+    "spikingjelly==0.0.0.0.14",   # 2.0 changed the node API (single_step_functional_forward)
     "bindsnet>=0.3.4",
     # The Tome's network (cortex, thalamus, hippocampus, nuclei, glia). Pinned: the brain is bit-exact per build.
     "jax==0.12.0",

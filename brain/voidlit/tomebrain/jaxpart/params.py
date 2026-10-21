@@ -268,6 +268,6 @@ def projections() -> list[Projection]:
     add("I.L5ET", "ORX", 4, AN, SOMA, 0.8, d80)
     for dst in ("LC", "VTA", "PVT", "PVN"):
         add("ORX", dst, 4, AN, SOMA, 0.8, d40)
-    add("PVT", "P.L5ET[24:72]", 6, AN, APICAL, 1.0, (axon_delay(30),) * 2)
+    add("PVT", "P.L5ET[24:72]", 6, AN, APICAL, 8.0, (axon_delay(30),) * 2)
     add("PVT", "P.NGF", 6, A, SOMA, 1.0, (axon_delay(30),) * 2)
     return P

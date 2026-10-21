@@ -16,9 +16,12 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .bnpart import amygdala as AM
 from .clock import Cosim
+from .jaxpart import network as NW
 from .jaxpart import params as PR
 from .partition import BusEdge, JaxPartition
+from .readout import Mind, TurnSignals, atp_pi, population_rates
 from .sjpart import basal_ganglia as BG
 
 PHASE_A_MS = 60
@@ -34,6 +37,9 @@ REST_DRIVE = 0.2
 VAVL_DRIVE_PA = 220.0
 GPI_VAVL_NS = 12.0
 CTX = ["S.L5IT", "T.L5IT", "P.L5IT", "I.L5IT", "P.L5ET", "CA1.ctx", "P.MTX"]
+AMY = ["S.L5IT", "T.L5IT[0:24]", "P.L5IT[0:24]", "I.L5IT", "T.liar", "CA1[32:56]"]     # 128 lines to the amygdala
+REWARD_PA = 1500.0      # LH reward current into the VTA per unit of drive reduction, for the first 50 ms of Phase A
+REWARD_MS = 50
 
 
 @dataclass
@@ -59,16 +65,30 @@ def bus_edges() -> list[BusEdge]:
     for c in range(BG.N_CH):
         edges.append(BusEdge("S.gpi", BG.N_CH * BG.I, f"P.vavl{c}", BG.I, (PR.GABA_A,), PR.SOMA, GPI_VAVL_NS, 5,
                              src_range=(c * BG.I, (c + 1) * BG.I)))
-    edges.append(BusEdge("S.vs", BG.N_VS, "RMTg", 4, (PR.GABA_A,), PR.SOMA, 1.0, 6))
+    # the critic's value excites the RMTg (abstracting the pallidal-habenular route), which inhibits the VTA: predicted
+    # reward is subtracted from the dopamine response (temporal-difference error)
+    edges.append(BusEdge("S.vs", BG.N_VS, "RMTg", 4, (PR.AMPA,), PR.SOMA, 1.0, 6))
+    # amygdala: fear and rage to arousal, stress and the dopamine brake; valence back onto the T and P tufts
+    for dst in ("LC", "PVN", "RMTg"):
+        edges.append(BusEdge("B.cea", AM.N_CEA, dst, 4, (PR.AMPA,), PR.SOMA, 1.2, 5))
+    for dst in ("T.L23", "P.L23"):
+        edges.append(BusEdge("B.bla", AM.N_BLA, dst, 4, (PR.AMPA,), PR.APICAL, 0.6, 6))
     return edges
 
 
 class TomeBrain:
     def __init__(self, run_seed: int = 0, director=None, W: int = 4) -> None:
-        jax_part = JaxPartition(run_seed, edges=bus_edges(), outputs={"J.ctx": CTX, "J.pvt": "PVT", "J.vavl": "P.MTX"},
+        jax_part = JaxPartition(run_seed, edges=bus_edges(),
+                                outputs={"J.ctx": CTX, "J.pvt": "PVT", "J.vavl": "P.MTX", "J.amy": AMY,
+                                         "J.vta": "VTA"},
                                 graded=("J.nm",))
         self.sj = BG.SJPartition(run_seed, director=director)
-        self.cosim = Cosim(jax_part, [self.sj], W=W)
+        self.bn = AM.BNPartition(run_seed)
+        self.cosim = Cosim(jax_part, [self.sj, self.bn], W=W)
+        self.mind = Mind()
+        self.quiet = NW.make_quiet(jax_part.net)
+        self.rate_rest = self._rest_rates(jax_part.net)
+        self._reward_until = -1
         self.jax = jax_part
         self.net = jax_part.net
         self.turn = 0
@@ -78,7 +98,33 @@ class TomeBrain:
         import jax.numpy as jnp
         jax_part.state["mu"] = jnp.asarray(mu)
         self._drive = self._rest_drive()
-        jax_part.ext_fn = lambda t0, W: np.broadcast_to(self._drive, (W, self.net.n)).astype(np.float32)
+        self._vta = self.net.idx("VTA")
+        jax_part.ext_fn = self._ext
+
+    def _ext(self, t0: int, W: int) -> np.ndarray:
+        ext = np.broadcast_to(self._drive, (W, self.net.n)).astype(np.float32)
+        if t0 < self._reward_until:
+            ext[: max(0, min(W, self._reward_until - t0)), self._vta] += REWARD_PA * self.mind.reward
+        return ext
+
+    @staticmethod
+    def _rest_rates(net) -> np.ndarray:
+        cal = NW.load_calibration()
+        rates = np.zeros(net.n, np.float32)
+        try:
+            import tomllib
+            with open(NW.CALIBRATION_FILE, "rb") as fh:
+                rest = tomllib.load(fh).get("rates_rest", {})
+        except (OSError, ValueError):
+            rest = {}
+        for p in net.pops:
+            rates[net.idx(p.name)] = float(rest.get(p.name, 2.0))
+        del cal
+        return rates
+
+    def set_us(self, intensities: dict[str, float]) -> None:
+        """Unconditioned stimuli from the rules this turn (harm, defiance, gift, loss, bearer_near_death, lie)."""
+        self.bn.set_us(intensities)
 
     # ------------------------------------------------------------------ input
     def _rest_drive(self) -> np.ndarray:
@@ -106,9 +152,13 @@ class TomeBrain:
 
     # ------------------------------------------------------------------ phases
     def phase_a(self) -> None:
-        """60 ms before the rules resolve the player's action: the network perceives the new input."""
+        """60 ms before the rules resolve the player's action: the network perceives the new input. Last turn's
+        intrinsic reward (drive reduction) reaches the VTA as a lateral-hypothalamic current for the first 50 ms."""
         self.cosim.clock.phase = "A"
-        self.cosim.run(PHASE_A_MS)
+        self.jax.reset_counts()
+        self._reward_until = self.cosim.clock.t_ms + REWARD_MS
+        rec = self.cosim.run(PHASE_A_MS, record=("J.vta",))
+        self.vta_phase_a = rec["J.vta"]          # [60 ms, 24]: the dopamine response to last turn's outcome
 
     def phase_b(self, director_features: np.ndarray, allowed: set[str] | None = None) -> PhaseBOut:
         clock = self.cosim.clock
@@ -134,6 +184,7 @@ class TomeBrain:
         final = self._race(raster, allowed, final=True, committed=commits, gpi=gpi_per_ch)
         self.sj.end_phase_b()
         self.sj.end_turn(clock.t_ms - start + PHASE_A_MS)
+        self._end_turn()
         self.turn += 1
         clock.turn = self.turn
         clock.phase = "idle"
@@ -169,6 +220,36 @@ class TomeBrain:
                 top = max(chans, key=lambda c: (per_ch[:, c].sum(), -g[c]))
                 out[loop] = Commit(loop, BG.CHANNELS[top][1], None, True, counts)
         return out
+
+    # ------------------------------------------------------------------ the mind
+    def _end_turn(self) -> None:
+        """Read the turn into needs, drive, reward and the Tome's modifiers, then run the quiet interval."""
+        import jax.numpy as jnp
+
+        J = self.jax
+        ms = max(J.count_ms, 1)
+        rates = population_rates(self.net, J.counts, ms)
+        bla = self.cosim.bus.buf["B.bla"]
+        horizon = min(ms, bla.shape[0])
+        idx = (np.arange(self.cosim.clock.t_ms - horizon, self.cosim.clock.t_ms)) % bla.shape[0]
+        bla_rate = bla[idx].mean(0) * 1000.0
+        cea_rate = float(self.cosim.bus.buf["B.cea"][idx].mean() * 1000.0)
+        vs_rate = float(self.cosim.bus.buf["S.vs"][idx].mean() * 1000.0)
+        r = {k: rates[k] for k in ("VTA", "LC", "DRN", "NBM", "ORX", "PVN")}
+        r.update({f"bla.{a}": float(bla_rate[i * AM.PER_ASM:(i + 1) * AM.PER_ASM].mean())
+                  for i, a in enumerate(AM.ASSEMBLY)}, cea=cea_rate, vs=vs_rate)
+        probe = J.probe_sum / ms
+        sig = TurnSignals(atp_pi=atp_pi(self.net, np.asarray(J.state["atp"])), rates=r, nm=list(probe[2:6]),
+                          F=float(probe[6]))
+        self.mind.update(sig)
+        self.last_signals = sig
+        rate_turn = (J.counts * 1000.0 / ms).astype(np.float32)
+        J.state = self.quiet(J.state, jnp.asarray(J.glucose, jnp.float32), jnp.asarray(rate_turn),
+                             jnp.asarray(self.rate_rest))
+
+    def mods(self) -> dict[str, int]:
+        """The Tome's own check modifiers, read at the end of the last turn and its quiet interval."""
+        return dict(self.mind.mods)
 
     # ------------------------------------------------------------------ persistence
     def digest(self) -> str:

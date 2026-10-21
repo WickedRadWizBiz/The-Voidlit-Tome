@@ -168,6 +168,7 @@ class Turn:
     npc_name: str | None = None
     flee_npc: str | None = None
     checks_from: int = 0
+    us: dict[str, float] = field(default_factory=dict)   # what this turn means to the Tome (its amygdala's stimuli)
 
     def event(self, text: str, *_: object, **__: object) -> None:
         """Internal note (dev debug only). Players learn outcomes from the narration and status bar."""
@@ -515,6 +516,7 @@ class TomeEngine:
             return False
         if "light" in item.tags:
             self.checks.note("player", "player.feed_light")
+            t.us["gift"] = 1.0
             st_char.spend_item(item)
             st.lumen.restore(item.light)
             t.facts.append(f"The player spends the {item.name}; its light pours into the Tome.")
@@ -589,6 +591,8 @@ class TomeEngine:
         upper = self._upper_hand()
         if s.intent in (Intent.FIGHT, Intent.FORCE):
             rec = self._check("player.strike_tome", Approach.GRIT, 10 + tm["grit"], intent="fight", upper_hand=upper)
+            if rec.degree.succeeded:
+                t.us["harm"] = 1.0
             if rec.degree.succeeded and st.lumen.dice > 0:
                 st.lumen.burn(1)
                 t.facts.append("The player strikes the Tome. One of its lights cracks and goes out.")
@@ -603,6 +607,7 @@ class TomeEngine:
                               upper_hand=upper)
             if rec.degree.succeeded:
                 st.shadow_bonus = 2
+                t.us["harm"] = 0.5
                 t.facts.append("The player smothers the Tome's glow; for a moment they are hard to see.")
             else:
                 t.facts.append("The player tries to smother the Tome's glow, but it bleeds through their fingers.")
@@ -614,10 +619,12 @@ class TomeEngine:
                                   upper_hand=upper)
                 if not rec.degree.succeeded:
                     self._tome_says(t, "lie_noticed")
+                    t.us["lie"] = 1.0
             elif s.aggression > 0.6:
                 rec = self._check("player.threaten_tome", Approach.GRIT, 10 + tm["resolve"], intent="talk",
                                   upper_hand=upper)
                 self._tome_says(t, "cowed" if rec.degree.succeeded else "scorn")
+                t.us["defiance"] = 1.0
             else:
                 self.checks.note("player", "player.ask_tome")
                 self._tome_says(t, "answer")
@@ -679,6 +686,11 @@ class TomeEngine:
             self.checks.note(nid, action)
             return
         attr, against = NPC_TACTIC_CHECKS[action]
+        brain = self.brains[nid]
+        plot = next((p for p in brain.spec.plots if p.id == next(
+            (tc.plot for tc in brain.spec.tactics if tc.id == tactic), "")), None)
+        if plot is not None and plot.role == "extract":
+            t.us["loss"] = max(t.us.get("loss", 0.0), 1.0)      # someone here wants to take the Tome away
         rec = checks.d20(self.rng, self.checks, nid, action, attr, self._nmod(nid, attr), 10 + self._pmod(against))
         if tactic in ("probe", "interrogate", "menace"):
             if rec.degree.succeeded:
@@ -821,6 +833,10 @@ class TomeEngine:
 
     def _before_act(self, t: Turn) -> None:
         """Hook: runs after the senses read the input and before the rules resolve it."""
+
+    def _debug_extra(self) -> dict:
+        """Hook: extra developer telemetry for the debug object."""
+        return {}
 
     def _choose_beat(self, t: Turn, allowed: set[Beat]) -> tuple[Beat, dict[str, float]]:
         """The Director samples a beat from its pacing distribution (the Tome's network overrides this)."""
@@ -1105,7 +1121,8 @@ class TomeEngine:
             "beat": t.beat.value, "beat_probs": t.beat_probs,
             "decisions": {k: v.to_dict() for k, v in t.decisions.items()}, "gossip": t.gossip,
             "notes": t.notes, "tension": round(st.tension, 3), "tome_mods": self.tome_mods(),
-            "checks": [r.to_dict() for r in self.checks.records[t.checks_from:]],
+            "checks": [r.to_dict() for r in self.checks.records[t.checks_from:]], "us": dict(t.us),
+            **self._debug_extra(),
         }
         return TomeFrame(seq=self.seq, blocks=blocks, status=status, mood=mood, effects=t.effects,
                          over=st.over, debug=debug)

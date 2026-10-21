@@ -23,6 +23,7 @@ import numpy as np
 from . import params as PR
 
 RING = 32          # future-conductance ring (ms): longest axonal delay must stay below it
+PROBE_N = 7        # per-ms probe: g_exc, g_inh (L2/3 PCs), DA, NE, 5-HT, ACh, prediction-error F (S/T L2/3)
 HIST = 16          # spike-history ring (ms) for the Graupner-Brunel presynaptic calcium delay
 GB_DELAY = 14      # D = 13.7 ms, rounded to the clock
 # Graupner & Brunel 2012 "DP" cortical set; theta_p = 1.3 (the spec's 1.6 breaks frequency dependence)
@@ -37,7 +38,10 @@ NEUROMOD_TAU = (200.0, 500.0, 1000.0, 300.0)
 ASTRO = dict(rC=6.0, rL=0.11, CT=2.0, c1=0.185, vER=2.0, KER=0.1, d1=0.13, d2=1.049, d3=0.9434, d5=0.08234,
              a2=0.2, v_beta=0.5, v_delta=0.02, kappa_delta=1.5, K_delta=0.1, v3K=2.0, KD=0.7, K3=1.0, r5P=0.04,
              glu_tau=50.0, glu_gain=0.1, gamma_tau=1000.0, gamma_jump=0.6, gamma_theta=0.5)
-ENERGY = dict(k_sup=1.0, k_rest=0.06, k_syn=0.01, k_spike=0.004, katp_gmax=4.0, katp_half=0.55, nad_tau=60e3)
+# K_ATP g_max: 0.6 nS on cortical excitatory cells puts the cortex at about half its baseline at Lumen 0 (G3b: weak,
+# not comatose); 4 nS on the dopamine cells, whose firing fails first when energy runs out (Liss et al. 2005).
+ENERGY = dict(k_sup=1.0, k_rest=0.06, k_syn=0.01, k_spike=0.004, katp_gmax=0.6, katp_gmax_da=4.0, katp_half=0.55,
+              nad_tau=60e3)
 
 
 @dataclass
@@ -77,6 +81,10 @@ class Net:
             pop, a, b = PR.ASSEMBLIES[name]
             s = self.start[pop]
             return slice(s + a, s + b)
+        if "[" in name:                                   # "pop[a:b]": a sub-range of a population
+            pop, rng = name[:-1].split("[")
+            a, b = (int(x) for x in rng.split(":"))
+            return slice(self.start[pop] + a, self.start[pop] + b)
         return slice(self.start[name], self.start[name] + self.size[name])
 
 
@@ -113,10 +121,14 @@ def build(seed: int = 0, s_max: int = 96, mu: dict | None = None, gains: dict | 
     their index in ``params.projections()`` (both are what G5 calibration fits). ``pops``/``projs`` build a
     small custom network instead (cell-level gates)."""
     sd_scale = 1.0
-    if calibrated and pops is None and mu is None and gains is None:
+    if calibrated and pops is None:
+        # the calibration fills in whatever the caller did not set explicitly
         cal = load_calibration()
-        mu = cal["mu"] or None
-        gains = {k: cal["inh_gain"] for k in inhibitory_onto_l23()} if cal["inh_gain"] != 1.0 else None
+        if mu is None:
+            mu = cal["mu"] or None
+        merged = {k: cal["inh_gain"] for k in inhibitory_onto_l23()} if cal["inh_gain"] != 1.0 else {}
+        merged.update(gains or {})
+        gains = merged or None
         sd_scale = cal["sd_scale"]
     pops = PR.populations() if pops is None else pops
     proj_list = PR.projections() if projs is None else projs
@@ -200,7 +212,8 @@ def build(seed: int = 0, s_max: int = 96, mu: dict | None = None, gains: dict | 
 
     # per-cell parameters
     pt = {f: np.zeros(n, np.float32) for f in PR.POINT_FIELDS}
-    flags = {k: np.zeros(n, bool) for k in ("inh", "cortical", "orx", "serotonin_target", "tc")}
+    flags = {k: np.zeros(n, bool) for k in ("inh", "cortical", "orx", "serotonin_target", "tc", "katp")}
+    katp_g = np.zeros(n, np.float32)
     region = np.zeros(n, np.int32)
     regions = ("S", "T", "P", "I", "thal", "hippo", "nuclei")
     mu_v = np.zeros(n, np.float32)
@@ -221,6 +234,9 @@ def build(seed: int = 0, s_max: int = 96, mu: dict | None = None, gains: dict | 
             pt[f][sl] = vals[f]
         flags["inh"][sl] = p.sign == "I"
         flags["cortical"][sl] = p.cortical
+        # K_ATP: cortical excitatory cells and the dopamine cells (Liss et al. 2005) slow down as ATP fails
+        flags["katp"][sl] = (p.cortical and p.sign == "E") or p.name == "VTA"
+        katp_g[sl] = ENERGY["katp_gmax_da"] if p.name == "VTA" else ENERGY["katp_gmax"]
         flags["orx"][sl] = p.name == "ORX"
         flags["tc"][sl] = vals["g_T"] > 0
         region[sl] = regions.index(p.region)
@@ -252,7 +268,7 @@ def build(seed: int = 0, s_max: int = 96, mu: dict | None = None, gains: dict | 
     for m, src in enumerate(NEUROMOD_SRC):
         if src in start:
             nm_src[start[src]:start[src] + size[src]] = m
-    point = dict(pt, **flags, region=region, astro_of=astro_of, nm_src=nm_src, sd=sd_v)
+    point = dict(pt, **flags, region=region, astro_of=astro_of, nm_src=nm_src, sd=sd_v, katp_g=katp_g)
 
     h = hashlib.sha256()
     for k in sorted(T):
@@ -320,15 +336,18 @@ def tm_step(x, u, s):
     return jnp.where(spiking, x - rel, x), jnp.where(spiking, u_plus, u), rel / U
 
 
-def astro_step(astro, dom_spk):
-    """One ms of the De Pitta 2009 astrocyte (Li-Rinzel Ca2+ with IP3 metabolism) for every domain.
+def astro_step(astro, dom_spk, dt_ms: float = 1.0):
+    """``dt_ms`` of the De Pitta 2009 astrocyte (Li-Rinzel Ca2+ with IP3 metabolism) for every domain.
 
     ``astro`` rows: IP3, Ca, h, gliotransmitter Gamma, glutamate spill-over trace. ``dom_spk``: spikes of the
-    domain's neurons this ms. Gamma jumps at each upward crossing of Ca = 0.5 uM and decays with tau 1 s."""
+    domain's neurons per ms. Gamma jumps at each upward crossing of Ca = 0.5 uM and decays with tau 1 s. The quiet
+    interval calls it with 20-ms steps."""
     import jax.numpy as jnp
     A = ASTRO
     ip3, C, h, gm, glu = astro
-    glu = glu * math.exp(-1.0 / A["glu_tau"]) + A["glu_gain"] * dom_spk
+    k = math.exp(-dt_ms / A["glu_tau"])
+    glu = glu * k + A["glu_gain"] * dom_spk * (1.0 - k) * A["glu_tau"] if dt_ms > 1.0 else \
+        glu * k + A["glu_gain"] * dom_spk
     m_inf = ip3 / (ip3 + A["d1"])
     n_inf = C / (C + A["d5"])
     free = A["CT"] - (1 + A["c1"]) * C
@@ -339,11 +358,12 @@ def astro_step(astro, dom_spk):
     dI = (A["v_beta"] * jnp.tanh(glu) + A["v_delta"] / (1 + ip3 / A["kappa_delta"]) * C ** 2 /
           (C ** 2 + A["K_delta"] ** 2) - A["v3K"] * C ** 4 / (C ** 4 + A["KD"] ** 4) * ip3 / (ip3 + A["K3"])
           - A["r5P"] * ip3)
-    C_n = jnp.clip(C + 1e-3 * dC, 0.0, A["CT"])
+    s = 1e-3 * dt_ms
+    C_n = jnp.clip(C + s * dC, 0.0, A["CT"])
     up = (C < A["gamma_theta"]) & (C_n >= A["gamma_theta"])
-    gm = gm * math.exp(-1.0 / A["gamma_tau"])
+    gm = gm * math.exp(-dt_ms / A["gamma_tau"])
     gm = jnp.where(up, gm + A["gamma_jump"] * (1 - gm), gm)
-    return jnp.stack([jnp.maximum(ip3 + 1e-3 * dI, 0.0), C_n, jnp.clip(h + 1e-3 * dh, 0.0, 1.0), gm, glu])
+    return jnp.stack([jnp.maximum(ip3 + s * dI, 0.0), C_n, jnp.clip(h + s * dh, 0.0, 1.0), gm, glu])
 
 
 def mg_block(v):
@@ -357,8 +377,8 @@ def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: di
     """Return a jitted ``window(state, ext[W, N], glucose, gclamp=None, gbus=None)``
     -> ``(state, (spikes[W, N], probe[W, 2]))``. ``gbus[W, n_slot + 1]`` is conductance arriving over the bus.
 
-    ``probe[W, 6]`` holds, each ms, the mean excitatory and inhibitory conductance (nS) on the L2/3 PCs and the
-    DA, NE, 5-HT and ACh concentrations."""
+    ``probe[W, 7]`` holds, each ms, the mean excitatory and inhibitory conductance (nS) on the L2/3 PCs, the DA,
+    NE, 5-HT and ACh concentrations, and the precision-weighted prediction error F of the S and T L2/3 cells."""
     import jax
     import jax.numpy as jnp
     from jax import lax
@@ -395,6 +415,7 @@ def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: di
     dom_n = jax.ops.segment_sum(in_dom.astype(f), dom_idx, net.n_astro)
     nm_src = p["nm_src"]
     is_P = p["region"] == 2
+    n_st = int(sum(pp.n for pp in net.pops if pp.kind == "L23" and pp.region in ("S", "T")))   # S and T L2/3 lead
 
     def syn(Gc, v, nmda_gain):
         """Total synaptic conductance and conductance x reversal for one compartment ([cells, 5] slots)."""
@@ -508,7 +529,7 @@ def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: di
         I = st["mu"] + ou + p["I_bias"] + ext + p["orx"] * 260.0 * (1.0 - glucose) - p["serotonin_target"] * 20.0 * nm[2]
         VT = p["VT"] - 2.0 * nm[1] * p["cortical"]
         atp = st["atp"]
-        katp = p["cortical"] * ENERGY["katp_gmax"] / (1.0 + (atp / ENERGY["katp_half"]) ** 4) if FL["energy"] \
+        katp = p["katp"] * p["katp_g"] / (1.0 + (atp / ENERGY["katp_half"]) ** 4) if FL["energy"] \
             else jnp.zeros(n, f)
         gamma = st["astro"][3]
         nmda_gain = (1.0 + 0.5 * jnp.where(in_dom, gamma[dom_idx], 0.0)) * (1.0 + 0.3 * st["da_tonic"] * is_P)
@@ -587,8 +608,14 @@ def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: di
         st = dict(st, nm=nm * nm_k + 0.05 * src_spk, t=t + 1)
         # probe: mean excitatory and inhibitory synaptic conductance on the L2/3 PCs (all compartments)
         G3 = G[o3:o2].reshape(n3, 3, PR.N_REC)
+        # prediction error of the S and T L2/3 cells: basal (evidence) vs tuft (expectation) depolarisation,
+        # weighted by the astrocytic precision of each cell's domain (design §6.2); a readout, never a loop
+        dep_b = jnp.maximum(st["Vb"][:n_st] - PR.L23["EL"], 0.0)
+        dep_a = jnp.maximum(st["Va"][:n_st] - PR.L23["EL"], 0.0)
+        prec = 1.0 + 0.5 * jnp.where(in_dom[:n_st], st["astro"][3][dom_idx[:n_st]], 0.0)
+        F = 0.5 * jnp.mean(prec * (dep_b - dep_a) ** 2)
         probe = jnp.concatenate([jnp.stack([G3[..., :2].sum((1, 2)).mean(), G3[..., 2:].sum((1, 2)).mean()]),
-                                 st["nm"]])
+                                 st["nm"], F[None]])
         if record:   # per-ms soma voltage and peak tuft voltage of the L2/3 cells (cell-level gates)
             return st, (s, probe, jnp.stack([st["V"][:n3], va_max]))
         return st, (s, probe)
@@ -610,7 +637,7 @@ def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: di
         g = jnp.asarray(glucose, f)
         z = jnp.zeros(n3, f)
         out_s = jnp.zeros((max_w, n), f)
-        out_p = jnp.zeros((max_w, 6), f)
+        out_p = jnp.zeros((max_w, PROBE_N), f)
 
         def body(i, carry):
             st, out_s, out_p = carry
@@ -638,3 +665,47 @@ def population_rates(net: Net, spikes: np.ndarray, ms: float) -> dict[str, float
     """Mean firing rate (Hz) per population from a [T, N] spike raster covering ``ms`` milliseconds."""
     total = np.asarray(spikes).sum(0)
     return {p.name: float(total[net.idx(p.name)].mean() * 1000.0 / ms) for p in net.pops}
+
+
+QUIET_MS = 20_000.0
+QUIET_STEP_MS = 20.0
+POST_TAU_MS = 2_000.0
+
+
+def make_quiet(net: Net):
+    """The quiet interval Q (design §5.6): 20 s of slow-only brain time between turns (the player reading and
+    typing). Fast state (membranes, conductances, STP, eligibility) is frozen; astrocytes, ATP, NAD and the
+    Graupner-Brunel drift integrate in 20-ms steps against an activity profile that decays from the turn's rates to
+    the resting rates with tau 2 s. Returns a jitted ``quiet(state, glucose, rate_turn[N], rate_rest[N])``."""
+    import jax
+    import jax.numpy as jnp
+    from jax import lax
+
+    steps = int(round(QUIET_MS / QUIET_STEP_MS))
+    assert steps * QUIET_STEP_MS == QUIET_MS == 1000 * QUIET_STEP_MS, "Q must be 1000 steps of 20 ms"
+    p = {k: jnp.asarray(v) for k, v in net.point.items()}
+    astro_of = p["astro_of"]
+    in_dom = astro_of >= 0
+    dom_idx = jnp.maximum(astro_of, 0)
+    E = ENERGY
+    dt_s = QUIET_STEP_MS * 1e-3
+
+    def quiet(st, glucose, rate_turn, rate_rest):
+        def body(k, carry):
+            astro, atp, rho, nad = carry
+            r = rate_rest + (rate_turn - rate_rest) * jnp.exp(-k * QUIET_STEP_MS / POST_TAU_MS)   # Hz
+            dom = jax.ops.segment_sum(r * 1e-3 * in_dom, dom_idx, net.n_astro)                     # spikes/ms
+            astro = astro_step(astro, dom, QUIET_STEP_MS)
+            Ca = astro[1]
+            cbf = jnp.where(in_dom, 1.0 + 0.5 * Ca[dom_idx] / (Ca[dom_idx] + 0.5), 1.0)
+            atp = jnp.clip(atp + (E["k_sup"] * glucose * cbf * (1.05 - atp) - E["k_rest"]
+                                  - E["k_spike"] * r) * dt_s, 0.0, 1.05)
+            rho = jnp.clip(rho + QUIET_STEP_MS * gb_drho(rho, 0.0, nad), 0.0, 1.0)    # calcium-free drift only
+            nad = nad + (jnp.mean(atp) - nad) * QUIET_STEP_MS / E["nad_tau"]
+            return astro, atp, rho, nad
+
+        astro, atp, rho, nad = lax.fori_loop(0, steps, body, (st["astro"], st["atp"], st["rho"], st["nad"]))
+        return dict(st, astro=astro, atp=atp, rho=rho, nad=nad)
+
+    return jax.jit(quiet)
+

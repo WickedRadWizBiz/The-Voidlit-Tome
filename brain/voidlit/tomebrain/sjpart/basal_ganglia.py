@@ -41,8 +41,10 @@ M, E, S, I = 16, 6, 3, 6                 # D1 and D2 MSNs, GPe, STN, GPi per cha
 N_FSI, N_VS = 32, 16
 N_CTX = 328                              # cortical, hippocampal and thalamostriatal lines (bus J.ctx)
 N_PVT = 8
+N_LIM = 48                               # amygdala BLA lines (bus B.bla)
 TAU = dict(d1=20.0, d2=20.0, fsi=5.0, gpe=10.0, stn=6.0, gpi=10.0, vs=20.0)
-TONIC = dict(gpe=0.12, stn=0.15, gpi=0.13)   # GPe ~77 Hz, STN ~33 Hz, GPi ~67 Hz at rest (with noise)
+TONIC = dict(gpe=0.12, stn=0.15, gpi=0.13,   # GPe ~77 Hz, STN ~33 Hz, GPi ~67 Hz at rest (with noise)
+             vs=0.04)                         # the critic idles at a few Hz, so it can learn what predicts reward
 W_HABIT = 0.012          # habit trace -> D1, per unit of filtered habit spikes (20-ms trace)
 # One unit of log-probability moves a D1 cell's input by W_HABIT x 4 cells x 20 ms x RATE_MAX / SCALE = 0.024, so
 # the Gumbel excitability uses the same gain: the race then samples argmax(log p + Gumbel), i.e. from p.
@@ -88,10 +90,12 @@ class SJPartition(Partition):
             "ctx_d1": torch.rand(N_CTX, N_CH * M, generator=g) * 0.004,
             "ctx_d2": torch.rand(N_CTX, N_CH * M, generator=g) * 0.004,
             "ctx_vs": torch.rand(N_CTX, N_VS, generator=g) * 0.004,
+            "lim_d1": torch.rand(N_LIM, N_CH * M, generator=g) * 0.003,
         }
         self.W0 = {k: v.clone() for k, v in self.W.items()}
         self.w_ctx_fsi = torch.rand(N_CTX, N_FSI, generator=g) * 0.004
         self.w_pvt_vs = torch.rand(N_PVT, N_VS, generator=g) * 0.05
+        self.w_lim_vs = torch.rand(N_LIM, N_VS, generator=g) * 0.05
         hab = torch.zeros(len(BEATS) * PER_BEAT, N_CH * M)
         for b in range(len(BEATS)):
             hab[b * PER_BEAT:(b + 1) * PER_BEAT, b * M:(b + 1) * M] = W_HABIT
@@ -118,7 +122,7 @@ class SJPartition(Partition):
         put("stn", "gpi", same_loop * 0.06)            # diffuse hyperdirect, within the loop
         self.RT = R.T.contiguous().to_sparse_csr()
         self.tonic = torch.zeros(self.n)
-        for k in ("gpe", "stn", "gpi"):
+        for k in ("gpe", "stn", "gpi", "vs"):
             a, b = self.off[k]
             self.tonic[a:b] = TONIC[k]
         self.noise_scale = torch.full((self.n,), NOISE)
@@ -130,6 +134,7 @@ class SJPartition(Partition):
         self.prev = torch.zeros(self.n)
         self.habit_trace = torch.zeros(len(BEATS) * PER_BEAT)
         self.ctx_trace = torch.zeros(N_CTX)
+        self.lim_trace = torch.zeros(N_LIM)
         self.elig = {k: torch.zeros_like(v) for k, v in self.W.items()}
         self.tags = {k: torch.zeros_like(v) for k, v in self.W.items()}
         self.tag_gain = {k: torch.zeros_like(v) for k, v in self.W.items()}     # tanh(k T), fixed within a turn
@@ -186,6 +191,7 @@ class SJPartition(Partition):
         lockstep runs are bitwise identical (gate G6b); bus inputs are sparse, so they are summed by active line."""
         ctx = torch.from_numpy(bus.read("J.ctx", t0, W, 5))
         pvt = torch.from_numpy(bus.read("J.pvt", t0, W, 5))
+        lim = torch.from_numpy(bus.read("B.bla", t0, W, 6)) if "B.bla" in bus.buf else torch.zeros(W, N_LIM)
         nm = bus.read("J.nm", t0, W, 6)                     # DA, NE, 5-HT, ACh concentrations
         o = self.off
         sl = {k: slice(*o[k]) for k in o}
@@ -206,17 +212,19 @@ class SJPartition(Partition):
                 da = max(-0.5, min(1.0, da))
                 active = torch.nonzero(ctx[i]).flatten()
                 sparse = lambda w: w[active].sum(0)        # noqa: E731
+                lim_on = torch.nonzero(lim[i]).flatten()
                 hs = self.habit.step()
                 self.habit_trace = self.habit_trace * _K20 + hs
                 I_in = self.tonic + torch.from_numpy(self.streams.normal("bg_noise", tick, (self.n,))) * self.noise_scale
-                d1 = (sparse(self.W["ctx_d1"]) + self.kappa_h * (self.habit_trace @ self.w_habit)) * (1 + 0.5 * da)
+                d1 = (sparse(self.W["ctx_d1"]) + self.W["lim_d1"][lim_on].sum(0)
+                      + self.kappa_h * (self.habit_trace @ self.w_habit)) * (1 + 0.5 * da)
                 # the excitability shows in the response to the habit input, so it ramps with the habit trace
                 ramp = 1.0 - math.exp(-max(0, tick - self.phase_b_tick) / 20.0) if self.in_phase_b else 0.0
                 d1 = d1 + ramp * gumbel_d1 - self.nogo_d1
                 I_in[sl["d1"]] += d1
                 I_in[sl["d2"]] += sparse(self.W["ctx_d2"]) * (1 - 0.4 * da) + 0.03 * ht
                 I_in[sl["fsi"]] += sparse(self.w_ctx_fsi)
-                I_in[sl["vs"]] += sparse(self.W["ctx_vs"]) + pvt[i] @ self.w_pvt_vs
+                I_in[sl["vs"]] += sparse(self.W["ctx_vs"]) + pvt[i] @ self.w_pvt_vs + self.w_lim_vs[lim_on].sum(0)
                 # hyperdirect pathway: each loop's pooled cortical salience raises its STN (diffusely raising GPi)
                 loop_sal = self.loop_onehot.T @ d1.reshape(N_CH, M).mean(1)
                 I_in[sl["stn"]] += HYPER * (self.loop_onehot @ loop_sal).repeat_interleave(S)
@@ -227,13 +235,15 @@ class SJPartition(Partition):
                 out_vs[i] = s[sl["vs"]].numpy()
                 # eligibility: 20-ms presynaptic cortical trace x postsynaptic spikes (spiking columns only)
                 self.ctx_trace = self.ctx_trace * _K20 + ctx[i]
-                for k, post in (("ctx_d1", "d1"), ("ctx_d2", "d2"), ("ctx_vs", "vs")):
+                self.lim_trace = self.lim_trace * _K20 + lim[i]
+                for k, post, trace in (("ctx_d1", "d1", self.ctx_trace), ("ctx_d2", "d2", self.ctx_trace),
+                                       ("ctx_vs", "vs", self.ctx_trace), ("lim_d1", "d1", self.lim_trace)):
                     cols = torch.nonzero(s[sl[post]]).flatten()
                     if len(cols):
-                        self.elig[k][:, cols] += self.ctx_trace[:, None]
+                        self.elig[k][:, cols] += trace[:, None]
                 # dopamine bursts and dips pay tagged synapses (D1 and VS up, D2 down, for a burst)
                 if abs(da) >= PHASIC:
-                    for k, sign in (("ctx_d1", 1.0), ("ctx_d2", -1.0), ("ctx_vs", 1.0)):
+                    for k, sign in (("ctx_d1", 1.0), ("ctx_d2", -1.0), ("ctx_vs", 1.0), ("lim_d1", 1.0)):
                         self.W[k] += (ETA * da * sign) * self.tag_gain[k]
                         self.W[k].clamp_(0.0, 0.05)
         return {"S.gpi": out_gpi, "S.vs": out_vs}
@@ -249,6 +259,7 @@ class SJPartition(Partition):
             "nogo": self.nogo.numpy().copy(), "nogo_d1": self.nogo_d1.numpy().copy(),
             "gumbel": self.gumbel.numpy().copy(),
             "habit_trace": self.habit_trace.numpy().copy(), "ctx_trace": self.ctx_trace.numpy().copy(),
+            "lim_trace": self.lim_trace.numpy().copy(),
             "scalars": np.array([self.kappa_h, self.da_tonic, self.ht_tonic, float(self.in_phase_b), self.nm_ticks,
                                  self.phase_b_tick], np.float64),
         }
@@ -265,6 +276,7 @@ class SJPartition(Partition):
         self.tag_gain = {k: torch.tanh(K_TAG * v) for k, v in self.tags.items()}
         self.nogo, self.nogo_d1, self.gumbel = t(d["nogo"]), t(d["nogo_d1"]), t(d["gumbel"])
         self.habit_trace, self.ctx_trace = t(d["habit_trace"]), t(d["ctx_trace"])
+        self.lim_trace = t(d["lim_trace"])
         sc = np.array(d["scalars"], np.float64)
         self.kappa_h, self.da_tonic, self.ht_tonic = float(sc[0]), float(sc[1]), float(sc[2])
         self.in_phase_b, self.nm_ticks, self.phase_b_tick = bool(sc[3]), int(sc[4]), int(sc[5])

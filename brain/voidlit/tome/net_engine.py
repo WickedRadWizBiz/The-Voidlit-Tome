@@ -37,14 +37,28 @@ class TomeNetEngine(TomeEngine):
         st, ch = self.state, self.state.character
         return np.array([st.lumen.fraction, ch.hull / max(1, ch.hull_max), ch.stress / 10.0], np.float32)
 
+    def _debug_extra(self) -> dict:
+        return {"mind": self.brain.mind.telemetry(), "opinion": self.brain.bn.opinion(),
+                "fallbacks": self.brain.fallbacks}
+
+    def tome_mods(self) -> dict[str, int]:
+        """The Tome's own check modifiers come from its network (ATP, arousal, drive, serotonin; design §8.6)."""
+        return self.brain.mods()
+
     def _before_act(self, t: Turn) -> None:
+        self.brain.set_us({})
         self.brain.set_input(director_features=None, senses=self._senses_vector(t), body=self._body_vector(),
                              glucose=0.15 + 0.85 * self.state.lumen.fraction)
         self.brain.phase_a()
 
     def _choose_beat(self, t: Turn, allowed: set[Beat]) -> tuple[Beat, dict[str, float]]:
         feats = self._features(t).tensor().numpy()
-        self.brain.set_input(director_features=feats, senses=self._senses_vector(t), body=self._body_vector())
+        ch = self.state.character
+        if ch.hull <= max(2, ch.hull_max // 3):
+            t.us["bearer_near_death"] = 1.0
+        self.brain.set_us(t.us)
+        self.brain.set_input(director_features=feats, senses=self._senses_vector(t), body=self._body_vector(),
+                             glucose=0.15 + 0.85 * self.state.lumen.fraction)
         out = self.brain.phase_b(feats, {b.value for b in allowed})
         self.last_commit = out
         beat = Beat(out.pace.channel)
@@ -54,7 +68,8 @@ class TomeNetEngine(TomeEngine):
     def save(self, directory: str | Path) -> Path:
         d = super().save(directory)
         persist.save(self.brain.cosim, Path(d) / BRAIN_FILE, extra={"turn": self.brain.turn,
-                                                                   "fallbacks": self.brain.fallbacks})
+                                                                   "fallbacks": self.brain.fallbacks,
+                                                                   "mind": self.brain.mind.state_dict()})
         return d
 
     def load(self, directory: str | Path) -> None:
@@ -62,3 +77,5 @@ class TomeNetEngine(TomeEngine):
         extra = persist.load(self.brain.cosim, Path(directory) / BRAIN_FILE)
         self.brain.turn = int(extra.get("turn", 0))
         self.brain.fallbacks = int(extra.get("fallbacks", 0))
+        if "mind" in extra:
+            self.brain.mind.load_state_dict(extra["mind"])

@@ -83,6 +83,13 @@ class JaxPartition(Partition):
         self.edges = [(src, delay, mat.T.tocsr()) for (src, delay), mat in groups.items()]
         self.ext_fn = None          # optional (t0, W) -> ext currents [W, N]
         self.glucose = 1.0
+        self.reset_counts()
+
+    def reset_counts(self) -> None:
+        """Start a new turn's tally: spikes per cell, ms simulated, and probe sums (for the readouts)."""
+        self.counts = np.zeros(self.net.n, np.float64)
+        self.count_ms = 0
+        self.probe_sum = np.zeros(NW.PROBE_N, np.float64)
 
     def _cells(self, spec) -> np.ndarray:
         names = [spec] if isinstance(spec, str) else list(spec)
@@ -132,6 +139,9 @@ class JaxPartition(Partition):
     def finish(self, pending) -> dict[str, np.ndarray]:
         s, probe = np.asarray(pending[0])[:pending[2]], np.asarray(pending[1])[:pending[2]]
         self.last = s
+        self.counts += s.sum(0)
+        self.count_ms += s.shape[0]
+        self.probe_sum += probe.sum(0)
         out = {name: s[:, idx] for name, idx in self.out_idx.items()}
         if "J.nm" in self.graded:
             out["J.nm"] = probe[:, 2:6]

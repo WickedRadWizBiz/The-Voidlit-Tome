@@ -1,4 +1,8 @@
-"""llama.cpp, in-process and local-only: the sensory pass (GBNF-locked) and the vocal pass.
+"""llama.cpp, in-process and local-only: the sensory pass (GBNF-locked) and the NPCs' own dialogue.
+
+The model never writes narration or the Tome's words: those are always authored (the offline voice, from the rules'
+verbatim speech acts, register wrappers, phrase banks and core sentences). It reads the player (perception) and speaks
+for Elara and Marcus, whose minds are their own.
 
 The language model is a ``.gguf`` file on this machine, loaded with llama-cpp-python, which compiles llama.cpp
 into this Python process. There is no server, no socket and no download path:
@@ -26,12 +30,9 @@ from typing import Protocol
 from ..senses.grammar import SensoryParseError, build_sensory_gbnf, parse_sensory_json
 from ..senses.heuristic import HeuristicTransducer
 from ..senses.state import SensoryState
-from .guard import (ADDRESSES, colour_problems, content_words, framing_problems, leaks_mechanics, missing_core,
-                    sentences, strip_core)
+from .guard import leaks_mechanics
 from .narrator import OfflineVoice
-from .prompts import compile_narration_prompt, compile_tome_speech_prompt
 from .requests import DialogueRequest, NarrationRequest, TomeSpeechRequest
-from .style import splice
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +48,8 @@ target: who or what it is aimed at, from the allowed ids, else none.
 aggression: hostility or threat of violence. deception: lying or bluffing. leverage: bargaining power, offers,
 conditional threats. exposure: probing someone's hidden motives or secrets. rapport: warmth (+) or contempt (-).
 boldness: appetite for risk. Use two decimals. Be calibrated: most inputs are near 0 on most axes.
-A question is aimed at the name before its first comma or after its last ("Tome, ...?", "..., Elara?").
+A question is aimed at the name it is put to: at its head ("Tome, ...", "Hey Tome, ...", "Tome: ...",
+"Tell me, Tome, ...", "Tome what ...?") or after its last comma ("..., Elara?").
 asks: when the player puts a question to the Tome (the narrator), its topic from the allowed topics; vague for a
 question with no clear topic; unclear if you cannot tell what they asked; none if it is not a question to the Tome.
 claims: a claim id the player asserts, else none. addressed_tome: true if the words are aimed at the Tome."""
@@ -214,68 +216,24 @@ class LocalTransducer:
 
 
 class LocalVoice:
-    """Pass 2: compiled prompts -> prose and dialogue. The LLM decorates; only the rules assert.
-
-    The Tome's speech acts are spliced in verbatim and the model writes only their framing (commands, forms of
-    address, short questions). A narration must say every core sentence the rules decided this turn verbatim, and
-    whatever else the model writes must be pure colour (voice/guard.py). Anything else falls back to the offline
-    voice."""
+    """Pass 2: the NPCs' own dialogue. The narration and the Tome's words are the offline voice's, exactly: authored
+    text only, and the model is never asked for them."""
 
     def __init__(self, llm: ChatModel, fallback: OfflineVoice | None = None, temperature: float = 0.85) -> None:
         self.llm = llm
         self.fallback = fallback or OfflineVoice()
         self.temperature = temperature
-        # the truth guard, the backstop over every whole line (set by the engine):
-        # (text, role "speech" | "narration", allowed_facts, exempt verbatim lines) -> list of violated rules
-        self.guard = None
-
-    def _rejected(self, what: str, problems: list[str]) -> bool:
-        if problems:
-            log.warning("%s fell back to offline voice: %s", what, ", ".join(dict.fromkeys(problems)))
-        return bool(problems)
-
-    def _backstop(self, text: str, role: str, allowed: set[str] = frozenset(), exempt: list[str] = ()) -> list[str]:
-        out = ["mechanics"] if leaks_mechanics(text) else []
-        return out + (self.guard(text, role, allowed, exempt) if self.guard else [])
 
     def narrate(self, req: NarrationRequest) -> str:
-        parts = self.fallback.narration_parts(req)              # what the rules decided, chosen once
-        offline = self.fallback.join(parts)
-        core = [x for text, is_core in parts if is_core for x in sentences(text)]
-        try:
-            out = clean_text(self.llm.chat(compile_narration_prompt(req, core), temperature=self.temperature,
-                                           max_tokens=220))
-        except GENERATION_ERRORS as e:
-            log.warning("narration fell back to offline voice: %s", e)
-            return offline
-        if not out:
-            return offline
-        missing = missing_core(out, core)                       # outcomes are never withheld or reworded
-        if self._rejected("narration", [f"dropped: {m}" for m in missing]):
-            return offline
-        avoid = [*req.avoid, *sorted({w for c in core for w in content_words(c)})]
-        if self._rejected("narration", colour_problems(strip_core(out, core), avoid)
-                          + self._backstop(out, "narration", exempt=core)):
-            return offline
-        return out
+        return self.fallback.narrate(req)
 
     def tome_say(self, req: TomeSpeechRequest) -> str:
-        try:
-            framing = clean_text(self.llm.chat(compile_tome_speech_prompt(req),
-                                               temperature=getattr(req.style, "temperature", self.temperature),
-                                               max_tokens=48)).strip('"“”')
-        except GENERATION_ERRORS as e:
-            log.warning("Tome speech fell back to offline voice: %s", e)
-            return self.fallback.tome_say(req)
-        if not framing or self._rejected("Tome speech", framing_problems(framing, req.avoid, ADDRESSES)):
-            return self.fallback.tome_say(req)
-        line = splice(req.lines, req.style, framing, caution=req.caution)
-        exempt = [*req.lines, *([req.caution] if req.caution else [])]
-        if self._rejected("Tome speech", self._backstop(line, "speech", req.allowed_facts, exempt)):
-            return self.fallback.tome_say(req)
-        return line
+        return self.fallback.tome_say(req)
 
     def speak(self, req: DialogueRequest) -> str:
+        # the authored line is chosen first, whatever the model then says, so the offline voice's dice (and with them
+        # every later narration) run exactly as they would without a model
+        offline = self.fallback.speak(req)
         user = ("(The player has said nothing to you. Act on your own agenda.)" if req.unprompted
                 else f"{req.player_name} says: {req.player_text}")
         if req.history:
@@ -285,8 +243,8 @@ class LocalVoice:
             out = clean_text(self.llm.chat(messages, temperature=self.temperature, max_tokens=90)).strip('"')
         except GENERATION_ERRORS as e:
             log.warning("dialogue fell back to offline voice: %s", e)
-            return self.fallback.speak(req)
+            return offline
         if out and leaks_mechanics(out, allow_digits=True):
             log.warning("dialogue fell back to offline voice: it named a mechanic")
             out = ""
-        return out or self.fallback.speak(req)
+        return out or offline

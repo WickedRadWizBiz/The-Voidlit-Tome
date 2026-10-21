@@ -163,7 +163,8 @@ def cmd_gbnf(args: argparse.Namespace) -> int:
 
 def _model_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--model", default=None, metavar="FILE.gguf",
-                   help="local llama.cpp model for narration and dialogue (in-process; no server, no network)")
+                   help="local llama.cpp model for the NPCs' dialogue and the sensory pass (in-process; no server, "
+                        "no network); the narration and the Tome's words are always authored")
     p.add_argument("--senses-model", default=None, metavar="FILE.gguf",
                    help="optional smaller local model for the sensory pass (defaults to --model)")
     p.add_argument("--gpu-layers", type=int, default=0, help="layers to offload to the GPU (0 = CPU only)")

@@ -592,12 +592,12 @@ weight = 0.55
 [narration]
 "beat.calm" = [
     "Somewhere far off, the station's hull pings as it cools.",
-    "The Tome's light breathes slowly against the walls.",
+    "Somewhere behind the walls, a fan turns over once and stops.",
     "Frost spreads across a viewport, slow as breath.",
     "A long way below you, water drips into metal, patient as a clock.",
 ]
 "beat.escalate" = [
-    "Deep in the hull, something answers the noise you made.",
+    "Deep in the hull, something heavy shifts its weight.",
     "Every speaker on the deck clicks once, in unison.",
     "Far below, a bulkhead opens on its own.",
 ]
@@ -779,7 +779,7 @@ id = "feed.necessity"
 target_action = "feed_light"
 frame = "necessity"
 agenda = "feed_light"
-lines = ["What happens to you when my light goes out?"]
+lines = ["What happens to you in the dark?"]
 
 [[suggestions]]
 id = "feed.fear"
@@ -825,4 +825,4 @@ text = "Who do you trust down here?"
 
 [[probes]]
 id = "probe.light"
-text = "How long do you think my light will last you?"
+text = "What would you give for more light?"

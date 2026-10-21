@@ -1,4 +1,7 @@
-"""What the voice is asked to say. The rules have already decided everything here."""
+"""What the voice is asked to say. The rules have already decided everything here.
+
+Narration and the Tome's speech are always worded by the authored (offline) voice; only a dialogue request
+reaches a local model, for an NPC's own words."""
 
 from __future__ import annotations
 
@@ -25,16 +28,10 @@ class NarrationRequest:
     obstacle_text: str | None = None
     defeated_text: str | None = None
     beat: Beat = Beat.CALM
-    beat_fact: str = ""                # a concrete in-world event caused by the beat (both voices use it)
-    beat_note: str = ""                # what the beat means, for the LLM only
+    beat_fact: str = ""                # a concrete in-world event caused by the beat
     clue: str | None = None
-    tension: float = 0.0
-    lumen: float = 1.0
-    history: list[str] = field(default_factory=list)  # last few narrated lines, oldest first
     ending: str | None = None          # "won" | "dead" | None
     register: str = ""                 # the Tome's hidden register (wording only; never shown)
-    craft: str = ""                    # one line of craft instructions for the LLM (never an emotion word)
-    avoid: list[str] = field(default_factory=list)   # words the LLM's colour may not use (topics, people, secrets)
 
 
 @dataclass
@@ -43,11 +40,7 @@ class TomeSpeechRequest:
 
     lines: list[str]                   # each a ledger fact, deflection, prediction, opinion or question: said verbatim
     style: object                      # voice.style.VoiceStyle (hidden; wording only)
-    allowed_facts: set[str] = field(default_factory=set)   # facts this speech discloses
     caution: str | None = None         # a true, already-public ledger fact a warm Tome may add unasked
-    player_text: str = ""
-    history: list[str] = field(default_factory=list)
-    avoid: list[str] = field(default_factory=list)   # words the LLM's framing may not use (topics, people, secrets)
 
 
 @dataclass

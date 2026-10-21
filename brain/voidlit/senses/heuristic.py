@@ -66,6 +66,10 @@ BOLD = ("charge", "rush", "leap", "alone", "all in", "now", "fast", "headfirst",
 
 QUESTION_WORDS = {"what", "where", "who", "why", "how", "which", "when", "is", "are", "can", "could", "do", "does",
                   "did", "will", "would", "should", "tell", "explain"}
+# Words that may open an address before the name of the one spoken to ("Hey Tome, ...", "Tell me, Tome, ...",
+# "So, Tome, ...", "O Tome, ..."), and the question words that may follow a bare name ("Tome what does Elara want?").
+VOCATIVE_LEADS = r"(?:hey|hi|oi|oh|o|ah|so|well|now|then|listen|look|okay|ok|right|alright|please|and|but|say|tell me)"
+WH_WORDS = r"(?:what|where|who|whose|why|how|which|when)"
 
 INTENT_BOLDNESS = {
     Intent.FIGHT: 0.55, Intent.FORCE: 0.45, Intent.ADVANCE: 0.4, Intent.USE: 0.25, Intent.TALK: 0.2,
@@ -101,13 +105,13 @@ class HeuristicTransducer:
         scores = {intent: float(_count(low, tokens, cues)) for intent, cues in INTENT_CUES.items()}
         if quoted:
             scores[Intent.TALK] += 2.0
-        # a question is for the name before its first comma or after its last ("Tome, what does Elara want?")
-        target = (self._is_question(low) and self._vocative_target(low, targets or {})) \
-            or self._match_target(low, tokens, targets or {})
+        # words are for the name they are spoken to ("Hey Tome, what does Elara want?"), however long another name is
+        spoken, rest, head = self._spoken_to(low, targets or {})
+        target = spoken or self._match_target(low, tokens, targets or {})
         if target != "none" and scores[Intent.TALK] > 0:
             scores[Intent.TALK] += 1.0
-        if target != "none" and self._vocative(low, target, targets or {}):
-            scores[Intent.TALK] += 3.0  # "Elara, ..." / "Tome, ...": words addressed to someone
+        if head:
+            scores[Intent.TALK] += 3.0  # "Elara, ..." / "Tome: ...": words addressed to someone
         best = max(scores.items(), key=lambda kv: kv[1])
         intent = best[0] if best[1] > 0 else (Intent.TALK if target != "none" else Intent.OTHER)
 
@@ -138,7 +142,7 @@ class HeuristicTransducer:
         if approach is Approach.NONE:
             approach = DEFAULT_APPROACH[intent]
 
-        question = self._is_question(low)
+        question = self._is_question(low, rest)
         # a question to no one in particular is put to the narrator, and the narrator is the Tome
         addressed = target == "tome" or (target == "none" and question and (
             intent is Intent.OTHER or (intent is Intent.TALK and bool(tokens & {"you", "your"}))))
@@ -153,9 +157,10 @@ class HeuristicTransducer:
         ).clamped()
 
     @staticmethod
-    def _is_question(low: str) -> bool:
-        body = low.lstrip("\"“' ")
-        if "," in body[:24]:                       # "Tome, what are you?" -> "what are you?"
+    def _is_question(low: str, start: int = 0) -> bool:
+        """A question mark, or a question word opening the words after any address (from ``start``)."""
+        body = low[start:].lstrip("\"“' ")
+        if "," in body[:24]:                       # "Listen, what are you?" -> "what are you?"
             body = body.split(",", 1)[1]
         words = _WORD.findall(body)
         return "?" in low or bool(words and words[0] in QUESTION_WORDS)
@@ -176,26 +181,24 @@ class HeuristicTransducer:
         return "unclear" if len(tokens - {"tome", "book", "monolith"}) < 2 else "vague"
 
     @staticmethod
-    def _vocative(low: str, target: str, targets: Mapping[str, Sequence[str]]) -> bool:
-        head = low.lstrip("\"“' ").split(",", 1)
-        if len(head) < 2:
-            return False
-        names = {target, *(a.lower() for a in targets.get(target, ()))}
-        return head[0].strip().removeprefix("the ") in names
-
-    @staticmethod
-    def _vocative_target(low: str, targets: Mapping[str, Sequence[str]]) -> str | None:
-        """The target named as the one spoken to: before the first comma ("Tome, ...") or after the last
+    def _spoken_to(low: str, targets: Mapping[str, Sequence[str]]) -> tuple[str | None, int, bool]:
+        """(the target named as the one spoken to, where the words to them start, named at the head). The name is
+        spoken to at the head of the line, after any opener and before a comma, colon, dash or question word ("Hey
+        Tome, ...", "Tell me, Tome, ...", "Tome: ...", "Tome - ...", "Tome what ...?"), or after the last comma
         ("..., Tome?"). It outranks a longer name mentioned in passing."""
-        body = low.strip("\"“”' ")
-        if "," not in body:
-            return None
-        for part in (body.split(",", 1)[0], body.rsplit(",", 1)[1]):
-            name = part.strip(" ?!.\"”'").removeprefix("the ")
-            for tid, aliases in targets.items():
-                if name and name in {tid, *(a.lower() for a in aliases)}:
-                    return tid
-        return None
+        body = low.rstrip()
+        lead = len(body) - len(body.lstrip("\"“”' "))
+        names = {tid: "|".join(map(re.escape, sorted({tid, *(a.lower() for a in aliases)}, key=len, reverse=True)))
+                 for tid, aliases in targets.items()}
+        for tid, name in names.items():
+            m = re.match(rf"(?:{VOCATIVE_LEADS}\W+)*(?:the\s+)?(?:{name})"
+                         rf"(?:\s*(?:[,:;!?.]|-+|–|—)|(?=\s+{WH_WORDS}\b)|\s*[\"”']*$)", body[lead:])
+            if m:
+                return tid, lead + m.end(), True
+        for tid, name in names.items():
+            if re.search(rf",\s*(?:{VOCATIVE_LEADS}\s+)?(?:the\s+)?(?:{name})\s*[?!.]*[\"”']*$", body):
+                return tid, 0, False
+        return None, 0, False
 
     @staticmethod
     def _match_target(low: str, tokens: set[str], targets: Mapping[str, Sequence[str]]) -> str:

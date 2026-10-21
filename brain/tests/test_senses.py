@@ -71,8 +71,31 @@ def test_npc_channels_split_rapport():
     ("Tome, what does Elara want?", "tome"), ("Where is Elara, Tome?", "tome"), ("Tome, who is Marcus?", "tome"),
     ("Elara, where is Marcus?", "elara"), ("Is Marcus armed, Elara?", "elara"), ("I shoot Elara", "elara"),
     ("Marcus, I swear I am on your side", "marcus"),
+    # spoken to after an opener, before a colon, a dash or a question word, or between commas
+    ("Hey Tome, what does Elara want?", "tome"), ("Tome: what does Elara want?", "tome"),
+    ("Tome - who is Marcus?", "tome"), ("Tome — who is Marcus?", "tome"),
+    ("Tell me, Tome, what does Elara want?", "tome"), ("So, Tome, who is Marcus?", "tome"),
+    ("O Tome, what does Elara want?", "tome"),
+    ("Tome what does Elara want?", "tome"), ("What does Elara want, O Tome?", "tome"),
+    ("Hey Marcus, where is Elara?", "marcus"), ("Look, Marcus, put the gun down.", "marcus"),
+    ("Elara where is Marcus?", "elara"),
+    # a name in passing is not one spoken to
+    ("Hey, Elara is lying", "elara"), ("So the tome is lying to Marcus", "marcus"),
 ])
 def test_the_one_named_as_spoken_to_is_the_target(text, target):
-    """A question is for the name before its first comma or after its last, however long another name is."""
+    """Words are for the name they are spoken to, however long another name is."""
     targets = {"tome": ["tome", "book", "monolith"], **TARGETS}
     assert HeuristicTransducer().extract(text, targets).target == target
+
+
+@pytest.mark.parametrize("text,topic", [
+    ("Hey Tome, what does Elara want?", "elara"), ("Tome: what does Elara want?", "elara"),
+    ("Tome - who is Marcus?", "marcus"), ("Tell me, Tome, what does Elara want?", "elara"),
+    ("So, Tome, who is Marcus?", "marcus"), ("O Tome, what does Elara want?", "elara"),
+    ("Tome what does Elara want", "elara"), ("I cover the Tome with my coat. Where is the lifeboat?", "lifeboat"),
+    ("Hey Tome?", "unclear"),
+])
+def test_a_question_put_to_the_tome_however_it_is_named(scenario, text, topic):
+    targets = {"tome": ["tome", "book", "monolith"], **TARGETS}
+    s = HeuristicTransducer().extract(text, targets, scenario.ledger["topics"])
+    assert (s.target, s.addressed_tome, s.asks) == ("tome", True, topic)

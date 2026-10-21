@@ -60,10 +60,15 @@ TAG_TAU_MS = 60_000.0
 QUIET_MS = 20_000.0
 _K20 = math.exp(-1 / 20.0)
 TONIC_TAU_MS = 6_000.0   # tonic DA / 5-HT: running mean over about 20 turns of brain time
-PHASIC = 0.3             # a dopamine burst or dip: the slow dopamine at least 30% away from tonic. Below that is the
-                         # sparse VTA's shot noise and wobble, which must teach nothing: with no event it stays within
-                         # -0.18..+0.23 (300 turns, 4 seeds), while a gift reaches 0.47-0.56 and a full VTA pause of
-                         # 220 ms (an omitted reward) reaches -0.3
+PHASIC = 0.3             # a dopamine burst: the slow dopamine at least 30% above tonic. Below that is the sparse VTA's
+                         # shot noise and wobble, which must teach nothing: with no event it stays within -0.19..+0.23
+                         # (200 turns, 2 seeds), while a gift reaches 0.44-0.57
+PAUSE = 0.5              # a dopamine dip: the concentration itself at half its tonic level or less. The slow dopamine
+                         # needs 220 ms of silence to fall 30%, longer than most turns (Phase B often commits at
+                         # 124 ms), but the concentration halves after 139 ms. The VTA's pacemakers never all fall
+                         # silent by chance (with no pause the concentration never went below -0.38 in 300 eventless
+                         # turns), and an eventless reward pauses them too briefly to halve it (-0.46 at most in 200).
+                         # Its upper tail is shot noise (up to +0.84), so a burst is still read from the slow dopamine.
 WARMUP_MS = 500
 # Dopamine acts twice: the fast phasic signal gates plasticity (below), while its modulation of MSN excitability runs
 # through second messengers (cAMP/PKA) and follows it only slowly (the shot noise of a sparse VTA is SD ~0.45 of tonic
@@ -186,7 +191,9 @@ class SJPartition(Partition):
         self.in_phase_b = False
 
     def end_turn(self, elapsed_ms: float) -> None:
-        """Capture eligibility into tags; tags decay over the quiet interval; weights drift toward the anchor."""
+        """Capture eligibility into tags; tags decay over the quiet interval; weights drift toward the anchor. The
+        slow dopamine relaxes to tonic over the quiet's 20 s (the brain returns the concentration to tonic too), so a
+        burst or dip that the turn's end cut short never pays the tags captured here."""
         decay = math.exp(-elapsed_ms / TAG_TAU_MS)
         for k in self.W:
             self.tags[k] = self.tags[k] * decay + self.elig[k]
@@ -194,6 +201,7 @@ class SJPartition(Partition):
             self.tags[k] *= math.exp(-QUIET_MS / TAG_TAU_MS)
             self.tag_gain[k] = torch.tanh(K_TAG * self.tags[k])
             self.W[k] += ANCHOR * (self.W0[k] - self.W[k])
+        self.da_mod = 0.0
 
     # ------------------------------------------------------------------ dynamics
     def step(self, bus, t0: int, W: int) -> dict[str, np.ndarray]:
@@ -256,9 +264,10 @@ class SJPartition(Partition):
                         self.elig[k][:, cols] += trace[:, None]
                 # dopamine bursts and dips pay tagged synapses: D1 and VS up, D2 down for a burst; the reverse for a
                 # dip (Shen 2008), so an omitted reward unlearns what predicted it
-                if abs(self.da_mod) >= PHASIC:
+                delta = self.da_mod if self.da_mod >= PHASIC else da if da <= -PAUSE else 0.0
+                if delta:
                     for k, sign in (("ctx_d1", 1.0), ("ctx_d2", -1.0), ("ctx_vs", 1.0), ("lim_d1", 1.0)):
-                        self.W[k] += (ETA * self.da_mod * sign) * self.tag_gain[k]
+                        self.W[k] += (ETA * delta * sign) * self.tag_gain[k]
                         self.W[k].clamp_(0.0, 0.05)
         return {"S.gpi": out_gpi, "S.vs": out_vs}
 

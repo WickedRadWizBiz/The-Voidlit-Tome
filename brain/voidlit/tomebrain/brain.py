@@ -40,7 +40,18 @@ CTX = ["S.L5IT", "T.L5IT", "P.L5IT", "I.L5IT", "P.L5ET", "CA1.ctx", "P.MTX"]
 AMY = ["S.L5IT", "T.L5IT[0:24]", "P.L5IT[0:24]", "I.L5IT", "T.liar", "CA1[32:56]"]     # 128 lines to the amygdala
 REWARD_PA = 1500.0      # LH reward current into the VTA per unit of drive reduction, for the first 50 ms of Phase A
 REWARD_MS = 50
+# A negative reward is a pause, not a deeper current: a firing rate cannot fall below zero, so dopamine cells code a
+# negative prediction error by how long they stay silent (Bayer, Lau & Glimcher 2007; pauses of 100-300 ms after an
+# omitted or worse-than-expected reward, Schultz 1997). The LH current holds the VTA silent (PAUSE_PA is just past
+# what silences the pacemakers) for 2.6 s per unit of reward, up to 250 ms. The dopamine concentration halves after
+# 139 ms of silence (its 200-ms clearance; the cells take about 20 ms to fire again once released), which is where the
+# striatum reads a dip: a pause teaches from about r = -0.05, while eventless turns stay above r = -0.045.
+PAUSE_PA = 100.0
+PAUSE_MS_PER_UNIT = 2600.0
+PAUSE_MAX_MS = 250
 FACT_PA = 60.0          # pA onto a P fact slot at salience 1 (topographic input): a 0.75 lead wins 15/16 commits
+REST_BY_LUMEN = "rates_rest_by_lumen"   # calibration table: the settled network's resting rates at Lumen 0..6
+NOTE_BY_LUMEN = "# Resting rates at Lumen 0..6 (voidlit.tomebrain.brain.measure_rest_by_lumen). Regenerate; keep last."
 
 
 @dataclass
@@ -89,8 +100,9 @@ class TomeBrain:
         self.cosim = Cosim(jax_part, [self.sj, self.bn], W=W)
         self.mind = Mind()
         self.quiet = NW.make_quiet(jax_part.net)
-        self.rate_rest = self._rest_rates(jax_part.net)
+        self.rest_table = self._rest_rates(jax_part.net)
         self._reward_until = -1
+        self._vta_before = None
         self._vs_spikes = 0.0       # the critic's spikes this turn (Phase A and B), for its value V
         self.jax = jax_part
         self.net = jax_part.net
@@ -107,23 +119,41 @@ class TomeBrain:
     def _ext(self, t0: int, W: int) -> np.ndarray:
         ext = np.broadcast_to(self._drive, (W, self.net.n)).astype(np.float32)
         if t0 < self._reward_until:
-            ext[: max(0, min(W, self._reward_until - t0)), self._vta] += REWARD_PA * self.mind.reward
+            r = self.mind.reward
+            ext[: max(0, min(W, self._reward_until - t0)), self._vta] += REWARD_PA * r if r >= 0 else -PAUSE_PA
         return ext
 
     @staticmethod
+    def reward_ms(r: float) -> int:
+        """How long last turn's reward acts on the VTA from the start of Phase A: a burst's 50 ms, or a pause whose
+        length codes the negative error."""
+        return REWARD_MS if r >= 0 else int(round(min(PAUSE_MAX_MS, PAUSE_MS_PER_UNIT * -r)))
+
+    @staticmethod
     def _rest_rates(net) -> np.ndarray:
-        cal = NW.load_calibration()
-        rates = np.zeros(net.n, np.float32)
+        """Resting rates per cell at Lumen 0..6 [7, N], what the quiet interval relaxes toward. A starving network
+        rests starving (the cortex at a third, orexin twentyfold, the VTA nearly silent), so the G5 resting rates are
+        scaled per population by how the settled network's resting rates change with the Lumen (REST_BY_LUMEN, which
+        ``measure_rest_by_lumen`` writes); without that table every level rests fed."""
         try:
             import tomllib
             with open(NW.CALIBRATION_FILE, "rb") as fh:
-                rest = tomllib.load(fh).get("rates_rest", {})
+                raw = tomllib.load(fh)
         except (OSError, ValueError):
-            rest = {}
+            raw = {}
+        rest, by_lumen = raw.get("rates_rest", {}), raw.get(REST_BY_LUMEN, {})
+        rates = np.zeros((7, net.n), np.float32)
         for p in net.pops:
-            rates[net.idx(p.name)] = float(rest.get(p.name, 2.0))
-        del cal
+            levels = np.asarray(by_lumen.get(p.name, [1.0] * 7), np.float64)
+            # (+0.2 Hz keeps a nearly silent population's ratio from being noise)
+            rates[:, net.idx(p.name)] = (float(rest.get(p.name, 2.0)) * (levels + 0.2) / (levels[6] + 0.2))[:, None]
         return rates
+
+    def rest_rates(self, glucose: float) -> np.ndarray:
+        """Resting rates at this glucose (0.15 + 0.85 Lumen/6), interpolated between Lumen levels."""
+        L = min(6.0, max(0.0, (glucose - 0.15) / 0.85 * 6.0))
+        lo = min(5, int(L))
+        return (self.rest_table[lo] + (L - lo) * (self.rest_table[lo + 1] - self.rest_table[lo])).astype(np.float32)
 
     def set_us(self, intensities: dict[str, float]) -> None:
         """Unconditioned stimuli from the rules this turn (harm, defiance, gift, loss, bearer_near_death, lie)."""
@@ -160,10 +190,14 @@ class TomeBrain:
     # ------------------------------------------------------------------ phases
     def phase_a(self) -> None:
         """60 ms before the rules resolve the player's action: the network perceives the new input. Last turn's
-        intrinsic reward (drive reduction) reaches the VTA as a lateral-hypothalamic current for the first 50 ms."""
+        intrinsic reward (drive reduction) reaches the VTA as a lateral-hypothalamic current: a positive one for the
+        first 50 ms, a negative one as a pause that may last into Phase B."""
         self.cosim.clock.phase = "A"
         self.jax.reset_counts()
-        self._reward_until = self.cosim.clock.t_ms + REWARD_MS
+        self._reward_until = self.cosim.clock.t_ms + self.reward_ms(self.mind.reward)
+        # the pacemakers' state before a pause, which they return to over the quiet (see _end_turn)
+        self._vta_before = ({k: self.jax.state[k][self._vta] for k in ("V", "w", "refr")} if self.mind.reward < 0
+                            else None)
         rec = self.cosim.run(PHASE_A_MS, record=("J.vta", "S.vs"))
         self.vta_phase_a = rec["J.vta"]          # [60 ms, 24]: the dopamine response to last turn's outcome
         self._vs_spikes = float(rec["S.vs"].sum())
@@ -255,7 +289,19 @@ class TomeBrain:
         self.last_signals = sig
         rate_turn = (J.counts * 1000.0 / ms).astype(np.float32)
         J.state = self.quiet(J.state, jnp.asarray(J.glucose, jnp.float32), jnp.asarray(rate_turn),
-                             jnp.asarray(self.rate_rest))
+                             jnp.asarray(self.rest_rates(J.glucose)))
+        # 20 s of quiet end every phasic transient: the dopamine concentration, and what of it is still in flight to
+        # the striatum, is back at the tonic level the striatum has adapted to (BG.end_turn relaxed its slow
+        # dopamine), so a burst or a pause that the turn's end cut short cannot resume at the next Phase A and pay
+        # that turn's tags
+        J.state = dict(J.state, nm=J.state["nm"].at[0].set(self.sj.da_tonic))
+        self.cosim.bus.buf["J.nm"][:, 0] = self.sj.da_tonic
+        # A pause leaves no trace in the VTA pacemakers either: over 20 s their adaptation (tau_w 300 ms) recovers,
+        # so they start the next turn in the cycle the pause interrupted. Frozen, the adaptation a pause had drained
+        # released a synchronous rebound at the next Phase A that paid D1 and the critic for the punishment.
+        if self._vta_before is not None:
+            J.state = dict(J.state, **{k: J.state[k].at[self._vta].set(v) for k, v in self._vta_before.items()})
+            self._vta_before = None
 
     def mods(self) -> dict[str, int]:
         """The Tome's own check modifiers, read at the end of the last turn and its quiet interval."""
@@ -264,3 +310,48 @@ class TomeBrain:
     # ------------------------------------------------------------------ persistence
     def digest(self) -> str:
         return self.cosim.digest()
+
+
+# ---------------------------------------------------------------------- calibration
+def measure_rest_by_lumen(seeds: tuple[int, ...] = (0, 1), ms: int = 3000) -> dict[str, list[float]]:
+    """Resting population rates (Hz) of the network settled at each Lumen level 0..6, by gate G3b's protocol: the rest
+    drive, three 1-s turns each followed by a quiet interval at that glucose, then ``ms`` measured; mean over
+    ``seeds``. About 20 s per level and seed."""
+    import jax
+    import jax.numpy as jnp
+
+    from .calib import calib_rates as CR
+
+    net = NW.build()
+    window, quiet = NW.make_window(net), NW.make_quiet(net)
+    table: dict[str, list[float]] = {p.name: [] for p in net.pops}
+    for lumen in range(7):
+        glucose = 0.15 + 0.85 * lumen / 6
+        hz = np.zeros(net.n)
+        for seed in seeds:
+            st = NW.init_state(net, jax.random.PRNGKey(seed))
+            ext = CR.thalamic_drive(net, max(1000, ms), busy=False, seed=seed)
+            for k in range(4):
+                spikes = np.zeros(net.n)
+                n_ms = 1000 if k < 3 else ms
+                for t in range(0, n_ms, 4):
+                    st, (s, _) = window(st, jnp.asarray(ext[t:t + 4]), glucose)
+                    spikes += np.asarray(s).sum(0)
+                rate = (spikes * 1000.0 / n_ms).astype(np.float32)
+                if k < 3:
+                    st = quiet(st, jnp.asarray(glucose, jnp.float32), jnp.asarray(rate), jnp.asarray(rate))
+            hz += rate / len(seeds)
+        for p in net.pops:
+            table[p.name].append(round(float(hz[net.idx(p.name)].mean()), 3))
+    return table
+
+
+def write_rest_by_lumen(table: dict[str, list[float]], path=NW.CALIBRATION_FILE) -> None:
+    """Put the table into the calibration file as its REST_BY_LUMEN section (last), replacing an older one."""
+    text = path.read_text()
+    head = f"[{REST_BY_LUMEN}]"
+    if head in text:
+        text = text[:text.index(head)].rstrip("\n").removesuffix(NOTE_BY_LUMEN).rstrip("\n")
+    lines = ["", NOTE_BY_LUMEN, head] + [f'"{k}" = [{", ".join(f"{v:.3f}" for v in vals)}]'
+                                         for k, vals in sorted(table.items())]
+    path.write_text(text.rstrip("\n") + "\n" + "\n".join(lines) + "\n")

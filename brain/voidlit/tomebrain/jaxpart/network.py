@@ -672,6 +672,11 @@ def population_rates(net: Net, spikes: np.ndarray, ms: float) -> dict[str, float
 QUIET_MS = 20_000.0
 QUIET_STEP_MS = 20.0
 POST_TAU_MS = 2_000.0
+# The resting conductance is the end-of-turn one scaled by how the mean-field drive falls from the turn to rest, and
+# never above it: rest is the turn without its input. Read from single cells over a 184-ms turn the ratio was shot
+# noise (a cell whose few partners stayed silent got factors of 20-35, and 28-34 nS of conductance for 20 s); from
+# population rates it is 1.0 at the median (fed, p99 2.3), and the cap removes what is left of the tail.
+QUIET_SCALE_MAX = 1.0
 
 
 def make_quiet(net: Net):
@@ -682,8 +687,9 @@ def make_quiet(net: Net):
 
     ATP is the window's full equation, synaptic cost included: each cell's excitatory (AMPA + NMDA) conductance starts
     at its end-of-turn value and relaxes with the same profile to its resting value, the end-of-turn conductance
-    scaled by how much the cell's mean-field excitatory drive (sum of w tau_rec r_pre over its synapses) falls from
-    the turn's rates to the resting rates."""
+    scaled by how much the cell's mean-field excitatory drive (sum of w tau_rec r_pre over its synapses, from
+    population rates) falls from the turn to rest, at most 1. The resting rates are the caller's: the brain passes
+    those of a network settled at the current Lumen."""
     import jax
     import jax.numpy as jnp
     from jax import lax
@@ -703,18 +709,25 @@ def make_quiet(net: Net):
     mf_pre = jnp.asarray(np.nonzero(exc)[0], jnp.int32)
     mf_post = jnp.asarray(owner[slot[exc] // PR.N_REC], jnp.int32)
     slot_owner = jnp.asarray(owner, jnp.int32)
+    pop_of = np.zeros(net.n, np.int32)
+    for j, pop in enumerate(net.pops):
+        pop_of[net.start[pop.name]:net.start[pop.name] + pop.n] = j
+    pop_n = jnp.asarray(np.bincount(pop_of, minlength=len(net.pops)), jnp.float32)
+    pop_of = jnp.asarray(pop_of)
 
     def g_exc(G):
         """Per-cell excitatory conductance (nS), as the window's ATP equation reads it."""
         return jax.ops.segment_sum(G[:net.n_slot].reshape(-1, PR.N_REC)[:, :2].sum(1), slot_owner, net.n)
 
     def drive(rate):
-        return jax.ops.segment_sum(mf_w * rate[mf_pre], mf_post, net.n)
+        """Mean-field excitatory drive per cell from its presynaptic populations' mean rates."""
+        pop_rate = jax.ops.segment_sum(rate, pop_of, len(net.pops)) / pop_n
+        return jax.ops.segment_sum(mf_w * pop_rate[pop_of][mf_pre], mf_post, net.n)
 
     def quiet(st, glucose, rate_turn, rate_rest):
         g_turn = g_exc(st["G"])
         d_turn, d_rest = drive(rate_turn), drive(rate_rest)
-        g_rest = jnp.where(d_turn > 0, g_turn * d_rest / jnp.maximum(d_turn, 1e-9), g_turn)
+        g_rest = g_turn * jnp.where(d_turn > 0, jnp.minimum(d_rest / jnp.maximum(d_turn, 1e-9), QUIET_SCALE_MAX), 1.0)
 
         def body(k, carry):
             astro, atp, rho, nad = carry

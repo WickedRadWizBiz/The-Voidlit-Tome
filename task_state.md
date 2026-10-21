@@ -58,5 +58,16 @@ monolith. **Status: v0.1 done and pushed** on branch `claude/determined-maxwell-
   committed). CI uses CPU torch from download.pytorch.org.
 - farirpgs.com and figcat.com are blocked; Voidlight and FigCat details came from web search summaries.
 
+## Current sub-task (in progress): the adversarial narrator merge
+The user sent two sources: the "AURA-X" affective engine (HTML/JS demo: PSI needs, PAD/OCC affect, Theory of Mind, BT/GOAP,
+"Z3" gate) and a JAX + FastAPI "biomimetic human brain" spec with validation gates 0-4. The request: merge them into an even
+more adversarial narrator, keep current behavior wherever it does not conflict, and **ask the user about every
+contradiction**. Copies are in the session scratchpad (`upload/aura_engine.js`, `upload/biomimetic-human-brain/`); they are not
+committed.
+- [x] Read both sources; wrote the spec package to the scratchpad.
+- [ ] Reconciliation workflow (run the spec gates, audit AURA-X, map against the build, skeptic pass).
+- [ ] Ask the user about the confirmed contradictions.
+- [ ] Implement the compatible merges plus the chosen paths, with honest tests; commit and push to the work branch.
+
 ## Next immediate action
-None pending in this session. Next session: step 1 above (needs a machine with UE 5.8).
+Wait for the reconciliation workflow, then ask the user about the contradictions it confirms.

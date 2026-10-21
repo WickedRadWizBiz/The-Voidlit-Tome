@@ -92,6 +92,25 @@ committed.
     - Assumption: exposure accumulates across runs in a save profile and resets on escape; the thresholds are
       configurable.
   - **Stack:** "a little bit of each" (SpikingJelly + BindsNET + JAX), following my suggestion, all inside that one network.
+- [x] User decisions (2026-10-21, round 3):
+  - **Every action by any character** (player, NPCs, the Tome) gets an invisible attribute + die check relevant to it.
+  - **Dice are fully invisible.** No dice are ever shown or disclosed, even when asked; the player should not know
+    dice exist. Outcomes come only through narration and the status bar, so dice blocks, obstacle pips, clock
+    counters and roll/event text are removed from frames.
+  - **Hybrid dice:**
+    - d6 for passive events that are not a direct action by a character (Lumen gutter, panic, environment, passive
+      notice).
+    - d20 + attribute modifier for a direct action by a character.
+    - A bonus +d6 when the acting character has a significant upper hand on the Tome and is directly opposing it.
+    - Corruption is a check (the Tome's d20 against the target's Resolve) layered on top of exposure tracking.
+  - **Resolve** is a 4th attribute (will): it resists corruption and panic. Insight keeps perception and analysis,
+    including passive notice of omissions.
+  - **Puppets may lie:** a corrupted Elara or Marcus may state falsehoods in the Tome's interest. The Tome's own voice
+    never does.
+  - **Difficulty: brutal.** Target about 20% escapes for the sensible bot.
+  - Settled without asking: the Tome may make self-serving claims about the future but never false claims about
+    present or past facts; the player can address the Tome and it answers in the first person; NPC brains keep current
+    behavior, and the biomimetic machinery is the Tome's alone (plus the corruption pathway).
 - [x] Reconcile audit: the spec's gates fail 3 of 5 as written (Gate 1 NaN, Gate 2 frequency test, Gate 3 E/I ratio), and
       several checks are tautological. Build the real models (stable integrators, Graupner-Brunel theta_p = 1.3, ...)
       with honest tests. Evidence is in scratchpad `reconcile/`.

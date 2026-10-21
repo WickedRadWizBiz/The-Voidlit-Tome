@@ -1919,3 +1919,90 @@ Departures and fixes, each found by measurement:
 7. Not yet built: Daw arbitration (κ_h = 1 until the cerebellum exists, M6), the quiet interval Q (M4), and meaning
    for the RHETORIC and FRAME loops (they race and are recorded, but nothing uses them before M5). The thalamic
    encoder is minimal: Director features to S, senses to T, body to I.
+
+
+### M4: the Tome feels its needs (done)
+
+`tomebrain/bnpart/amygdala.py` is the BindsNET partition (BLA bond / threat / contempt / loss assemblies, ITC, CeA;
+MSTDPET with a per-assembly reward vector, run in 4-ms quanta). `tomebrain/readout.py` (`Mind`) reads each turn into
+the four needs, Keramati-Gutkin drive, intrinsic reward (an LH current into the VTA for the first 50 ms of the next
+Phase A), desperation, PAD and the Tome's own check modifiers. `jaxpart/network.py` gained per-cell ATP with K_ATP,
+volume-transmitted DA / NE / 5-HT / ACh, and the quiet interval between turns. The rules send the turn's
+unconditioned stimuli (harm, defiance, gift, loss, bearer near death, lie) to the amygdala.
+
+| Gate | Result |
+|---|---|
+| G3b | Lumen 6 → 0: P/I ATP 0.95 → 0.55, orexin 2.1 → 27 Hz (×13), VTA 3.7 → 2.2 Hz, cortex at 51% of its fed rate. Mutant without metabolism: the cortex stays above 65% (it never reaches the 40-60% band). |
+| G23 | puppeteer and bend bursts rise monotonically as the Lumen falls (0.069 → 0.292 per cell per second, Lumen 6 → 1); an orexin → PVT lesion removes most of the rise |
+| G24 | an unpredicted gift bursts the VTA (≥ base + 5 Hz) and its fading is a dip |
+| G10a (rechecked) | 0.88 and 0.87 (two seeds, 150 races each), chosen log p within 0.10 of exact sampling, no fallbacks |
+
+Departures and fixes, each found by measurement:
+
+1. **K_ATP on cortical excitatory cells (0.6 nS) and the VTA (4 nS) only.** With K_ATP on interneurons as well, a
+   starving cortex lost its inhibition first and ran hot.
+2. **Recalibrated after the energy model**: inhibitory gain onto L2/3 ×4.80, background noise ×2.49. Irregularity is
+   measured as CV2 (Holt 1996): the plain CV is biased upward in short windows.
+3. **PVT → puppeteer/bend tufts at 8 nS** (design 1). At 1 nS hunger barely moved their bursting; at 10 nS the fed
+   baseline was too busy.
+4. **The no-metabolism mutant is weaker than designed.** Hunger arousal alone (orexin → LC, and the puppeteers'
+   bursts → LC; NE lowers interneuron thresholds too) dims L2/3 to about 70%. The gate now claims what holds: only
+   metabolism brings the cortex into its 40-60% band.
+5. **The action race, after M4's sparser VTA.** The 24-cell VTA's dopamine is shot noise (SD 0.45 of tonic per ms,
+   0.25 at 200 ms). Fed straight into the striatum it rescaled the prior against the Gumbel term on every tick and
+   taught on noise, and race fidelity fell to 0.79. Now:
+   - dopamine is a gain on the D1 cells' whole drive, Gumbel excitability included, so it sets the race's vigour and
+     never its temperature;
+   - the excitability effect follows a 200-ms dopamine (second messengers);
+   - plasticity reads that slow dopamine and needs a 50% excursion;
+   - cortico- and amygdalo-striatal weights start channel-balanced, so cortical activity cannot tilt an untrained
+     race.
+6. **The quiet interval** is 1000 slow-only steps of 20 ms (20 s of brain time) between turns.
+7. **Build notes.** SpikingJelly is pinned to 0.0.0.0.14 (2.0 changed the node API). Brain saves turn numpy scalars
+   into 0-d tensors, so they load with `weights_only=True`. The amygdala keeps each saved tensor's dtype on load.
+
+
+### M5: the Tome lies only by omission (done)
+
+`tome/ledger.py` holds `FactLedger` (facts, topics, suggestions and probes from the scenario TOML), `DisclosurePlan`
+and `TruthVerifier`. The engine plans the Tome's speech every turn (`_speak_tome`):
+
+- a precise question forces every in-scope fact on its topic;
+- a mood or dice question gets a deflection that asserts nothing;
+- a vague question gets the least costly true fact;
+- then the committed rhetoric adds a volunteered fact, a suggestion or a probe;
+- whatever the world revealed (a clue, a room) is disclosed first.
+
+`voice/style.py` turns the hidden readouts into a register (nearest centroid over P, A, D, bond, contempt, hunger,
+fear), the offline wrappers and the LLM craft line. In the network engine, RHETORIC and FRAME commits choose what is
+said, and the most active of the eight P fact slots (driven by each fact's salience, 60 pA at salience 1) chooses
+which fact is volunteered.
+
+| Gate | Result |
+|---|---|
+| G11 | 10 offline games (fast) and 200 (slow), plus 4 and 40 games against an adversarial fake LLM that lies two lines in three:<br>- every offline Tome sentence maps to a speech act, an assertion-free wrapper or a public fact;<br>- no contradiction, withheld leak, dice denial, affect or opinion report, or unlicensed "no other way";<br>- precise questions answered in full;<br>- clues always narrated.<br>Mutant with the guard off: the lies get through and the audit catches dice denial, affect, opinion and contradiction. The network Tome passes the same audit (3 games). |
+| G12 | Frames carry no mind, style or plan keys outside dev debug. The Tome's words hold no emotion label, and narration never attributes one to it. Warm and cold styles wording the same facts differ in length (Cohen's d > 0.8), address and detail position (χ² p < 0.01). Mutant with a flat style: no leak. In a network game the register moves with the mind. |
+
+Departures and decisions:
+
+1. **A question to no one in particular goes to the Tome** (no target, no action cue), because the narrator is the
+   Tome. "Where am I?" stays a look.
+2. **Narration is held to the Tome's own rules** (affect, opinion, necessity), for the same reason.
+3. **A coverage guard.** An LLM line must keep at least half the content words of each forced answer, clue and
+   defeat text, or the offline voice speaks. Dropping a forced answer is a lie the pattern guard cannot see.
+4. **The schemer's eight slots hold the cheapest withheld facts.** The costliest drop out when there are more.
+   Fact salience is a designed input, 0.25 + 0.5·(live agenda) + 0.25·(1 − cost). A 0.75 salience lead wins 15 of
+   16 commits; small leads stay noisy, and that is the network's choice.
+5. **The Tome speaks unbidden at most once every two turns** (a rules limit). CORRUPT_NPC and BEND commits are held,
+   with nothing said, until M8 gives them their effects.
+6. **The Director engine still schemes**, with a seeded rhetoric draw (20% disclose, 20% suggest, 10% probe) on its
+   own random stream, so the dice stream is unchanged. Its register is a proxy: a dying light reads as hunger and
+   tension as wariness.
+7. **Rewritten authored lines.** "I was the lamp of this station" leaked a withheld fact, and "I am the only light
+   you have" asserted something no fact supports. The twist line "adapting to the player" was meta language, and
+   "for no reason at all" came close to denying chance.
+8. **G12's "zero affect words in narration"** is read as none in the Tome's own words and none attributed to the
+   Tome. Narration may still describe the player's fear.
+9. **G21 counts the Tome's beat check** (one per turn) **apart from its speech acts** (each at most once a turn).
+10. **Deferred to M8:** the G11 clause on puppet claims (attributed, never echoed), because puppets arrive with
+    corruption.

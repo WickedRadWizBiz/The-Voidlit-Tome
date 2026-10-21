@@ -54,8 +54,8 @@ monolith. **Status: v0.1 done and pushed** on branch `claude/determined-maxwell-
    with real llama.cpp.
 
 ## Environment notes
-- download.pytorch.org is blocked here; torch came from PyPI (CUDA build, ~6 GB venv in the scratchpad, not
-  committed). CI uses CPU torch from download.pytorch.org.
+- download.pytorch.org is blocked here; torch comes from PyPI (`pip install torch`, CUDA build), then
+  `pip install -e "brain[dev]"`. CI uses CPU torch from download.pytorch.org. spikingjelly is pinned to 0.0.0.0.14.
 - farirpgs.com and figcat.com are blocked; Voidlight and FigCat details came from web search summaries.
 
 ## Current sub-task (in progress): the adversarial narrator merge
@@ -135,11 +135,19 @@ committed.
 - [x] **M3 (done):** `tomebrain/sjpart/` (habit = Director prior, fused BG, three-factor + tags), `brain.py`
       (TomeBrain: Phase A/B, race commit), `tome/net_engine.py` (TomeNetEngine, now the default `--brain net`).
       G10a/b pass; W-invariance on the real brain; ~293 ms/turn median. Departures in design §20.
-- [ ] Next: M4 nuclei/energy/BN amygdala/needs/RPE + the quiet interval Q (G3b, G23, G24), M5 ledger/truth guard/VoiceStyle (G11, G12), M6 cerebellum/upper hand
-      (G20), M7 ToM/Witness/counters (G18, G19, G15).
-- [ ] M8 corruption (NPC + player tiers, Rune, `resist` message, Unreal tap + CLI Enter).
+- [x] **M4 (done):** BindsNET amygdala, needs/drive/desperation/PAD readouts, LH reward current, K_ATP energy,
+      quiet interval, network-driven Tome modifiers. G3b, G23, G24 pass. Slow gates then caught race regressions
+      (G10a 0.79): fixed in the BG (dopamine as a gain on the whole D1 drive; slow 200-ms DA for excitability;
+      plasticity needs a 50% slow-DA excursion; channel-balanced initial weights) -> 0.88/0.87. Design §20 M4.
+- [x] **M5 (done):** `tome/ledger.py` (facts/topics/suggestions/probes from TOML, DisclosurePlan, TruthVerifier),
+      senses asks/claims/addressed_tome (+ GBNF), `voice/style.py` (hidden registers), guard + coverage check on LLM
+      lines, P fact slots + RHETORIC/FRAME drive the network Tome's speech. G11, G12 pass (fast); design §20 M5.
+- [ ] Waiting on: the full slow run after the BG fixes (G10c pacing parity failed before them: twist +0.055 > 0.04).
+- [ ] Next: M6 cerebellum / imagination / upper-hand belief (G20), Daw arbitration kappa_h; M7 ToM / Witness /
+      counters (G18, G19, G15).
+- [ ] M8 corruption (NPC + player tiers, Rune, `resist` message, Unreal tap + CLI Enter); G11 puppet-claim clause.
 
 ## Next immediate action
-Check G10c (balance, `pytest -m balance tests/tomebrain/test_g10c_game.py`), commit M3. Then M4: BindsNET
-amygdala partition, VTA reward current and RPE (G24), needs/drive/desperation readouts (G23), energy G3b, the quiet
-interval Q, and the Tome's check modifiers from the network (replace `TomeEngine.tome_mods` provisional values).
+Read the slow run (`scratchpad/slow2.log`). If G10c still fails, measure net vs Director beat histograms over
+40 seeds and find what shifts twist (learning from intrinsic reward is expected to move pacing a little; the gate's
+0.04 tolerance may need the M6 arbitration). Then commit, and start M6.

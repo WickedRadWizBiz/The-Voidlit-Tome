@@ -11,6 +11,11 @@ id = "hollow_lantern"
 title = "The Hollow Lantern"
 per_act = 2
 lumen_interval = 5
+# Hidden check DCs for obstacles: dc_base + dc_per_act * act + dc_offset (+1 in the dark). The offset is the one
+# global balance knob, fitted for brutal play (a sensible player escapes about one run in five).
+dc_base = 12
+dc_per_act = 2
+dc_offset = -1
 intro = """The Tome wakes under your hand: a slab of black glass, warm as skin. Words rise out of it in light. \
 You are aboard the Hollow Lantern, a lighthouse-station adrift in the Dark Sector. Your shuttle tore loose \
 an hour ago. The lifeboats are at the far end of the station. Between here and there is everything that \

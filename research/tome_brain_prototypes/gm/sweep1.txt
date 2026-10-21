@@ -1,0 +1,12 @@
+base=11 step=1 int=None smart: 85% {'escaped': 51, 'died': 9} deaths/chapter {7: 9} avg turns 38.5
+base=11 step=2 int=None smart: 25% {'died': 45, 'escaped': 15} deaths/chapter {5: 7, 6: 13, 7: 25} avg turns 40.6
+base=12 step=1 int=None smart: 67% {'died': 20, 'escaped': 40} deaths/chapter {5: 1, 6: 5, 7: 14} avg turns 40.2
+base=13 step=1 int=None smart: 55% {'died': 27, 'escaped': 33} deaths/chapter {5: 2, 6: 3, 7: 22} avg turns 42.0
+base=12 step=2 int=None smart: 27% {'died': 44, 'escaped': 16} deaths/chapter {5: 8, 6: 14, 7: 22} avg turns 41.2
+base=14 step=1 int=None smart: 37% {'died': 38, 'escaped': 22} deaths/chapter {3: 1, 4: 1, 5: 3, 6: 9, 7: 24} avg turns 42.6
+base=11 step=1 int=None naive: 63% {'died': 22, 'escaped': 38} deaths/chapter {5: 3, 6: 7, 7: 12} avg turns 34.6
+base=12 step=2 int=None naive: 7% {'died': 56, 'escaped': 4} deaths/chapter {3: 2, 4: 6, 5: 13, 6: 16, 7: 19} avg turns 32.0
+base=11 step=2 int=None naive: 15% {'died': 51, 'escaped': 9} deaths/chapter {3: 1, 4: 3, 5: 11, 6: 14, 7: 22} avg turns 32.9
+base=12 step=1 int=None naive: 55% {'died': 27, 'escaped': 33} deaths/chapter {5: 3, 6: 11, 7: 13} avg turns 35.8
+base=13 step=1 int=None naive: 28% {'died': 43, 'escaped': 17} deaths/chapter {3: 2, 4: 1, 5: 7, 6: 13, 7: 20} avg turns 35.0
+base=14 step=1 int=None naive: 18% {'died': 49, 'escaped': 11} deaths/chapter {3: 1, 4: 5, 5: 12, 6: 16, 7: 15} avg turns 34.0

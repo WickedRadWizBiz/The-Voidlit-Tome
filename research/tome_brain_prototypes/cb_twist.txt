@@ -1,0 +1,1 @@
+[twist] smart: escaped 57% {'escaped': 23, 'died': 17} avg turns 45.4 guards/run 0.00 | naive: escaped 22% {'died': 31, 'escaped': 9} avg turns 35.5 guards/run 0.00

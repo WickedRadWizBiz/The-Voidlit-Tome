@@ -1,0 +1,4 @@
+DC 9 (+1/act): smart escapes 100% {'escaped': 40} deaths by chapter {}
+DC 11 (+1/act): smart escapes 85% {'escaped': 34, 'died': 6} deaths by chapter {6: 1, 7: 5}
+DC 13 (+1/act): smart escapes 65% {'died': 14, 'escaped': 26} deaths by chapter {5: 1, 6: 4, 7: 9}
+DC 15 (+1/act): smart escapes 20% {'died': 32, 'escaped': 8} deaths by chapter {4: 2, 5: 7, 6: 9, 7: 14}

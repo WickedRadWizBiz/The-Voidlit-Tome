@@ -1,0 +1,1 @@
+net: smart escaped 25/40 = 62% {'escaped': 25, 'died': 15} avg turns 43.2 | beat shares advance 0.06, calm 0.19, clue 0.14, escalate 0.18, hazard 0.02, npc 0.14, respite 0.01, twist 0.26 | 374s

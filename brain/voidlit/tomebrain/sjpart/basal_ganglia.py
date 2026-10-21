@@ -60,8 +60,13 @@ TAG_TAU_MS = 60_000.0
 QUIET_MS = 20_000.0
 _K20 = math.exp(-1 / 20.0)
 TONIC_TAU_MS = 6_000.0   # tonic DA / 5-HT: running mean over about 20 turns of brain time
-PHASIC = 0.25            # a dopamine burst or dip: at least 25% away from tonic; smaller wobble teaches nothing
+PHASIC = 0.5             # a dopamine burst or dip: the slow dopamine at least 50% away from tonic. Below that is the
+                         # sparse VTA's shot noise and wobble (SD ~0.25 with no event), which must teach nothing
 WARMUP_MS = 500
+# Dopamine acts twice: the fast phasic signal gates plasticity (below), while its modulation of MSN excitability runs
+# through second messengers (cAMP/PKA) and follows it only slowly (the shot noise of a sparse VTA is SD ~0.45 of tonic
+# per ms; read fast and applied to the prior alone, it rescaled the prior against the Gumbel term and broke the race).
+DA_MOD_TAU_MS = 200.0
 
 
 def _block(n_pre: int, n_post: int, w: float) -> torch.Tensor:
@@ -87,10 +92,12 @@ class SJPartition(Partition):
         self.pop = PerNeuronLIF(tau)
         # plastic input weights (with their anchors) and fixed ones
         self.W = {
-            "ctx_d1": torch.rand(N_CTX, N_CH * M, generator=g) * 0.004,
-            "ctx_d2": torch.rand(N_CTX, N_CH * M, generator=g) * 0.004,
+            # cortex -> action channels starts non-selective: every channel's cells get the same random draw, so
+            # however active the cortex is, it cannot tilt the race at initialisation; selectivity is learned (G10a)
+            "ctx_d1": torch.rand(N_CTX, M, generator=g).repeat(1, N_CH) * 0.004,
+            "ctx_d2": torch.rand(N_CTX, M, generator=g).repeat(1, N_CH) * 0.004,
             "ctx_vs": torch.rand(N_CTX, N_VS, generator=g) * 0.004,
-            "lim_d1": torch.rand(N_LIM, N_CH * M, generator=g) * 0.003,
+            "lim_d1": torch.rand(N_LIM, M, generator=g).repeat(1, N_CH) * 0.003,
         }
         self.W0 = {k: v.clone() for k, v in self.W.items()}
         self.w_ctx_fsi = torch.rand(N_CTX, N_FSI, generator=g) * 0.004
@@ -142,6 +149,7 @@ class SJPartition(Partition):
         self.loop_onehot[torch.arange(N_CH), torch.from_numpy(LOOP_OF)] = 1.0
         self.phase_b_tick = 0
         self.da_tonic = 0.0      # running means of the dopamine and serotonin concentrations
+        self.da_mod = 0.0        # the slow excitability effect of dopamine on the MSNs
         self.ht_tonic = 0.0
         self.nm_ticks = 0
         self.in_phase_b = False
@@ -210,6 +218,7 @@ class SJPartition(Partition):
                 da = float(nm[i, 0]) / max(self.da_tonic, 1e-3) - 1.0 if warm else 0.0
                 ht = float(nm[i, 2]) / max(self.ht_tonic, 1e-3) - 1.0 if warm else 0.0
                 da = max(-0.5, min(1.0, da))
+                self.da_mod += (da - self.da_mod) / DA_MOD_TAU_MS
                 active = torch.nonzero(ctx[i]).flatten()
                 sparse = lambda w: w[active].sum(0)        # noqa: E731
                 lim_on = torch.nonzero(lim[i]).flatten()
@@ -217,12 +226,14 @@ class SJPartition(Partition):
                 self.habit_trace = self.habit_trace * _K20 + hs
                 I_in = self.tonic + torch.from_numpy(self.streams.normal("bg_noise", tick, (self.n,))) * self.noise_scale
                 d1 = (sparse(self.W["ctx_d1"]) + self.W["lim_d1"][lim_on].sum(0)
-                      + self.kappa_h * (self.habit_trace @ self.w_habit)) * (1 + 0.5 * da)
+                      + self.kappa_h * (self.habit_trace @ self.w_habit))
                 # the excitability shows in the response to the habit input, so it ramps with the habit trace
                 ramp = 1.0 - math.exp(-max(0, tick - self.phase_b_tick) / 20.0) if self.in_phase_b else 0.0
-                d1 = d1 + ramp * gumbel_d1 - self.nogo_d1
+                # dopamine is a gain on the D1 cells' whole drive, excitability included: it sets the race's vigour
+                # but not its temperature, so the race keeps sampling argmax(log p + Gumbel) at any dopamine level
+                d1 = (d1 + ramp * gumbel_d1) * (1 + 0.5 * self.da_mod) - self.nogo_d1
                 I_in[sl["d1"]] += d1
-                I_in[sl["d2"]] += sparse(self.W["ctx_d2"]) * (1 - 0.4 * da) + 0.03 * ht
+                I_in[sl["d2"]] += sparse(self.W["ctx_d2"]) * (1 - 0.4 * self.da_mod) + 0.03 * ht
                 I_in[sl["fsi"]] += sparse(self.w_ctx_fsi)
                 I_in[sl["vs"]] += sparse(self.W["ctx_vs"]) + pvt[i] @ self.w_pvt_vs + self.w_lim_vs[lim_on].sum(0)
                 # hyperdirect pathway: each loop's pooled cortical salience raises its STN (diffusely raising GPi)
@@ -242,9 +253,9 @@ class SJPartition(Partition):
                     if len(cols):
                         self.elig[k][:, cols] += trace[:, None]
                 # dopamine bursts and dips pay tagged synapses (D1 and VS up, D2 down, for a burst)
-                if abs(da) >= PHASIC:
+                if abs(self.da_mod) >= PHASIC:
                     for k, sign in (("ctx_d1", 1.0), ("ctx_d2", -1.0), ("ctx_vs", 1.0), ("lim_d1", 1.0)):
-                        self.W[k] += (ETA * da * sign) * self.tag_gain[k]
+                        self.W[k] += (ETA * self.da_mod * sign) * self.tag_gain[k]
                         self.W[k].clamp_(0.0, 0.05)
         return {"S.gpi": out_gpi, "S.vs": out_vs}
 
@@ -261,7 +272,7 @@ class SJPartition(Partition):
             "habit_trace": self.habit_trace.numpy().copy(), "ctx_trace": self.ctx_trace.numpy().copy(),
             "lim_trace": self.lim_trace.numpy().copy(),
             "scalars": np.array([self.kappa_h, self.da_tonic, self.ht_tonic, float(self.in_phase_b), self.nm_ticks,
-                                 self.phase_b_tick], np.float64),
+                                 self.phase_b_tick, self.da_mod], np.float64),
         }
 
     def load_state_dict(self, d: dict) -> None:
@@ -280,6 +291,7 @@ class SJPartition(Partition):
         sc = np.array(d["scalars"], np.float64)
         self.kappa_h, self.da_tonic, self.ht_tonic = float(sc[0]), float(sc[1]), float(sc[2])
         self.in_phase_b, self.nm_ticks, self.phase_b_tick = bool(sc[3]), int(sc[4]), int(sc[5])
+        self.da_mod = float(sc[6]) if len(sc) > 6 else 0.0
 
     def digest_arrays(self) -> list[np.ndarray]:
         arrs = [self.pop.v.numpy(), self.prev.numpy(), self.habit.v.numpy(), self.habit_trace.numpy()]

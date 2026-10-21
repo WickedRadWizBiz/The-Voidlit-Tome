@@ -24,6 +24,7 @@ N_L5IT = 24 + 32 + 72 + 24
 
 
 class LIFProbe(Partition):
+    BIAS = 0.75     # sized for the metabolic cortex's L5 IT (about 3 Hz): sparse probe spikes, never silent
     def __init__(self, name: str, run_seed: int, n: int = 64, delay: int = 5):
         from spikingjelly.activation_based import neuron
 
@@ -41,7 +42,7 @@ class LIFProbe(Partition):
         out = []
         for i in range(W):
             noise = torch.from_numpy(self.streams.normal("v", t0 + i, (self.n,)))
-            out.append(self.lif(x[i] @ self.w + 0.3 + 0.25 * noise))
+            out.append(self.lif(x[i] @ self.w + self.BIAS + 0.25 * noise))
         return {f"{self.name}.out": torch.stack(out).numpy()}
 
     def state_dict(self):

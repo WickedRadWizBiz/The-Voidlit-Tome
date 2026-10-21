@@ -70,11 +70,19 @@ committed.
   - **Truth:** the Tome may *omit* important details until the player asks (lying by omission) and may make
     self-serving suggestions framed as helping the player, or as having no other choice. It still never states a
     falsehood about a resolved fact. (My reading; confirm if a case is unclear.)
-  - **Voice:** AURA-X *is* the Tome; drop the name. Its readouts show how the player's choices change the Tome's
-    opinion of them and its mood. Prose stays diegetic.
-  - **Stack:** "a little bit of each", following my suggestion. Hybridize everything into one complex, novel network.
+  - **Truth reading confirmed** by the user.
+  - **Voice:** AURA-X *is* the Tome; drop the name. **No readout at all** of the Tome's opinion or mood: they leak only
+    through wording in narration and dialogue. Frames must not carry them (debug mode excepted).
+  - **Brain:** the Tome is **one singular hybrid neural network**. The user's biomimetic brain spec is part of its core
+    logic, made as real as possible: it must feel, have emotions and needs, and be cunning. It replaces the separate
+    Director. NPC brains stay separate (working assumption).
+  - **Stack:** "a little bit of each" (SpikingJelly + BindsNET + JAX), following my suggestion, all inside that one network.
+- [x] Reconcile audit: the spec's gates fail 3 of 5 as written (Gate 1 NaN, Gate 2 frequency test, Gate 3 E/I ratio), and
+      several checks are tautological. Build the real models (stable integrators, Graupner-Brunel theta_p = 1.3, ...)
+      with honest tests. Evidence is in scratchpad `reconcile/`.
+- [ ] Design workflow `wf_696864cf-f00` (3 architects, 2 judges, synthesis) -> scratchpad `design/TOME_BRAIN_DESIGN.md`.
 - [ ] Ask about any further contradictions the workflow confirms (not covered by the decisions above).
 - [ ] Implement the compatible merges plus the chosen paths, with honest tests; commit and push to the work branch.
 
 ## Next immediate action
-Wait for the reconciliation workflow, then ask the user about the contradictions it confirms.
+Wait for the design workflow; review the design; ask only about contradictions not already decided; then implement.

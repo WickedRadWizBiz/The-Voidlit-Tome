@@ -12,3 +12,6 @@ unreal/**/Binaries/
 unreal/**/Intermediate/
 unreal/**/Saved/
 unreal/**/DerivedDataCache/
+
+# Claude Code workflow worktrees (transient)
+.claude/worktrees/

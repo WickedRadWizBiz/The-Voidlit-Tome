@@ -60,8 +60,10 @@ TAG_TAU_MS = 60_000.0
 QUIET_MS = 20_000.0
 _K20 = math.exp(-1 / 20.0)
 TONIC_TAU_MS = 6_000.0   # tonic DA / 5-HT: running mean over about 20 turns of brain time
-PHASIC = 0.5             # a dopamine burst or dip: the slow dopamine at least 50% away from tonic. Below that is the
-                         # sparse VTA's shot noise and wobble (SD ~0.25 with no event), which must teach nothing
+PHASIC = 0.3             # a dopamine burst or dip: the slow dopamine at least 30% away from tonic. Below that is the
+                         # sparse VTA's shot noise and wobble, which must teach nothing: with no event it stays within
+                         # -0.18..+0.23 (300 turns, 4 seeds), while a gift reaches 0.47-0.56 and a full VTA pause of
+                         # 220 ms (an omitted reward) reaches -0.3
 WARMUP_MS = 500
 # Dopamine acts twice: the fast phasic signal gates plasticity (below), while its modulation of MSN excitability runs
 # through second messengers (cAMP/PKA) and follows it only slowly (the shot noise of a sparse VTA is SD ~0.45 of tonic
@@ -217,7 +219,7 @@ class SJPartition(Partition):
                 warm = self.nm_ticks >= WARMUP_MS               # no learning until the tonic level is known
                 da = float(nm[i, 0]) / max(self.da_tonic, 1e-3) - 1.0 if warm else 0.0
                 ht = float(nm[i, 2]) / max(self.ht_tonic, 1e-3) - 1.0 if warm else 0.0
-                da = max(-0.5, min(1.0, da))
+                da = min(1.0, da)                       # (>= -1 by construction: a dip ends at no dopamine at all)
                 self.da_mod += (da - self.da_mod) / DA_MOD_TAU_MS
                 active = torch.nonzero(ctx[i]).flatten()
                 sparse = lambda w: w[active].sum(0)        # noqa: E731
@@ -252,7 +254,8 @@ class SJPartition(Partition):
                     cols = torch.nonzero(s[sl[post]]).flatten()
                     if len(cols):
                         self.elig[k][:, cols] += trace[:, None]
-                # dopamine bursts and dips pay tagged synapses (D1 and VS up, D2 down, for a burst)
+                # dopamine bursts and dips pay tagged synapses: D1 and VS up, D2 down for a burst; the reverse for a
+                # dip (Shen 2008), so an omitted reward unlearns what predicted it
                 if abs(self.da_mod) >= PHASIC:
                     for k, sign in (("ctx_d1", 1.0), ("ctx_d2", -1.0), ("ctx_vs", 1.0), ("lim_d1", 1.0)):
                         self.W[k] += (ETA * self.da_mod * sign) * self.tag_gain[k]

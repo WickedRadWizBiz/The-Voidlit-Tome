@@ -3,20 +3,25 @@
 As the Lumen dies (glucose 1.0 -> 0.15): ATP falls, glucose-inhibited orexin cells rise at least tenfold, the dopamine
 cells slow, and the cortex weakens to 40-60% of its baseline rather than going silent. Hunger reaches the schemer's
 corruption and bend cells only through orexin -> PVT -> their tufts, so their bursting rises as the Lumen falls,
-and a lesion of that path removes most of the rise.
+and a lesion of that path removes most of the rise. The whole brain's own Mind reads the dying light as a falling
+survival need and a rising desperation; with glucose held at 1 while the insula still sees the light die, neither
+moves.
 """
 
 import numpy as np
 import pytest
 
 jax = pytest.importorskip("jax")
+torch = pytest.importorskip("torch")
 
 import jax.numpy as jnp  # noqa: E402
 
+from voidlit.cortex.teacher import sample_states  # noqa: E402
+from voidlit.tomebrain.brain import TomeBrain  # noqa: E402
 from voidlit.tomebrain.calib import calib_rates as CR  # noqa: E402
 from voidlit.tomebrain.jaxpart import network as NW  # noqa: E402
 from voidlit.tomebrain.jaxpart import params as PR  # noqa: E402
-from voidlit.tomebrain.readout import atp_pi, desperation, drive  # noqa: E402
+from voidlit.tomebrain.readout import atp_pi  # noqa: E402
 
 pytestmark = pytest.mark.slow
 
@@ -73,17 +78,41 @@ def test_g3b_mutant_without_metabolism_the_cortex_stays_out_of_the_band():
     assert starved["l23"] / fed["l23"] > 0.65
 
 
-def _desperation(atp: float) -> float:
-    h = {"survival": min(1.0, max(0.0, (atp - 0.55) / 0.44)), "affiliation": 0.5, "certainty": 1.0,
-         "competence": 0.5}
-    return desperation(drive(h))
+def mind_sweep(levels, glucose, warm: int = 12, turns: int = 8, settle: int = 4, seed: int = 0):
+    """The whole brain through a dying light: ``warm`` fed turns, then ``turns`` per Lumen level with the insula told
+    the Lumen and the cells fed ``glucose(L)``. Returns the Mind's own survival need and desperation per level,
+    averaged over its last ``settle`` turns."""
+    brain = TomeBrain(seed)
+    schedule = [6] * warm + [L for L in levels for _ in range(turns)]
+    X = sample_states(len(schedule), torch.Generator().manual_seed(3)).numpy()
+    survival, desp = [], []
+    for L, x in zip(schedule, X):
+        brain.set_us({})
+        brain.set_input(director_features=x, body=np.array([L / 6, 1.0, 0.0], np.float32), glucose=glucose(L))
+        brain.phase_a()
+        brain.phase_b(x)
+        survival.append(brain.mind.needs["survival"])
+        desp.append(brain.mind.desperation)
+    ends = [warm + (j + 1) * turns for j in range(len(levels))]
+    return [float(np.mean(survival[e - settle:e])) for e in ends], [float(np.mean(desp[e - settle:e])) for e in ends]
 
 
-def test_g23_desperation_and_scheming_rise_as_the_light_dies():
+def test_g23_the_minds_own_desperation_rises_as_the_light_dies():
+    survival, desp = mind_sweep((6, 4, 2, 1), lumen_glucose)
+    assert all(b < a for a, b in zip(survival, survival[1:])), survival
+    # monotone, up to the turn-to-turn wobble of the other needs on a fed, eventless brain (desperation SD ~0.02)
+    assert all(b >= a - 0.03 for a, b in zip(desp, desp[1:])) and desp[-1] >= desp[0] + 0.3, desp
+
+
+def test_g23_mutant_glucose_held_at_one_desperation_does_not_rise():
+    """The insula still sees the Lumen die, but the cells are fed: no survival deficit, no desperation."""
+    survival, desp = mind_sweep((6, 1), lambda L: 1.0)
+    assert survival[1] >= survival[0] - 0.02 and desp[1] <= desp[0] + 0.05, (survival, desp)
+
+
+def test_g23_scheming_rises_as_the_light_dies():
     sweep = [live(lumen_glucose(L), measure_ms=3000) for L in (6, 4, 2, 1)]
-    desp = [_desperation(s["atp"]) for s in sweep]
     bursts = [s["bursts"] for s in sweep]
-    assert all(b >= a - 1e-9 for a, b in zip(desp, desp[1:])) and desp[-1] > desp[0]
     assert bursts[-1] > bursts[0] and all(b >= a * 0.9 for a, b in zip(bursts, bursts[1:]))
     # lesion orexin -> PVT: most of the rise in scheming goes away
     k = next(i for i, pr in enumerate(PR.projections()) if pr.src == "ORX" and pr.dst == "PVT")

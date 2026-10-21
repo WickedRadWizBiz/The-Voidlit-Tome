@@ -7,7 +7,7 @@ they feed the rules' gates, the voice's register (later) and developer telemetry
     survival     ATP of the schemer and insula columns (felt as orexin hunger firing)
     affiliation  the amygdala's bond assembly against its threat and contempt assemblies
     certainty    1 - normalised prediction error of the S and T L2/3 cells
-    competence   the ventral-striatum value trend
+    competence   the ventral-striatum value trend (whole-turn critic rate, in units of its own spread)
 
 Drive is Keramati-Gutkin, D(H) = (sum_i |1 - h_i|^2.4)^(1/1.8). Its reduction is the intrinsic reward r_t, which
 enters the VTA as a lateral-hypothalamic current at the next Phase A: the one place an AURA-X equation acts on the
@@ -26,6 +26,14 @@ D_MAX = 4 ** (1 / M_EXP)
 EMA_TURNS = 50
 NEED_SMOOTH = 0.35      # needs are states, not flashes: each turn moves them 35% of the way
 NEEDS = ("survival", "affiliation", "certainty", "competence")
+# The critic's value V is the VS rate over the whole turn. Its 16 cells make about 50 spikes a turn, so V carries
+# shot noise of about 1.5 Hz from turn to turn: read raw (in Hz, over 128 ms) its trend saturated tanh on most
+# eventless turns and paid that noise out as reward. The trend is now the step of a 10-turn EMA of V, in units of V's
+# running SD (never below 0.5 Hz): pure noise moves competence by about 0.05 a turn, a 4-SD step in V by about 0.2.
+# Over the first 10 turns the EMA is an exact mean, so the brain's first, cold-start turn fades out instead of
+# reading as a falling value for 20 turns.
+VS_TREND = 0.1
+VS_SD_FLOOR = 0.5
 
 
 def drive(h: dict[str, float]) -> float:
@@ -48,8 +56,11 @@ class TurnSignals:
 
 @dataclass
 class Running:
+    """Exponentially weighted mean and variance (exact sample statistics over the first EMA_TURNS samples). The first
+    sample sets the mean and adds no variance: it is the signal's level, not its spread."""
+
     mean: float = 0.0
-    var: float = 1.0
+    var: float = 0.0
     n: int = 0
 
     def update(self, x: float) -> None:
@@ -57,7 +68,7 @@ class Running:
         k = 1.0 / min(self.n, EMA_TURNS)
         d = x - self.mean
         self.mean += k * d
-        self.var += k * (d * d - self.var)
+        self.var = (1.0 - k) * (self.var + k * d * d)
 
     def z(self, x: float) -> float:
         return (x - self.mean) / math.sqrt(max(self.var, 1e-6)) if self.n > 2 else 0.0
@@ -74,7 +85,7 @@ class Mind:
     affect: dict[str, float] = field(default_factory=lambda: {"bond": 0.0, "hunger": 0.0, "fear": 0.0})
     mods: dict[str, int] = field(default_factory=lambda: {"grit": 2, "guile": 2, "insight": 2, "resolve": 3})
     stats: dict[str, Running] = field(default_factory=dict)
-    vs_prev: float = 0.0
+    vs_ema: float = 0.0       # the critic's value, smoothed over turns (Hz)
 
     def _z(self, key: str, x: float) -> float:
         r = self.stats.setdefault(key, Running())
@@ -93,13 +104,16 @@ class Mind:
         f_rest = self.stats["F"].mean or sig.F or 1.0
         bond = r["bla.bond"]
         rival = r["bla.threat"] + r["bla.contempt"]
+        vs = self.stats["VS"]
+        vs_ema = self.vs_ema + max(VS_TREND, 1.0 / vs.n) * (r["vs"] - self.vs_ema)
+        trend = (vs_ema - self.vs_ema) / max(math.sqrt(vs.var), VS_SD_FLOOR) if vs.n > 2 else 0.0
+        self.vs_ema = vs_ema
         h = {
             "survival": min(1.0, max(0.0, (sig.atp_pi - 0.55) / 0.44)),
             "affiliation": 0.5 + 0.5 * math.tanh((bond - rival) / (bond + rival + 1.0)),
             "certainty": math.exp(-max(0.0, sig.F / max(f_rest, 1e-6) - 1.0)),
-            "competence": 0.5 + 0.5 * math.tanh(r["vs"] - self.vs_prev),
+            "competence": 0.5 + 0.5 * math.tanh(trend),
         }
-        self.vs_prev = r["vs"]
         if self.stats["F"].n > 1:
             h = {k: self.needs[k] + NEED_SMOOTH * (h[k] - self.needs[k]) for k in NEEDS}
         d = drive(h)
@@ -133,7 +147,7 @@ class Mind:
         return {"needs": dict(self.needs), "drive": self.drive, "reward": self.reward,
                 "desperation": self.desperation, "contempt": self.contempt, "pad": dict(self.pad),
                 "affect": dict(self.affect),
-                "mods": dict(self.mods), "vs_prev": self.vs_prev,
+                "mods": dict(self.mods), "vs_ema": self.vs_ema,
                 "stats": {k: [v.mean, v.var, v.n] for k, v in self.stats.items()}}
 
     def load_state_dict(self, d: dict) -> None:
@@ -143,7 +157,7 @@ class Mind:
         self.pad = {k: float(v) for k, v in d["pad"].items()}
         self.affect = {k: float(v) for k, v in d.get("affect", self.affect).items()}
         self.mods = {k: int(v) for k, v in d["mods"].items()}
-        self.vs_prev = float(d["vs_prev"])
+        self.vs_ema = float(d.get("vs_ema", d.get("vs_prev", 0.0)))     # (older saves kept the last raw VS rate)
         self.stats = {k: Running(float(v[0]), float(v[1]), int(v[2])) for k, v in d["stats"].items()}
 
 

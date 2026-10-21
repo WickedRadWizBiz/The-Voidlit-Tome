@@ -91,6 +91,7 @@ class TomeBrain:
         self.quiet = NW.make_quiet(jax_part.net)
         self.rate_rest = self._rest_rates(jax_part.net)
         self._reward_until = -1
+        self._vs_spikes = 0.0       # the critic's spikes this turn (Phase A and B), for its value V
         self.jax = jax_part
         self.net = jax_part.net
         self.turn = 0
@@ -163,8 +164,9 @@ class TomeBrain:
         self.cosim.clock.phase = "A"
         self.jax.reset_counts()
         self._reward_until = self.cosim.clock.t_ms + REWARD_MS
-        rec = self.cosim.run(PHASE_A_MS, record=("J.vta",))
+        rec = self.cosim.run(PHASE_A_MS, record=("J.vta", "S.vs"))
         self.vta_phase_a = rec["J.vta"]          # [60 ms, 24]: the dopamine response to last turn's outcome
+        self._vs_spikes = float(rec["S.vs"].sum())
 
     def phase_b(self, director_features: np.ndarray, allowed: set[str] | None = None) -> PhaseBOut:
         clock = self.cosim.clock
@@ -178,9 +180,10 @@ class TomeBrain:
         if QUANTUM % W:
             raise ValueError(f"the window ({W} ms) must divide the {QUANTUM}-ms Phase B quantum")
         while clock.t_ms - start < CAP_MS:
-            rec = self.cosim.run(QUANTUM, record=("J.vavl", "S.gpi"))
+            rec = self.cosim.run(QUANTUM, record=("J.vavl", "S.gpi", "S.vs"))
             rasters.append(rec["J.vavl"])
             gpi.append(rec["S.gpi"])
+            self._vs_spikes += float(rec["S.vs"].sum())
             if clock.t_ms - start >= COMMIT_AFTER_MS:
                 commits = self._race(np.concatenate(rasters), allowed, final=False)
                 if "PACE" in commits and "RHETORIC" in commits:
@@ -241,7 +244,7 @@ class TomeBrain:
         idx = (np.arange(self.cosim.clock.t_ms - horizon, self.cosim.clock.t_ms)) % bla.shape[0]
         bla_rate = bla[idx].mean(0) * 1000.0
         cea_rate = float(self.cosim.bus.buf["B.cea"][idx].mean() * 1000.0)
-        vs_rate = float(self.cosim.bus.buf["S.vs"][idx].mean() * 1000.0)
+        vs_rate = self._vs_spikes / BG.N_VS * 1000.0 / ms           # the critic over the whole turn, like J.counts
         r = {k: rates[k] for k in ("VTA", "LC", "DRN", "NBM", "ORX", "PVN")}
         r.update({f"bla.{a}": float(bla_rate[i * AM.PER_ASM:(i + 1) * AM.PER_ASM].mean())
                   for i, a in enumerate(AM.ASSEMBLY)}, cea=cea_rate, vs=vs_rate)

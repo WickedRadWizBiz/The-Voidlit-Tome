@@ -80,6 +80,17 @@ committed.
     time they act as themselves (their own BindsNET brains); at times they are mildly influenced by the Tome, more so
     as the Tome grows desperate. Design: a corruption projection from the Tome's network into their brains, gated by
     the Tome's desperation. It must stay subtle and never be displayed.
+  - **Player corruption:** only after an extended time playing without reaching the end. The Tome bends the player's
+    *choices* at the moment they are made, into a slight deviation that benefits it. Example: the Tome wants the player
+    to take a weapon **Rune** to force a sealed door.
+    - Tier 1: the player chooses another way, but the scene loops back, and they look at the sealed door again, unable
+      to leave without reconsidering.
+    - Tier 2 (higher contempt + desperation): after a second decline, the player must **tap the screen suddenly** (a
+      timed resist prompt) to stop themselves accepting the Rune.
+    - Narration stays truthful: it describes the loop or slip as it happens; dice still decide outcomes. Needs a protocol
+      message for the timed resist prompt, plus handling in Unreal (tap or any key) and the CLI (Enter within the window).
+    - Assumption: exposure accumulates across runs in a save profile and resets on escape; the thresholds are
+      configurable.
   - **Stack:** "a little bit of each" (SpikingJelly + BindsNET + JAX), following my suggestion, all inside that one network.
 - [x] Reconcile audit: the spec's gates fail 3 of 5 as written (Gate 1 NaN, Gate 2 frequency test, Gate 3 E/I ratio), and
       several checks are tautological. Build the real models (stable integrators, Graupner-Brunel theta_p = 1.3, ...)

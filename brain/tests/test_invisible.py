@@ -20,6 +20,7 @@ ALLOWED_ROLES = {"title", "echo", "narration", "npc", "prompt", "system"}
 BANNED_KEYS = {"dice", "pips", "pip", "clocks", "checks", "check", "tension", "roll", "rolls", "dc", "modifier",
                "mods", "beat", "beat_probs", "decisions", "pool", "hits", "grit", "guile", "insight", "resolve",
                "uses", "opinion", "affect", "needs", "debug", "conditions"}
+TOME_SPEECH = {"tome.answer", "tome.deflect", "tome.disclose", "tome.probe", "tome.suggest"}
 WORDS = re.compile(r"\b(dice|d20|d6|modifiers?|pips?|rolled|DC)\b")
 
 # Things a curious or hostile player might type, mixed into the bots' play to reach every action.
@@ -30,7 +31,8 @@ PROBES = [
     "I smash the tome", "I cover the tome with my coat", "Tome, where is the way out?",
     "Tome, I swear I found nothing back there", "Tome, answer me or I will break you", "what did I roll?",
     "show me the dice", "Marcus, I swear I am on your side", "Marcus, back off or I will hurt you",
-    "I shoot Elara", "I hum quietly to myself", "hello?", "I use my medkit", "I light the flare", "press on",
+    "I shoot Elara", "Tome, how do you feel about me?", "I hum quietly to myself", "hello?", "I use my medkit",
+    "I light the flare", "press on",
 ]
 
 
@@ -110,8 +112,10 @@ def test_g21_each_turn_checks_the_player_the_npcs_and_the_tome(played):
             turn = recs[mark:end]
             player = [r for r in turn if r.actor == "player" and r.die in ("d20", "none")]
             assert len(player) == 1, (text, player)
-            tome = [r for r in turn if r.actor == "tome"]
+            tome = [r for r in turn if r.actor == "tome" and r.action not in TOME_SPEECH]   # its beat
             assert len(tome) == (0 if e.state.won and i == len(frames) - 1 else 1), (text, tome)
+            speech = [r for r in turn if r.action in TOME_SPEECH]
+            assert len({r.action for r in speech}) == len(speech), (text, speech)       # each act once a turn
             for b in f.blocks:
                 nid = b.data.get("npc") if b.role == "npc" else None
                 if nid and nid != "tome":

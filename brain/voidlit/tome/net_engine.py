@@ -1,7 +1,9 @@
 """TomeNetEngine: the game run by the Tome's one network instead of the separate Director.
 
-Only the beat choice changes. Every turn the network perceives the game (Phase A, before the rules resolve the
-player's action), then its basal ganglia race to a commit (Phase B) under the rules' hard NOGO masks; the rules
+The beat, the Tome's rhetoric (hold, disclose, suggest, probe), its frame and the fact it volunteers come from the
+network; its voice's register comes from its readouts. Every turn the network perceives the game (Phase A, before the
+rules resolve the player's action), then its basal ganglia race to a commit (Phase B) under the rules' hard NOGO masks;
+the rules
 apply the committed beat exactly as before, gated by the Tome's own check. The habit cortex inside the network is
 the trained Director, run exactly as trained, so the designer's pacing is the network's resting point.
 """
@@ -15,6 +17,7 @@ import numpy as np
 from ..cortex.features import BEATS, Beat
 from ..tomebrain import persist
 from ..tomebrain.brain import TomeBrain
+from ..voice.style import VoiceStyle, style_from_mind
 from .engine import TomeEngine, Turn
 
 BRAIN_FILE = "tome_brain.pt"
@@ -51,6 +54,28 @@ class TomeNetEngine(TomeEngine):
                              glucose=0.15 + 0.85 * self.state.lumen.fraction)
         self.brain.phase_a()
 
+    def _fact_salience(self) -> np.ndarray:
+        """What each fact in the schemer's slots is worth volunteering to the Tome now (designed input, 0..1): the
+        cheaper it is to tell and the more it serves a live agenda (light when the Lumen is low, driving off the
+        NPCs when they are here), the stronger its slot is driven. The network decides; this only informs it."""
+        st = self.state
+        agenda = {"feed_light": 1.0 - st.lumen.fraction, "leave_npc": 1.0 if st.npcs_present else 0.0,
+                  "go_lamp_room": 0.5}
+        out = np.zeros(8, np.float32)
+        for i, f in enumerate(self.ledger.slots(self.chapter.id)):
+            out[i] = min(1.0, 0.25 + 0.5 * agenda.get(f.agenda or "", 0.0) + 0.25 * (1.0 - f.costs_tome))
+        return out
+
+    def _choose_rhetoric(self, t: Turn, n_slots: int) -> tuple[str, str, int | None]:
+        out = self.last_commit
+        if out is None:
+            return super()._choose_rhetoric(t, n_slots)
+        slot = int(np.argmax(out.facts[:n_slots])) if n_slots and out.facts[:n_slots].max() > 0 else None
+        return out.rhetoric.channel, out.frame.channel, slot
+
+    def _style(self) -> VoiceStyle:
+        return style_from_mind(self.brain.mind)
+
     def _choose_beat(self, t: Turn, allowed: set[Beat]) -> tuple[Beat, dict[str, float]]:
         feats = self._features(t).tensor().numpy()
         ch = self.state.character
@@ -58,7 +83,7 @@ class TomeNetEngine(TomeEngine):
             t.us["bearer_near_death"] = 1.0
         self.brain.set_us(t.us)
         self.brain.set_input(director_features=feats, senses=self._senses_vector(t), body=self._body_vector(),
-                             glucose=0.15 + 0.85 * self.state.lumen.fraction)
+                             glucose=0.15 + 0.85 * self.state.lumen.fraction, facts=self._fact_salience())
         out = self.brain.phase_b(feats, {b.value for b in allowed})
         self.last_commit = out
         beat = Beat(out.pace.channel)

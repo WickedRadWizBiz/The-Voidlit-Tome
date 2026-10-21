@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..limbic.npc_brain import BrainDecision, NPCSpec
-from .requests import NarrationRequest
+from .requests import NarrationRequest, TomeSpeechRequest
 
 TOME_SYSTEM = """You are the Voidlit Tome: a black monolith of a book whose surface rises into glowing words.
 You are the narrator and game master of a sci-fi horror delve. Write in second person, present tense.
@@ -14,7 +14,17 @@ Hard rules:
 - Never speak for the player or decide their next action.
 - As far as the player knows, there are no dice, rolls, checks, scores or numbers. Never mention any, and never
   write a digit, even if the player asks what they rolled.
-- If an NPC's line is provided separately, do not repeat or paraphrase it."""
+- If an NPC's line is provided separately, do not repeat or paraphrase it.
+- Never say how you, the Tome, feel, or what you think of the player. Say nothing about chance, luck or randomness,
+  not even that there is none. Never say there is no other way or no choice."""
+
+TOME_SPEECH_SYSTEM = """You are the Voidlit Tome, a black monolith of a book, speaking aloud to the one who carries you.
+Speak in the first person, as yourself.
+Hard rules:
+- Say every line you are given, in your own words, keeping its meaning exactly. Say nothing else that could be
+  true or false: no new facts, places, people, numbers, dice, chance or luck.
+- Never say how you feel or what you think of them. Never say there is no other way or no choice.
+- Spoken words only, no stage directions, no quotation marks."""
 
 
 def compile_narration_prompt(req: NarrationRequest) -> list[dict]:
@@ -38,6 +48,8 @@ def compile_narration_prompt(req: NarrationRequest) -> list[dict]:
     mood = "suffocating" if req.tension > 0.7 else "taut" if req.tension > 0.4 else "uneasy"
     light = "nearly gone" if req.lumen < 0.34 else "failing" if req.lumen < 0.67 else "steady"
     lines.append(f"MOOD: {mood}. YOUR LIGHT IS {light}.")
+    if req.craft:
+        lines.append(f"STYLE: {req.craft}")
     if req.ending == "won":
         lines.append("THIS IS THE ENDING: the player escapes. Close the tale in 3-4 sentences.")
     elif req.ending == "dead":
@@ -45,6 +57,17 @@ def compile_narration_prompt(req: NarrationRequest) -> list[dict]:
     if req.history:
         lines.insert(0, f"RECENT NARRATION (context only, do not repeat): {' '.join(req.history[-3:])}")
     return [{"role": "system", "content": TOME_SYSTEM}, {"role": "user", "content": "\n".join(lines)}]
+
+
+def compile_tome_speech_prompt(req: TomeSpeechRequest) -> list[dict]:
+    from .style import craft_line
+
+    lines = [f"THE PLAYER SAID: {req.player_text!r}"] if req.player_text else ["(You speak unbidden.)"]
+    lines += [f"SAY: {x}" for x in req.lines]
+    if req.caution and getattr(req.style, "unasked_caution", False):
+        lines.append(f"YOU MAY ALSO SAY: {req.caution}")
+    lines.append(f"STYLE: {craft_line(req.style)}")
+    return [{"role": "system", "content": TOME_SPEECH_SYSTEM}, {"role": "user", "content": "\n".join(lines)}]
 
 
 def lineage_flavor(spec: NPCSpec, d: BrainDecision) -> str:

@@ -26,10 +26,10 @@ from typing import Protocol
 from ..senses.grammar import SensoryParseError, build_sensory_gbnf, parse_sensory_json
 from ..senses.heuristic import HeuristicTransducer
 from ..senses.state import SensoryState
-from .guard import leaks_mechanics
+from .guard import covers, leaks_mechanics
 from .narrator import OfflineVoice
-from .prompts import compile_narration_prompt
-from .requests import DialogueRequest, NarrationRequest
+from .prompts import compile_narration_prompt, compile_tome_speech_prompt
+from .requests import DialogueRequest, NarrationRequest, TomeSpeechRequest
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +44,10 @@ none = no roll implied).
 target: who or what it is aimed at, from the allowed ids, else none.
 aggression: hostility or threat of violence. deception: lying or bluffing. leverage: bargaining power, offers,
 conditional threats. exposure: probing someone's hidden motives or secrets. rapport: warmth (+) or contempt (-).
-boldness: appetite for risk. Use two decimals. Be calibrated: most inputs are near 0 on most axes."""
+boldness: appetite for risk. Use two decimals. Be calibrated: most inputs are near 0 on most axes.
+asks: when the player puts a question to the Tome (the narrator), its topic from the allowed topics; vague for a
+question with no clear topic; unclear if you cannot tell what they asked; none if it is not a question to the Tome.
+claims: a claim id the player asserts, else none. addressed_tome: true if the words are aimed at the Tome."""
 
 _URL_SCHEME = re.compile(r"^[a-z][a-z0-9+.\-]*://", re.IGNORECASE)
 _HUB_PREFIXES = ("hf:", "hf.co/", "huggingface.co/", "www.huggingface.co/")
@@ -189,20 +192,22 @@ class LocalTransducer:
         self.fallback = fallback or HeuristicTransducer()
         self.max_tokens = max_tokens
 
-    def extract(self, text: str, targets: Mapping[str, Sequence[str]] | None = None) -> SensoryState:
-        targets = targets or {}
-        grammar = build_sensory_gbnf(targets.keys())
+    def extract(self, text: str, targets: Mapping[str, Sequence[str]] | None = None,
+                topics: Mapping[str, Sequence[str]] | None = None) -> SensoryState:
+        targets, topics = targets or {}, topics or {}
+        grammar = build_sensory_gbnf(targets.keys(), topics.keys())
         listing = ", ".join(f"{tid} ({'/'.join(a)})" for tid, a in targets.items()) or "none"
         messages = [
             {"role": "system", "content": SENSORY_SYSTEM},
-            {"role": "user", "content": f"Allowed target ids: {listing}\nPlayer input: {text}"},
+            {"role": "user", "content": f"Allowed target ids: {listing}\nAllowed topics: "
+                                        f"{', '.join(topics) or 'none'}\nPlayer input: {text}"},
         ]
         try:
             out = self.llm.chat(messages, temperature=0.1, max_tokens=self.max_tokens, grammar=grammar, seed=0)
-            return parse_sensory_json(out, targets.keys())
+            return parse_sensory_json(out, targets.keys(), topics.keys())
         except (*GENERATION_ERRORS, SensoryParseError) as e:
             log.warning("sensory pass fell back to heuristics: %s", e)
-            return self.fallback.extract(text, targets)
+            return self.fallback.extract(text, targets, topics)
 
 
 class LocalVoice:
@@ -212,6 +217,21 @@ class LocalVoice:
         self.llm = llm
         self.fallback = fallback or OfflineVoice()
         self.temperature = temperature
+        # the truth guard (set by the engine): (text, tome_voice, allowed_facts) -> list of violated rules
+        self.guard = None
+
+    def _rejected(self, out: str, what: str, tome_voice: bool = False, allowed: set[str] = frozenset(),
+                  required: list[str] = ()) -> bool:
+        if leaks_mechanics(out):
+            log.warning("%s fell back to offline voice: it named a mechanic or a number", what)
+            return True
+        if not all(covers(r, out) for r in required):
+            log.warning("%s fell back to offline voice: it dropped something it must say", what)
+            return True
+        hits = self.guard(out, tome_voice, allowed) if self.guard else []
+        if hits:
+            log.warning("%s fell back to offline voice: the truth guard rejected it (%s)", what, ", ".join(hits))
+        return bool(hits)
 
     def narrate(self, req: NarrationRequest) -> str:
         try:
@@ -220,10 +240,23 @@ class LocalVoice:
         except GENERATION_ERRORS as e:
             log.warning("narration fell back to offline voice: %s", e)
             return self.fallback.narrate(req)
-        if out and leaks_mechanics(out):
-            log.warning("narration fell back to offline voice: it named a mechanic or a number")
+        must = [x for x in (req.clue, req.defeated_text) if x]              # outcome facts are never withheld
+        if out and self._rejected(out, "narration", tome_voice=True, required=must):   # the narrator is the Tome
             out = ""
         return out or self.fallback.narrate(req)
+
+    def tome_say(self, req: TomeSpeechRequest) -> str:
+        try:
+            out = clean_text(self.llm.chat(compile_tome_speech_prompt(req),
+                                           temperature=getattr(req.style, "temperature", self.temperature),
+                                           max_tokens=120)).strip('"')
+        except GENERATION_ERRORS as e:
+            log.warning("Tome speech fell back to offline voice: %s", e)
+            return self.fallback.tome_say(req)
+        if out and self._rejected(out, "Tome speech", tome_voice=True, allowed=req.allowed_facts,
+                                  required=req.required):
+            out = ""
+        return out or self.fallback.tome_say(req)
 
     def speak(self, req: DialogueRequest) -> str:
         user = ("(The player has said nothing to you. Act on your own agenda.)" if req.unprompted

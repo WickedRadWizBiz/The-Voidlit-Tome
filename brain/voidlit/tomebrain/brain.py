@@ -40,6 +40,7 @@ CTX = ["S.L5IT", "T.L5IT", "P.L5IT", "I.L5IT", "P.L5ET", "CA1.ctx", "P.MTX"]
 AMY = ["S.L5IT", "T.L5IT[0:24]", "P.L5IT[0:24]", "I.L5IT", "T.liar", "CA1[32:56]"]     # 128 lines to the amygdala
 REWARD_PA = 1500.0      # LH reward current into the VTA per unit of drive reduction, for the first 50 ms of Phase A
 REWARD_MS = 50
+FACT_PA = 60.0          # pA onto a P fact slot at salience 1 (topographic input): a 0.75 lead wins 15/16 commits
 
 
 @dataclass
@@ -58,6 +59,7 @@ class PhaseBOut:
     frame: Commit
     prior: np.ndarray                 # the habit prior p over the beats
     ms: int
+    facts: np.ndarray = field(default_factory=lambda: np.zeros(8))   # spikes per P fact slot this turn (DISCLOSE)
 
 
 def bus_edges() -> list[BusEdge]:
@@ -135,10 +137,14 @@ class TomeBrain:
         return drive
 
     def set_input(self, director_features: np.ndarray | None = None, senses: np.ndarray | None = None,
-                  body: np.ndarray | None = None, glucose: float | None = None) -> None:
+                  body: np.ndarray | None = None, glucose: float | None = None,
+                  facts: np.ndarray | None = None) -> None:
         """Rate-code the game into thalamic channels (two TC cells each, 220 pA x f): the Director's 18 features to
-        the S reader, the senses to the T mind-reader, the body (Lumen, Hull, Stress) to the I insula."""
+        the S reader, the senses to the T mind-reader, the body (Lumen, Hull, Stress) to the I insula. ``facts`` is
+        the salience (0..1) of each ledger fact in the schemer's slots, delivered to its P.fact assembly."""
         drive = self._rest_drive()
+        for i, f in enumerate(np.clip(np.asarray(facts if facts is not None else (), np.float32), 0.0, 1.0)[:8]):
+            drive[self.net.idx(f"P.fact{i}")] += FACT_PA * f
         for col, vec in (("S", director_features), ("T", senses), ("I", body)):
             if vec is None:
                 continue
@@ -184,13 +190,14 @@ class TomeBrain:
         final = self._race(raster, allowed, final=True, committed=commits, gpi=gpi_per_ch)
         self.sj.end_phase_b()
         self.sj.end_turn(clock.t_ms - start + PHASE_A_MS)
+        facts = np.array([self.jax.counts[self.net.idx(f"P.fact{i}")].sum() for i in range(8)])
         self._end_turn()
         self.turn += 1
         clock.turn = self.turn
         clock.phase = "idle"
         if final["PACE"].fallback:
             self.fallbacks += 1
-        return PhaseBOut(final["PACE"], final["RHETORIC"], final["FRAME"], prior, clock.t_ms - start)
+        return PhaseBOut(final["PACE"], final["RHETORIC"], final["FRAME"], prior, clock.t_ms - start, facts)
 
     def _race(self, raster: np.ndarray, allowed: set[str] | None, final: bool,
               committed: dict[str, Commit] | None = None, gpi: np.ndarray | None = None) -> dict[str, Commit]:

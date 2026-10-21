@@ -55,6 +55,9 @@ class SensoryState:
     exposure: float = 0.0     # probing the listener's secrets/plot     [0, 1]
     rapport: float = 0.0      # warmth (+) or contempt (-)              [-1, 1]
     boldness: float = 0.0     # appetite for risk                       [0, 1]
+    asks: str = "none"        # a ledger topic, or vague / unclear / none (questions put to the Tome)
+    claims: str = "none"      # a scene claim id, or none
+    addressed_tome: bool = False
 
     def clamped(self) -> "SensoryState":
         return SensoryState(
@@ -62,6 +65,7 @@ class SensoryState:
             aggression=_unit(self.aggression), deception=_unit(self.deception),
             leverage=_unit(self.leverage), exposure=_unit(self.exposure),
             rapport=float(min(1.0, max(-1.0, self.rapport))), boldness=_unit(self.boldness),
+            asks=self.asks or "none", claims=self.claims or "none", addressed_tome=bool(self.addressed_tome),
         )
 
     @property
@@ -92,5 +96,6 @@ class SensoryState:
             target=d.get("target", "none"), aggression=d.get("aggression", 0.0),
             deception=d.get("deception", 0.0), leverage=d.get("leverage", 0.0),
             exposure=d.get("exposure", 0.0), rapport=d.get("rapport", 0.0),
-            boldness=d.get("boldness", 0.0),
+            boldness=d.get("boldness", 0.0), asks=d.get("asks", "none"), claims=d.get("claims", "none"),
+            addressed_tome=d.get("addressed_tome", False),
         ).clamped()

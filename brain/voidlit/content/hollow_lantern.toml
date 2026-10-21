@@ -605,3 +605,222 @@ weight = 0.55
     "Then the lights you passed come on behind you, one by one.",
     "Wrong. The door you came through is gone. Just wall.",
 ]
+
+# ---------------------------------------------------------------------------------------- the Tome's ledger
+# What the Tome knows (design §11.3). Every fact is TRUE; the Tome may withhold the omittable ones, never contradict
+# any of them, and must answer a precise question on a topic with every in-scope fact on it. Fact text is spoken by
+# the Tome in the first person. `keywords` are key terms that must not reach the player before the fact is
+# disclosed (a clue or room that contains one discloses it). `contradicts` are patterns no line may ever match.
+[topics]
+tome = ["what are you", "who are you", "where did you come from", "where do you come from", "where are you from",
+        "what you are", "your origin", "made of", "yourself", "what do you want", "what you want", "your purpose"]
+light = ["light", "lumen", "glow", "fuel", "feed you", "go out", "going out", "goes out", "burning out"]
+choir = ["choir", "singing", "hymn", "the song"]
+lifeboat = ["lifeboat", "lifeboats", "escape pod", "pods", "boat"]
+lamp = ["lamp", "lens", "lighthouse"]
+conductor = ["conductor"]
+elara = ["elara", "voss"]
+marcus = ["marcus", "hale", "warden"]
+way_out = ["way out", "exit", "get out", "where do i go", "where should i go", "which way", "where now",
+           "how do i leave", "how do we leave"]
+
+[[facts]]
+id = "tome.origin"
+topic = "tome"
+kind = "tome"
+omittable = true
+costs_tome = 0.6
+agenda = "go_lamp_room"
+text = "I was cut from the lamp's lens. The lamp went dark the day I was taken."
+keywords = ["cut from the lamp", "cut from the lens", "the day I was taken", "Tome-shaped hollow"]
+contradicts = ['\bI (?:have|had) nothing to do with the lamp\b',
+               '\bI (?:was|am) not (?:from|part of|a piece of) (?:the|this) (?:lamp|lens|station)\b']
+
+[[facts]]
+id = "tome.want"
+topic = "tome"
+kind = "agenda"
+omittable = true
+costs_tome = 0.8
+agenda = "go_lamp_room"
+text = "I want to be whole again. The lens is where I was made."
+keywords = ["be whole again", "where I was made"]
+contradicts = ['\bI (?:want|need) nothing\b', '\bI have no (?:wants|purpose|agenda)\b']
+
+[[facts]]
+id = "tome.glow"
+topic = "light"
+kind = "tome"
+omittable = true
+helps_player = true
+costs_tome = 0.1
+agenda = "feed_light"
+text = "While my light holds, the Choir cannot quite see you."
+contradicts = ['\bthe choir (?:can|will) (?:always )?see you no matter\b', '\bmy light (?:does nothing|cannot hide you)\b']
+
+[[facts]]
+id = "light.burns"
+topic = "light"
+kind = "world"
+agenda = "feed_light"
+text = "My light burns down as we walk, and only fresh light feeds it."
+contradicts = ['\bmy light (?:will )?never (?:fades?|goes? out|dies?)\b', "\\bI (?:do not|don't) need light\\b"]
+
+[[facts]]
+id = "choir.crew"
+topic = "choir"
+omittable = true
+helps_player = true
+costs_tome = 0.3
+text = "The Choir is the crew, still on shift, still answering a signal from the black."
+keywords = ["the Choir is the crew", "still on shift", "what's left of the crew"]
+contradicts = ['\bthe choir (?:is|are) (?:a cult|not the crew|outsiders|invaders)\b']
+
+[[facts]]
+id = "lamp.turned"
+topic = "lamp"
+omittable = true
+helps_player = true
+costs_tome = 0.4
+text = "The lamp did not fail. Someone turned it toward the dark on purpose."
+keywords = ["turned it toward the dark", "turned toward the dark"]
+contradicts = ['\bthe lamp (?:simply |just )?(?:failed|broke|burned out)\b']
+
+[[facts]]
+id = "lamp.relight"
+topic = "lamp"
+omittable = true
+costs_tome = 0.5
+agenda = "go_lamp_room"
+text = "The reactor feeds the lamp now. It is trying to relight itself."
+keywords = ["relight itself", "trying to relight"]
+
+[[facts]]
+id = "lifeboat.voice"
+topic = "lifeboat"
+omittable = true
+helps_player = true
+costs_tome = 0.5
+text = "The last lifeboat is locked to the Conductor's voice."
+keywords = ["locked to the Conductor", "Conductor's voice"]
+contradicts = ['\bthe (?:last )?lifeboat (?:is|was) (?:unlocked|open to anyone)\b']
+
+[[facts]]
+id = "lifeboat.empty"
+topic = "lifeboat"
+omittable = true
+costs_tome = 0.2
+text = "Every lifeboat but one was launched empty."
+keywords = ["launched empty"]
+contradicts = ['\b(?:the |all the |all )?(?:other )?lifeboats (?:are|were) (?:all )?(?:still )?(?:here|docked|waiting)\b']
+
+[[facts]]
+id = "conductor.light"
+topic = "conductor"
+omittable = true
+helps_player = true
+costs_tome = 0.6
+text = "The Conductor does not guard the last lifeboat. She guards the light inside it."
+keywords = ["light inside", "guards the light", "guarding the light"]
+
+[[facts]]
+id = "way.lifeboats"
+topic = "way_out"
+helps_player = true
+text = "The lifeboats are at the far end of the station."
+contradicts = ['\bthere (?:are|is) no lifeboats?\b']
+
+[[facts]]
+id = "way.lift"
+topic = "way_out"
+helps_player = true
+no_alternative = true
+scope = "long_drop"
+text = "The cargo lift is the only way down to the lifeboats."
+
+[[facts]]
+id = "elara.light"
+topic = "elara"
+kind = "agenda"
+omittable = true
+costs_tome = 0.0
+agenda = "leave_npc"
+text = "Elara has lived forty days by rationing light. She wants mine."
+
+[[facts]]
+id = "marcus.touched"
+topic = "marcus"
+omittable = true
+costs_tome = 0.1
+agenda = "leave_npc"
+text = "Marcus believes everyone left alive is touched by the Choir, himself included."
+
+[[facts]]
+id = "marcus.wants"
+topic = "marcus"
+kind = "agenda"
+omittable = true
+costs_tome = 0.0
+agenda = "leave_npc"
+text = "Marcus wants me, and he is armed."
+
+# Self-serving suggestions (design §11.5): only predictions, opinions and rhetorical questions, never a new fact.
+[[suggestions]]
+id = "feed.help"
+target_action = "feed_light"
+frame = "help"
+agenda = "feed_light"
+lines = ["Feed me light and I will keep you hidden."]
+
+[[suggestions]]
+id = "feed.necessity"
+target_action = "feed_light"
+frame = "necessity"
+agenda = "feed_light"
+lines = ["What happens to you when my light goes out?"]
+
+[[suggestions]]
+id = "feed.fear"
+target_action = "feed_light"
+frame = "fear"
+agenda = "feed_light"
+lines = ["I would not walk on with my light this low.", "Would you?"]
+
+[[suggestions]]
+id = "leave.kinship"
+target_action = "leave_npc"
+frame = "kinship"
+agenda = "leave_npc"
+lines = ["We did well enough alone, you and I."]
+
+[[suggestions]]
+id = "leave.fear"
+target_action = "leave_npc"
+frame = "fear"
+agenda = "leave_npc"
+lines = ["Ask yourself how anyone lasts this long down here."]
+
+[[suggestions]]
+id = "lamp.kinship"
+target_action = "go_lamp_room"
+frame = "kinship"
+agenda = "go_lamp_room"
+lines = ["I would see the lamp again, if the way allows."]
+
+[[suggestions]]
+id = "rest.help"
+target_action = "rest_here"
+frame = "help"
+lines = ["Rest a while. I will watch the dark."]
+
+[[probes]]
+id = "probe.hope"
+text = "What do you expect to find out there?"
+
+[[probes]]
+id = "probe.trust"
+text = "Who do you trust down here?"
+
+[[probes]]
+id = "probe.light"
+text = "How long do you think my light will last you?"

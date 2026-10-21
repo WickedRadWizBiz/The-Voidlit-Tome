@@ -12,7 +12,8 @@ import random
 from collections.abc import Mapping, Sequence
 
 from ..cortex.features import Beat
-from .requests import DialogueRequest, NarrationRequest
+from .requests import DialogueRequest, NarrationRequest, TomeSpeechRequest
+from .style import render
 
 DEFAULT_BANKS: dict[str, list[str]] = {
     "action.any.fail": ["It goes wrong at once.", "The dark does not cooperate.", "Nothing gives except your nerve."],
@@ -63,6 +64,8 @@ DEFAULT_BANKS: dict[str, list[str]] = {
     "action.flee.none": ["You back away. Nothing follows. That's almost worse."],
     "action.talk.none": ["Your words hang in the stale air."],
     "action.talk.alone": ["You speak into the dark. The dark keeps its own counsel."],
+    "action.talk.tome": ["Light gathers under the black glass, and words rise to meet you.",
+                         "The Tome's surface stirs under your hand.", "The glass warms as it answers."],
     "action.talk.npc": ["{npc} studies you before answering.", "{npc} takes a moment with your words.",
                         "{npc} glances at the Tome's light, then back to you."],
     "action.talk.fail": ["Your words come out wrong, and {npc} hears every crack in them."],
@@ -104,7 +107,9 @@ class OfflineVoice:
             self.banks[k] = list(v)
         self.rng = random.Random(seed)
 
-    def _pick(self, *keys: str) -> str:
+    def _pick(self, *keys: str, register: str = "") -> str:
+        if register:                                   # a register variant first: ``beat.calm@cold``
+            keys = tuple(x for k in keys for x in (f"{k}@{register}", k))
         for k in keys:
             options = [o for o in self.banks.get(k, []) if o]
             if options:
@@ -132,8 +137,11 @@ class OfflineVoice:
         if req.beat_fact:
             parts.append(req.beat_fact)
         elif req.beat is not Beat.NPC and not (req.beat is Beat.CLUE and req.clue):
-            parts.append(self._pick(f"beat.{req.beat.value}"))
+            parts.append(self._pick(f"beat.{req.beat.value}", register=req.register))
         return " ".join(_capitalize(p) for p in parts if p)
+
+    def tome_say(self, req: TomeSpeechRequest) -> str:
+        return render(req.lines, req.style, self.rng, caution=req.caution)
 
     def speak(self, req: DialogueRequest) -> str:
         tactic = req.npc.tactics[req.decision.tactic]

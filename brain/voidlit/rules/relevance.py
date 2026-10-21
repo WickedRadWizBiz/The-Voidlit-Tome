@@ -59,6 +59,7 @@ D20: dict[str, Rule] = {
     "tome.escalate": Rule(G, "10 + player guile"),
     "tome.hazard": Rule(G, "10 + player insight"),
     "tome.twist": Rule(I, "10 + player guile"),
+    "tome.suggest": Rule(U, "10 + player insight"),   # a self-serving suggestion: a failure leaves a true tell
 }
 
 D6: dict[str, Rule] = {
@@ -84,6 +85,7 @@ NO_CHECK: frozenset[str] = frozenset({
     "player.lost_turn",        # panic took the moment
     "npc.reassure", "npc.orders", "npc.confide",
     "tome.calm", "tome.clue", "tome.respite", "tome.advance", "tome.npc",
+    "tome.disclose", "tome.answer", "tome.deflect", "tome.probe",   # speech the rules allow outright (§11.4)
 })
 
 

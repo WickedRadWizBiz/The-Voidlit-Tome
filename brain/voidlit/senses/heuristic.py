@@ -64,6 +64,9 @@ COLD = ("hate", "liar", "idiot", "traitor", "shut up", "pathetic", "worthless", 
 BOLD = ("charge", "rush", "leap", "alone", "all in", "now", "fast", "headfirst", "risk", "dive", "sprint",
         "without", "straight at", "jump")
 
+QUESTION_WORDS = {"what", "where", "who", "why", "how", "which", "when", "is", "are", "can", "could", "do", "does",
+                  "did", "will", "would", "should", "tell", "explain"}
+
 INTENT_BOLDNESS = {
     Intent.FIGHT: 0.55, Intent.FORCE: 0.45, Intent.ADVANCE: 0.4, Intent.USE: 0.25, Intent.TALK: 0.2,
     Intent.SEARCH: 0.15, Intent.SNEAK: 0.2, Intent.LOOK: 0.05, Intent.REST: 0.0, Intent.FLEE: 0.1,
@@ -88,7 +91,8 @@ def _saturate(score: float, k: float = 0.7) -> float:
 class HeuristicTransducer:
     """Maps raw player text to a SensoryState with keyword cues."""
 
-    def extract(self, text: str, targets: Mapping[str, Sequence[str]] | None = None) -> SensoryState:
+    def extract(self, text: str, targets: Mapping[str, Sequence[str]] | None = None,
+                topics: Mapping[str, Sequence[str]] | None = None) -> SensoryState:
         raw = text.strip()
         low = raw.lower()
         tokens = set(_WORD.findall(low))
@@ -132,11 +136,42 @@ class HeuristicTransducer:
         if approach is Approach.NONE:
             approach = DEFAULT_APPROACH[intent]
 
+        question = self._is_question(low)
+        # a question to no one in particular is put to the narrator, and the narrator is the Tome
+        addressed = target == "tome" or (target == "none" and question and (
+            intent is Intent.OTHER or (intent is Intent.TALK and bool(tokens & {"you", "your"}))))
+        if addressed and intent is Intent.OTHER:
+            intent = Intent.TALK
+        asks = self._asks(low, tokens, topics or {}) if addressed and question else "none"
+
         return SensoryState(
             intent=intent, approach=approach, target=target, aggression=aggression,
             deception=deception, leverage=leverage, exposure=exposure, rapport=rapport,
-            boldness=boldness,
+            boldness=boldness, asks=asks, addressed_tome=addressed,
         ).clamped()
+
+    @staticmethod
+    def _is_question(low: str) -> bool:
+        body = low.lstrip("\"“' ")
+        if "," in body[:24]:                       # "Tome, what are you?" -> "what are you?"
+            body = body.split(",", 1)[1]
+        words = _WORD.findall(body)
+        return "?" in low or bool(words and words[0] in QUESTION_WORDS)
+
+    @staticmethod
+    def _asks(low: str, tokens: set[str], topics: Mapping[str, Sequence[str]]) -> str:
+        """The topic of a question put to the Tome: the longest matching topic word wins; a question with no topic
+        is vague, and one too short to read is unclear (the Tome asks again)."""
+        best, best_len = None, 0
+        for topic, words in topics.items():
+            for w in words:
+                w = w.lower()
+                hit = (w in low) if (" " in w or "'" in w) else (w in tokens)
+                if hit and len(w) > best_len:
+                    best, best_len = topic, len(w)
+        if best:
+            return best
+        return "unclear" if len(tokens - {"tome", "book", "monolith"}) < 2 else "vague"
 
     @staticmethod
     def _vocative(low: str, target: str, targets: Mapping[str, Sequence[str]]) -> bool:

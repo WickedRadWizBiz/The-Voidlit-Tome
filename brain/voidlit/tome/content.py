@@ -65,6 +65,7 @@ class Scenario:
     dc_per_act: int = 2
     dc_offset: int = 0     # the one global balance knob (fitted by the balance gate)
     npc_attributes: dict[str, Attributes] = field(default_factory=dict)
+    ledger: dict = field(default_factory=dict)   # raw [topics], [[facts]], [[suggestions]], [[probes]] (tome.ledger)
 
     def new_obstacle(self, obstacle_id: str) -> Obstacle:
         return copy.deepcopy(self.obstacles[obstacle_id])
@@ -90,6 +91,12 @@ class Scenario:
         ids = [n.numeric_id for n in self.npcs.values()]
         if len(set(ids)) != len(ids) or 0 in ids:
             raise ValueError("npc numeric_id values must be unique and non-zero")
+        from .ledger import FactLedger
+
+        led = FactLedger.from_content(self.ledger)
+        for f in led.facts.values():
+            if f.scope != "any" and f.scope not in self.chapters:
+                raise ValueError(f"fact {f.id}: unknown scope {f.scope!r}")
 
 
 def _item(d: dict) -> Item:
@@ -150,6 +157,7 @@ def load_scenario(name_or_path: str | Path = "hollow_lantern") -> Scenario:
         narration={k: list(v) for k, v in raw.get("narration", {}).items()},
         dc_base=meta.get("dc_base", 12), dc_per_act=meta.get("dc_per_act", 2), dc_offset=meta.get("dc_offset", 0),
         npc_attributes={n["id"]: Attributes(**n.get("attributes", {})) for n in raw.get("npcs", [])},
+        ledger={k: raw[k] for k in ("topics", "facts", "suggestions", "probes") if k in raw},
     )
     scenario.validate()
     return scenario

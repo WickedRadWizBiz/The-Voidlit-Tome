@@ -153,7 +153,7 @@ def cmd_train(args: argparse.Namespace) -> int:
 def cmd_gbnf(args: argparse.Namespace) -> int:
     from .senses.grammar import build_sensory_gbnf
 
-    print(build_sensory_gbnf([t for t in args.targets.split(",") if t]))
+    print(build_sensory_gbnf([t for t in args.targets.split(",") if t], [t for t in args.topics.split(",") if t]))
     return 0
 
 
@@ -198,6 +198,7 @@ def main(argv: list[str] | None = None) -> int:
 
     g = sub.add_parser("gbnf", help="print the sensory grammar")
     g.add_argument("--targets", default="")
+    g.add_argument("--topics", default="")
     g.set_defaults(fn=cmd_gbnf)
 
     args = p.parse_args(argv)

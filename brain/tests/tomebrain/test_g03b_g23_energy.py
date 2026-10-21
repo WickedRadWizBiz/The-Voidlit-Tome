@@ -16,7 +16,7 @@ import jax.numpy as jnp  # noqa: E402
 from voidlit.tomebrain.calib import calib_rates as CR  # noqa: E402
 from voidlit.tomebrain.jaxpart import network as NW  # noqa: E402
 from voidlit.tomebrain.jaxpart import params as PR  # noqa: E402
-from voidlit.tomebrain.readout import Mind, TurnSignals, atp_pi, desperation, drive  # noqa: E402
+from voidlit.tomebrain.readout import atp_pi, desperation, drive  # noqa: E402
 
 pytestmark = pytest.mark.slow
 

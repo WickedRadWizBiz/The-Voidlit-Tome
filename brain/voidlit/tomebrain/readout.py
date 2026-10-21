@@ -71,6 +71,7 @@ class Mind:
     desperation: float = 0.0
     contempt: float = 0.0
     pad: dict[str, float] = field(default_factory=lambda: {"P": 0.0, "A": 0.0, "D": 0.0})
+    affect: dict[str, float] = field(default_factory=lambda: {"bond": 0.0, "hunger": 0.0, "fear": 0.0})
     mods: dict[str, int] = field(default_factory=lambda: {"grit": 2, "guile": 2, "insight": 2, "resolve": 3})
     stats: dict[str, Running] = field(default_factory=dict)
     vs_prev: float = 0.0
@@ -88,7 +89,7 @@ class Mind:
         z = {k: self._z(k, v) for k, v in (("LC", r["LC"]), ("ORX", r["ORX"]), ("DA", sig.nm[0]),
                                             ("5HT", sig.nm[2]), ("ACh", sig.nm[3]), ("CeA", r["cea"]),
                                             ("F", sig.F), ("ATP", sig.atp_pi), ("VS", r["vs"]),
-                                            ("contempt", r["bla.contempt"]))}
+                                            ("contempt", r["bla.contempt"]), ("bond", r["bla.bond"]))}
         f_rest = self.stats["F"].mean or sig.F or 1.0
         bond = r["bla.bond"]
         rival = r["bla.threat"] + r["bla.contempt"]
@@ -111,6 +112,8 @@ class Mind:
             "A": math.tanh(z["LC"] + 0.5 * z["ACh"] + 0.5 * z["CeA"]),
             "D": math.tanh(0.6 * z["ATP"] - 0.8 * z["CeA"] + 0.4 * z["contempt"]),
         }
+        # the voice's register axes (design §11.6): bond, hunger = z(ORX), fear = z(CeA), each -1..1
+        self.affect = {"bond": math.tanh(z["bond"]), "hunger": math.tanh(z["ORX"]), "fear": math.tanh(z["CeA"])}
         # the Tome's own check modifiers (design §8.6), each in [-2, +6]
         clip = lambda x: int(max(-2, min(6, round(x))))  # noqa: E731
         self.mods = {
@@ -129,6 +132,7 @@ class Mind:
     def state_dict(self) -> dict:
         return {"needs": dict(self.needs), "drive": self.drive, "reward": self.reward,
                 "desperation": self.desperation, "contempt": self.contempt, "pad": dict(self.pad),
+                "affect": dict(self.affect),
                 "mods": dict(self.mods), "vs_prev": self.vs_prev,
                 "stats": {k: [v.mean, v.var, v.n] for k, v in self.stats.items()}}
 
@@ -137,6 +141,7 @@ class Mind:
         self.drive, self.reward = float(d["drive"]), float(d["reward"])
         self.desperation, self.contempt = float(d["desperation"]), float(d["contempt"])
         self.pad = {k: float(v) for k, v in d["pad"].items()}
+        self.affect = {k: float(v) for k, v in d.get("affect", self.affect).items()}
         self.mods = {k: int(v) for k, v in d["mods"].items()}
         self.vs_prev = float(d["vs_prev"])
         self.stats = {k: Running(float(v[0]), float(v[1]), int(v[2])) for k, v in d["stats"].items()}

@@ -147,6 +147,11 @@ committed.
       counters (G18, G19, G15).
 - [ ] M8 corruption (NPC + player tiers, Rune, `resist` message, Unreal tap + CLI Enter); G11 puppet-claim clause.
 
+- [x] **User decision (2026-10-21): "Authored only".** Narration and the Tome's own words always come from the rules'
+      authored text (offline voice, verbatim ledger acts, authored wrappers and banks). The local LLM does only
+      perception (sensory pass) and the NPCs' own dialogue. Reason: adversarial tests showed model prose can
+      contradict resolved outcomes even under strict shape filters ("Then everything mends, bright and whole").
+
 ## Review of M4+M5 (2026-10-21)
 Workflow review-m4-m5 confirmed 33 findings (4 refuted); details in scratchpad `review_full.json`, split into
 `fix_truth.json` (18), `fix_persist.json` (7), `fix_net.json` (8). Headline: a regex guard cannot keep a free-writing
@@ -161,6 +166,8 @@ Step 1 fixes RHETORIC commits (flat D1 drive) before the cerebellum. Zones 7-9 b
 fed only by a rules-side opposition code, on a Phase-A-local clock, so G20's bit-identity holds.
 
 ## Next immediate action
-When fix-review-findings completes: read reports + verifications, merge fix/persist, fix/network, fix/truth into
-claude/determined-maxwell-5j79pa (resolve conflicts), run fast suite + full slow suite incl. G10c, red-team the truth
-guard (loop-until-dry workflow), log in design §20, push. Then M6 per the judged plan.
+fix/truth, fix/persist, fix/network are merged (e82098c; fast suite 254 passed). Follow-up workflow
+`fix-followups` (run wf_ffe62893-8cd) is implementing authored-only narration + residual findings on branches
+fix2/truth, fix2/persist, fix2/network (base e82098c), each adversarially verified. When it completes: merge, run the
+fast suite and the full slow suite incl. G10c, update design §11.6/§20 (authored only; M4 numbers changed: K_ATP 0.3 nS,
+PHASIC, G3b/G23/G24 numbers, G24 transfer deferred), push. Then M6 per `m6_design.json`.

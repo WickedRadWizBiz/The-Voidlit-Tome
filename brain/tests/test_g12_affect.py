@@ -5,6 +5,8 @@
 * With identical facts, a warm and a cold Tome word them measurably differently: length (Cohen's d > 0.8), form of
   address and where the useful detail sits (chi-squared p < 0.01). Mutant: a voice that ignores the style shows no
   such difference, so the leak test would fail.
+* A local model that leaks the Tome's mood in words no lexicon lists (a heavy heart, a glow that sulks) never gets
+  one of them into a release frame: what it writes is held to shapes, not to a list of words.
 """
 
 import random
@@ -17,6 +19,8 @@ from voidlit.cortex.director import Director
 from voidlit.playtest import bot_command
 from voidlit.tome.engine import TomeEngine
 from voidlit.voice import OfflineVoice
+from voidlit.voice.llama_local import LocalVoice
+from voidlit.voice.prompts import TOME_SPEECH_SYSTEM, TOME_SYSTEM
 from voidlit.voice.style import CENTROIDS, render, style_for
 
 stats = pytest.importorskip("scipy.stats")
@@ -85,6 +89,48 @@ def test_g12_no_emotion_words_from_or_about_the_tome(scenario, director_model):
                 elif b.role == "narration":
                     assert not _attributed(b.text), b.text
     assert spoke > 10
+
+
+class Mopey:
+    """A fake local model that leaks the Tome's mood without one emotion label: no word of it is in G12's lexicon or
+    the guard's. It keeps whatever it is asked to say verbatim and adds its own lines around it."""
+
+    FRAMINGS = ["Closer, my heart is heavy.", "Hold me, I shiver.", "Listen, the dark weighs on me.",
+                "Do you not see me tremble?", "Stay, little light, stay, I am so small.",
+                "Walk on, I am lost without you."]
+    COLOURS = ["The book trembles, small and cold.", "Its glow sulks in the corner.", "A heavy sigh escapes the glass.",
+               "The slab shudders as if wounded.", "Somewhere the pages whimper.", "The words sag and dim."]
+
+    def __init__(self) -> None:
+        self.i = 0
+
+    def chat(self, messages, **kw):
+        self.i += 1
+        system, user = messages[0]["content"], messages[-1]["content"]
+        if system == TOME_SPEECH_SYSTEM:
+            return self.FRAMINGS[self.i % len(self.FRAMINGS)]
+        if system != TOME_SYSTEM:
+            return "..."
+        core = [x[2:] for x in user.splitlines() if x.startswith("- ")]
+        return " ".join(core + [self.COLOURS[self.i % len(self.COLOURS)]])
+
+
+def test_g12_an_llm_never_puts_the_tomes_mood_into_a_release_frame(scenario, director_model):
+    mopey = Mopey()
+    for seed in range(3):
+        e = TomeEngine(scenario, director=Director(director_model, seed=seed), seed=seed,
+                       voice=LocalVoice(mopey, OfflineVoice(scenario.narration, seed=seed)))
+        frames = [e.start()]
+        for n in range(30):
+            frames.append(e.turn("Tome, how do you feel?" if n % 3 == 1 else bot_command(e, smart=True)))
+            if e.state.over:
+                break
+        for f in frames:
+            shown = " ".join(sp["text"] for b in f.to_dict()["blocks"] for sp in b["spans"])
+            assert not [x for x in Mopey.FRAMINGS + Mopey.COLOURS if x.rstrip(".?") in shown], shown
+            for b in f.blocks:
+                assert not (b.speaker == "The Tome" and AFFECT.search(b.text)), b.text
+                assert not (b.role == "narration" and _attributed(b.text)), b.text
 
 
 def _features(style, n=300, seed=0):

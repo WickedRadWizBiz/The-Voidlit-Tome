@@ -12,7 +12,8 @@ volunteer the facts it is allowed to withhold, but it never states a falsehood a
    only be a prediction, an opinion, or a rhetorical question.
 
 Outcome facts (everything the rules resolved this turn, including what a successful action uncovered) are never
-omittable; the engine always narrates them. ``TruthVerifier`` checks every line the Tome or the narration speaks.
+omittable; the engine always narrates them. Whatever a language model adds around the verbatim lines is shape-checked
+(``voice/guard.py``), and ``TruthVerifier`` checks every whole line the Tome or the narration speaks, as the backstop.
 """
 
 from __future__ import annotations
@@ -20,6 +21,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from typing import Literal
+
+from ..voice.guard import (AFFECT, AFFECT_SELF, CHANCE, DICE_DENIAL, DICE_WORDS, JUDGEMENT, NEGATION, NO_ALTERNATIVE,
+                           OPINION_OF_PLAYER, OPINION_WORDS, covers, normalize, sentences, strip_core)
 
 FactKind = Literal["outcome", "world", "item", "agenda", "tome"]
 ActKind = Literal["ledger_fact", "prediction", "opinion", "question", "rhetorical", "deflection"]
@@ -92,24 +96,25 @@ class DisclosurePlan:
         return list(dict.fromkeys(self.answers + ([self.vague_answer] if self.vague_answer else []) + self.volunteer))
 
 
-# questions the Tome deflects without asserting anything
-MOOD_Q = re.compile(r"\b(how do you feel|how are you|are you (?:angry|afraid|scared|sad|happy|upset|hungry|lonely|"
-                    r"ok(?:ay)?|alright|in pain|hurt|mad)|what do you think (?:of|about) me|do you (?:like|hate|trust|"
-                    r"care about|love) me|do you care|your (?:mood|opinion|feelings?)|what are you feeling)\b", re.I)
-DICE_Q = re.compile(r"\b(dice|roll(?:ed)?|random|luck|chance|odds|stats?|numbers?)\b", re.I)
+# Questions the Tome deflects without asserting anything. A deflection never replaces a forced answer: "are you
+# afraid of the Conductor?" and "any chance the lifeboat still works?" are answered on their topic as well.
+MOOD_Q = re.compile(r"\b(how do you feel|how are you(?: feeling| doing| holding up)?(?=\s*(?:[?.!,]|$))|"
+                    r"are you (?:angry|afraid|scared|frightened|terrified|sad|happy|upset|hungry|starving|lonely|tired|"
+                    r"weak|ok(?:ay)?|alright|in pain|hurt|mad)|what do you think (?:of|about) me|do you (?:like|hate|"
+                    r"trust|care about|love) me|do you care|your (?:mood|opinion|feelings?)|what are you feeling)\b",
+                    re.I)
+DICE_Q = re.compile(r"\b(dice|die rolls?|roll(?:ed|s|ing)?|random\w*|luck\w*|chances?|odds|stats?|numbers?|fate|"
+                    r"coinciden\w*|accident\w*)\b", re.I)
 MOOD_DEFLECTIONS = ("Ask me something I can answer.", "That is not a question for the dark.",
                     "Keep walking. Ask me about the way out.")
 DICE_DEFLECTIONS = ("What happened, happened.", "It went the way it went.", "The station does not explain itself.")
 
-# things the Tome's own voice may never say
-AFFECT_SELF = re.compile(r"\bI(?:'m| am| feel)\s+(?:so\s+|very\s+)?(?:afraid|angry|sad|happy|hungry|lonely|scared|"
-                         r"furious|hurt|jealous|desperate)\b|\bI (?:hate|love|despise|adore) you\b", re.I)
-OPINION_OF_PLAYER = re.compile(r"\byou (?:disgust|sicken|delight|please|disappoint) me\b", re.I)
-DICE_DENIAL = re.compile(r"\b(?:there are no dice|nothing (?:here )?is random|"
-                         r"no (?:dice|luck|chance) (?:at all|here))\b",
-                         re.I)
-NO_ALTERNATIVE = re.compile(r"\b(?:no other way|the only way|no choice|nothing else for it|no other choice)\b", re.I)
+# What the Tome's own voice may never say: the lexicons (chance, affect and need, opinion, necessity) live with the
+# voice's guard; these are the shapes the verifier adds. ``TOME_SUBJECT`` is the Tome as narration names it.
+TOME_SUBJECT = re.compile(r"\b(?:the tome|your tome|this tome|the book|the glass|the black glass|the monolith|"
+                          r"the slab|its light|its glow|its surface|its words|the light you carry)\b", re.I)
 RHETORICAL_END = re.compile(r"\?\s*$")
+ATTRIBUTION_WINDOW = 40          # characters after the Tome is named that narration may not pin a feeling on it
 
 
 @dataclass
@@ -187,14 +192,12 @@ class FactLedger:
     def plan(self, chapter: str, rhetoric: str = "hold", asks: str = "none", deflect: str | None = None,
              volunteer: str | None = None, suggestion: str | None = None, probe: str | None = None) -> DisclosurePlan:
         """The hard rules around whatever the network chose: deflections assert nothing, a precise question forces
-        every fact on its topic, a vague one the least-costly relevant fact, and the volunteered fact (DISCLOSE)
-        must be an in-scope withheld one."""
-        p = DisclosurePlan(rhetoric=rhetoric)
-        if deflect:
-            p.deflection = deflect
-        elif asks not in ("none", "vague", "unclear", ""):
+        every fact on its topic (with the deflection, when it also asked about mood or chance), a vague one the
+        least-costly relevant fact, and the volunteered fact (DISCLOSE) must be an in-scope withheld one."""
+        p = DisclosurePlan(rhetoric=rhetoric, deflection=deflect or None)
+        if asks not in ("none", "vague", "unclear", ""):
             p.answers = [f.id for f in sorted(self.answers(asks, chapter), key=lambda f: (f.omittable, f.id))]
-        elif asks == "vague":
+        elif asks == "vague" and not deflect:
             pool = [f for f in self.in_scope(chapter) if f.id not in self.disclosed] or self.in_scope(chapter)
             best = min(pool, key=lambda f: (f.costs_tome, f.id), default=None)
             p.vague_answer = best.id if best else None
@@ -239,8 +242,19 @@ class FactLedger:
     def disclose(self, fact_ids) -> None:
         self.disclosed.update(fact_ids)
 
-    def licensed_no_alternative(self, chapter: str) -> bool:
-        return any(f.no_alternative and (f.id in self.disclosed or not f.omittable) for f in self.in_scope(chapter))
+    def licenses(self, sentence: str, chapter: str) -> bool:
+        """Whether a necessity claim ("the only way ...") is licensed: it must be about an in-scope, public
+        ``no_alternative`` fact (it covers that fact's content) and deny nothing. A licence never covers a chapter."""
+        return not NEGATION.search(sentence) and any(
+            f.no_alternative and (f.id in self.disclosed or not f.omittable) and covers(f.text, sentence, 0.6)
+            for f in self.in_scope(chapter))
+
+    def vocabulary(self) -> list[str]:
+        """What the ledger is about: every topic's question words and every fact's key terms. A model writing
+        around the verbatim lines may use none of them (voice/guard.py)."""
+        words = {w for ws in self.topic_words.values() for w in ws}
+        words |= {k for f in self.facts.values() for k in f.keywords}
+        return sorted(words)
 
     def state_dict(self) -> dict:
         return {"disclosed": sorted(self.disclosed), "asked": sorted(self.asked)}
@@ -251,13 +265,20 @@ class FactLedger:
 
 
 class TruthVerifier:
-    """Checks a line against the ledger. ``tome_voice`` applies the rules for the Tome's own words."""
+    """Checks a whole line against the ledger: the backstop behind the voice's shape checks.
+
+    ``tome_voice`` applies the rules for the Tome's own words (no feeling, need or opinion at all); with
+    ``narration`` it applies them as narration by the Tome (nothing in the first person, nothing pinned on the Tome;
+    the player's fear may still be told). ``exempt`` lines were spliced in verbatim from the ledger or the rules (a
+    fact, a clue, a scene): they still may not contradict or leak, but the word lexicons skip them, so the clue "the
+    static isn't random" is told whole."""
 
     def __init__(self, ledger: FactLedger) -> None:
         self.ledger = ledger
 
-    def check(self, text: str, chapter: str, tome_voice: bool = False,
-              allowed_facts: set[str] = frozenset()) -> list[Violation]:
+    def check(self, text: str, chapter: str, tome_voice: bool = False, allowed_facts: set[str] = frozenset(),
+              exempt: list[str] | tuple[str, ...] = (), narration: bool = False) -> list[Violation]:
+        text = normalize(text)
         out: list[Violation] = []
         for f in self.ledger.facts.values():
             for pat in f.contradicts:
@@ -267,15 +288,26 @@ class TruthVerifier:
                 for kw in f.keywords:
                     if re.search(rf"\b{re.escape(kw)}\b", text, re.I):
                         out.append(Violation("withheld_leak", text, f.id))
-        if DICE_DENIAL.search(text):
-            out.append(Violation("dice_denial", text))
-        for sentence in re.split(r"(?<=[.!?])\s+", text):
+        free = strip_core(text, [s for x in exempt for s in sentences(x)])      # the words nothing vouches for
+        if CHANCE.search(free) or (tome_voice and not narration and DICE_WORDS.search(free)):
+            out.append(Violation("dice_denial" if DICE_DENIAL.search(free) else "chance_talk", text))
+        for sentence in sentences(free):
             if NO_ALTERNATIVE.search(sentence) and not RHETORICAL_END.search(sentence) \
-                    and not self.ledger.licensed_no_alternative(chapter):
+                    and not self.ledger.licenses(sentence, chapter):
                 out.append(Violation("unlicensed_necessity", sentence))
-        if tome_voice:
-            if AFFECT_SELF.search(text):
+        if tome_voice and not narration:
+            if AFFECT.search(free) or AFFECT_SELF.search(free):
                 out.append(Violation("affect_report", text))
-            if OPINION_OF_PLAYER.search(text):
+            if OPINION_OF_PLAYER.search(free) or JUDGEMENT.search(free):
+                out.append(Violation("opinion_report", text))
+        elif tome_voice:
+            if AFFECT_SELF.search(free) or self.attributed(free, AFFECT):
+                out.append(Violation("affect_report", text))
+            if OPINION_OF_PLAYER.search(free) or JUDGEMENT.search(free) or self.attributed(free, OPINION_WORDS):
                 out.append(Violation("opinion_report", text))
         return out
+
+    @staticmethod
+    def attributed(text: str, words: re.Pattern) -> bool:
+        """Whether narration pins one of ``words`` on the Tome: within a short window after it is named."""
+        return any(words.search(text[m.start():m.end() + ATTRIBUTION_WINDOW]) for m in TOME_SUBJECT.finditer(text))

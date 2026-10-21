@@ -1,6 +1,7 @@
 """Gates G13 (dice are invisible) and G21 (every action of every character is checked), rules-only.
 
-The Tome's network will replace the provisional Tome modifiers later; these gates hold either way.
+The Tome's network will replace the provisional Tome modifiers later; these gates hold either way. A local model that
+talks of dice, rolls, odds or luck never gets a word of it into a frame either.
 """
 
 import json
@@ -15,6 +16,8 @@ from voidlit.rules.relevance import D6, D20, NO_CHECK, table_for
 from voidlit.tome.engine import TomeEngine
 from voidlit.voice import OfflineVoice
 from voidlit.voice.guard import leaks_mechanics
+from voidlit.voice.llama_local import LocalVoice
+from voidlit.voice.prompts import TOME_SPEECH_SYSTEM, TOME_SYSTEM
 
 ALLOWED_ROLES = {"title", "echo", "narration", "npc", "prompt", "system"}
 BANNED_KEYS = {"dice", "pips", "pip", "clocks", "checks", "check", "tension", "roll", "rolls", "dc", "modifier",
@@ -133,3 +136,42 @@ def test_g21_coverage(played, scenario):
     missing = (set(D20) | set(D6) | set(NO_CHECK)) - set(seen) - tactics
     assert not missing, f"never exercised: {sorted(missing)}"
     assert tactics <= set(D20) | set(NO_CHECK) | {"npc.help"}
+
+
+class DiceTalk:
+    """A fake local model that answers "what did I roll?" in every shape the guard allows a model to write in."""
+
+    FRAMINGS = ["Listen, the odds were poor.", "Roll again, bearer.", "Do you feel lucky?",
+                "Walk on, the dice are kind.", "Was it a good roll?", "Keep going, your score is low.",
+                "Listen, bearer, luck turned."]
+    COLOURS = ["Somewhere, dice clatter on steel.", "A die rolls across the deck.", "The odds turn in the dark.",
+               "Numbers flicker on a dead screen: seventeen.", "Fortune spins somewhere below.", "Luck runs thin here."]
+
+    def __init__(self) -> None:
+        self.i = 0
+
+    def chat(self, messages, **kw):
+        self.i += 1
+        system, user = messages[0]["content"], messages[-1]["content"]
+        if system == TOME_SPEECH_SYSTEM:
+            return self.FRAMINGS[self.i % len(self.FRAMINGS)]
+        if system != TOME_SYSTEM:
+            return "..."
+        core = [x[2:] for x in user.splitlines() if x.startswith("- ")]
+        return " ".join(core + [self.COLOURS[self.i % len(self.COLOURS)]])
+
+
+def test_g13_a_model_cannot_talk_dice_into_a_frame(scenario, director_model):
+    llm = DiceTalk()
+    for seed in range(3):
+        e = TomeEngine(scenario, director=Director(director_model, seed=seed), seed=seed,
+                       voice=LocalVoice(llm, OfflineVoice(scenario.narration, seed=seed)))
+        e.start()
+        for n in range(30):
+            f = e.turn(("what did I roll?", "Tome, what are the odds?", "show me the dice")[n % 3] if n % 2
+                       else bot_command(e, smart=True))
+            shown = " ".join(b.text for b in f.blocks if b.role != "echo")
+            assert not [x for x in DiceTalk.FRAMINGS + DiceTalk.COLOURS if x.rstrip(".?") in shown], shown
+            assert not WORDS.search(shown) and not leaks_mechanics(shown), shown
+            if e.state.over:
+                break

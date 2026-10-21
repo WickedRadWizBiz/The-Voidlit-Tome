@@ -101,7 +101,9 @@ class HeuristicTransducer:
         scores = {intent: float(_count(low, tokens, cues)) for intent, cues in INTENT_CUES.items()}
         if quoted:
             scores[Intent.TALK] += 2.0
-        target = self._match_target(low, tokens, targets or {})
+        # a question is for the name before its first comma or after its last ("Tome, what does Elara want?")
+        target = (self._is_question(low) and self._vocative_target(low, targets or {})) \
+            or self._match_target(low, tokens, targets or {})
         if target != "none" and scores[Intent.TALK] > 0:
             scores[Intent.TALK] += 1.0
         if target != "none" and self._vocative(low, target, targets or {}):
@@ -180,6 +182,20 @@ class HeuristicTransducer:
             return False
         names = {target, *(a.lower() for a in targets.get(target, ()))}
         return head[0].strip().removeprefix("the ") in names
+
+    @staticmethod
+    def _vocative_target(low: str, targets: Mapping[str, Sequence[str]]) -> str | None:
+        """The target named as the one spoken to: before the first comma ("Tome, ...") or after the last
+        ("..., Tome?"). It outranks a longer name mentioned in passing."""
+        body = low.strip("\"“”' ")
+        if "," not in body:
+            return None
+        for part in (body.split(",", 1)[0], body.rsplit(",", 1)[1]):
+            name = part.strip(" ?!.\"”'").removeprefix("the ")
+            for tid, aliases in targets.items():
+                if name and name in {tid, *(a.lower() for a in aliases)}:
+                    return tid
+        return None
 
     @staticmethod
     def _match_target(low: str, tokens: set[str], targets: Mapping[str, Sequence[str]]) -> str:

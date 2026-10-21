@@ -4,6 +4,11 @@ Scenario content can add or override any bank key. Keys look like
 ``action.<intent>.<outcome>`` (where outcome is fail, mixed, success,
 critical or ``none``), ``action.any.<outcome>``, ``beat.<beat>``, ``bite``,
 ``npc.rumor`` and ``npc.regret``.
+
+A narration is made of *core* parts, which say what the rules decided this
+turn (the scene on entering, the action's outcome line, a defeat, a clue, a
+beat's event, the ending), and *colour*. Any voice must say the core
+verbatim; a language model may only add colour around it (voice/guard.py).
 """
 
 from __future__ import annotations
@@ -66,6 +71,10 @@ DEFAULT_BANKS: dict[str, list[str]] = {
     "action.talk.alone": ["You speak into the dark. The dark keeps its own counsel."],
     "action.talk.tome": ["Light gathers under the black glass, and words rise to meet you.",
                          "The Tome's surface stirs under your hand.", "The glass warms as it answers."],
+    "action.any.tome_struck": ["Your blow lands. One of the Tome's lights cracks and goes out."],
+    "action.any.tome_unmoved": ["Your blow skids off the Tome's black face."],
+    "action.any.tome_smothered": ["You smother the Tome's glow. For a moment you are hard to see."],
+    "action.any.tome_smother_fail": ["You try to smother the Tome's glow, but it bleeds through your fingers."],
     "action.talk.npc": ["{npc} studies you before answering.", "{npc} takes a moment with your words.",
                         "{npc} glances at the Tome's light, then back to you."],
     "action.talk.fail": ["Your words come out wrong, and {npc} hears every crack in them."],
@@ -116,29 +125,33 @@ class OfflineVoice:
                 return self.rng.choice(options)
         return ""
 
-    def narrate(self, req: NarrationRequest) -> str:
-        parts: list[str] = []
+    def narration_parts(self, req: NarrationRequest) -> list[tuple[str, bool]]:
+        """This turn's narration as (text, core) parts, in order, chosen once. Core parts are what the rules decided;
+        the rest is colour. On the last turn the outcome, defeat, clue and beat event are told before the ending."""
+        parts: list[tuple[str, bool]] = []
         if req.entering_chapter:
-            parts.append(req.chapter_text)
-        if req.ending:
-            parts.append(self._pick(f"ending.{req.ending}"))
-            return " ".join(p for p in parts if p)
+            parts.append((req.chapter_text, True))
         outcome = req.outcome or "none"
-        keys = [f"action.{req.intent}.{req.variant}", f"action.any.{req.variant}"] if req.variant else []
-        keys += [f"action.{req.intent}.{outcome}", f"action.any.{outcome}"]
-        line = self._pick(*keys)
-        if line and not (req.entering_chapter and req.intent == "advance"):
-            line = line.replace("{obstacle}", req.obstacle_name or "the dark")
-            parts.append(line.replace("{npc}", req.npc_name or "They"))
-        if req.defeated_text:
-            parts.append(req.defeated_text)
-        if req.clue:
-            parts.append(req.clue)
-        if req.beat_fact:
-            parts.append(req.beat_fact)
-        elif req.beat is not Beat.NPC and not (req.beat is Beat.CLUE and req.clue):
-            parts.append(self._pick(f"beat.{req.beat.value}", register=req.register))
-        return " ".join(_capitalize(p) for p in parts if p)
+        if not req.ending or req.outcome or req.variant:
+            keys = [f"action.{req.intent}.{req.variant}", f"action.any.{req.variant}"] if req.variant else []
+            keys += [f"action.{req.intent}.{outcome}", f"action.any.{outcome}"]
+            line = self._pick(*keys)
+            if line and not (req.entering_chapter and req.intent == "advance"):
+                line = line.replace("{obstacle}", req.obstacle_name or "the dark")
+                parts.append((line.replace("{npc}", req.npc_name or "They"), True))
+        parts += [(x, True) for x in (req.defeated_text, req.clue, req.beat_fact) if x]
+        if req.ending:
+            parts.append((self._pick(f"ending.{req.ending}"), True))
+        elif not req.beat_fact and req.beat is not Beat.NPC and not (req.beat is Beat.CLUE and req.clue):
+            parts.append((self._pick(f"beat.{req.beat.value}", register=req.register), False))
+        return [(_capitalize(x), core) for x, core in parts if x]
+
+    @staticmethod
+    def join(parts: list[tuple[str, bool]]) -> str:
+        return " ".join(x for x, _ in parts if x)
+
+    def narrate(self, req: NarrationRequest) -> str:
+        return self.join(self.narration_parts(req))
 
     def tome_say(self, req: TomeSpeechRequest) -> str:
         return render(req.lines, req.style, self.rng, caution=req.caution)

@@ -114,7 +114,7 @@ committed.
 - [x] Reconcile audit: the spec's gates fail 3 of 5 as written (Gate 1 NaN, Gate 2 frequency test, Gate 3 E/I ratio), and
       several checks are tautological. Build the real models (stable integrators, Graupner-Brunel theta_p = 1.3, ...)
       with honest tests. Evidence is in scratchpad `reconcile/`.
-- [ ] Design workflow `wf_696864cf-f00` (3 architects, 2 judges, synthesis) -> scratchpad `design/TOME_BRAIN_DESIGN.md`.
+- [ ] Design workflow `wf_b488a148-81d` (restarted with every decision; 3 architects, 2 judges, synthesis) -> scratchpad `design/TOME_BRAIN_DESIGN.md`.
 - [ ] Ask about any further contradictions the workflow confirms (not covered by the decisions above).
 - [ ] Implement the compatible merges plus the chosen paths, with honest tests; commit and push to the work branch.
 

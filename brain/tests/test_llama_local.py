@@ -65,7 +65,8 @@ def test_model_must_be_an_existing_gguf_file(tmp_path):
 
 
 def test_the_brain_imports_no_network_client():
-    """Static guard: no module in the package may import an HTTP/socket client or a model hub."""
+    """Static guard: no module in the package may import an HTTP/socket client, a model hub, or JAX's multi-host
+    runtime (the Tome's network runs in this process on this machine; gate G22)."""
     offenders = []
     for py in PACKAGE.rglob("*.py"):
         for node in ast.walk(ast.parse(py.read_text())):
@@ -75,9 +76,12 @@ def test_the_brain_imports_no_network_client():
             elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
                 names = [node.module]
             offenders += [f"{py.name}: {n}" for n in names
-                          if n.split(".")[0] in NETWORK_MODULES or n.startswith("llama_cpp.server")]
+                          if n.split(".")[0] in NETWORK_MODULES or n.startswith(("llama_cpp.server", "jax.distributed",
+                                                                                     "jax.experimental.multihost"))]
             if isinstance(node, ast.Attribute) and node.attr == "from_pretrained":  # hub download helper
                 offenders.append(f"{py.name}: .from_pretrained")
+            if isinstance(node, ast.Attribute) and node.attr == "distributed":     # jax.distributed: multi-host RPC
+                offenders.append(f"{py.name}: .distributed")
     assert offenders == []
 
 

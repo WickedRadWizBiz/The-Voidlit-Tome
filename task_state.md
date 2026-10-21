@@ -130,10 +130,13 @@ committed.
       `connectome_calibrated.toml`. Gates G1a-c, G2a-c, G3a, G4a-b, G5 pass with mutants
       (`brain/tests/tomebrain/`; slow ones run with `-m slow`, CI job `network-gates`). Departures logged in design
       §20 (CV2, fitted background SD, v_ER 2.0, Vogels eta 0.01, stable chaos, chunked delivery).
-- [ ] M1 clock/bus/Philox/persist (G6a-e, G7), then M3 SJ habit + fused BG + race (G10), M4 nuclei/energy/BN
+- [x] **M1 (done):** `tomebrain/bus.py`, `rng.py`, `partition.py`, `clock.py`, `persist.py`; G6a-e, G7, G22 pass.
+      The anatomy seed is fixed (`ANATOMY_SEED`); the run seed keys noise only.
+- [ ] Next: M3 SJ habit + fused BG + race (G10), M4 nuclei/energy/BN
       amygdala/needs/RPE (G3b, G23, G24), M5 ledger/truth guard/VoiceStyle (G11, G12), M6 cerebellum/upper hand
       (G20), M7 ToM/Witness/counters (G18, G19, G15).
 - [ ] M8 corruption (NPC + player tiers, Rune, `resist` message, Unreal tap + CLI Enter).
 
 ## Next immediate action
-M1: `tomebrain/clock.py`, `bus.py`, `rng.py`, `persist.py`; gates G6a-e and G7.
+M3: SpikingJelly habit cortex (the Director prior, 16 clock ms), fused BG population (3 loops, VS critic, 3-factor
++ tags), race-to-threshold commit on P VA/VL; gates G10a-c. Then a `TomeNetEngine` so the network picks the beats.

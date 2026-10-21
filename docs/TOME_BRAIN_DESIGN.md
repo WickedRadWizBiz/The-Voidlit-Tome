@@ -1855,3 +1855,27 @@ Departures, each with its evidence:
    in chunks of 96 inside a `fori_loop`, so no spike can be dropped and an ordinary ms costs one chunk.
 7. Hippocampal interneuron wiring (CA3/CA1 PV, OLM), L5/L6 interneuron inputs and DG feed-forward inhibition are
    not in §7.2-7.3. They were added with the template's weights so that no population is orphaned.
+
+### M1: one clock, one bus, exact (done)
+
+`tomebrain/bus.py` (SpikeBus, `CausalityError` on any read of an unwritten tick or a delay shorter than the window),
+`tomebrain/rng.py` (Philox streams keyed by seed, partition, stream and absolute tick), `tomebrain/partition.py`
+(the partition interface, the JAX partition, `BusEdge` conductance projections into JAX slots),
+`tomebrain/clock.py` (MasterClock, the window scheduler with asynchronous JAX dispatch, the state digest) and
+`tomebrain/persist.py` (a `torch.save` of tensors only, loaded with `weights_only=True`).
+
+| Gate | Result |
+|---|---|
+| G6a | the bus raises on unwritten ticks, short delays and non-contiguous writes; a spike at t through a 6-ms axon arrives at t + 6 |
+| G6b | W = 4 and W = 1 give bitwise-identical rasters for the JAX partition and two SpikingJelly partitions over 480 ms |
+| G6c/d | asynchronous and sequential JAX, and reversed partition order, give the same SHA-256 digest after three turns |
+| G6e | same run seed, same digest; another seed differs |
+| G7 | saved mid-run, loaded into an instance built with another run seed: identical digest, then identical rasters for two turns; a different connectome is refused |
+| G22 | the static tripwire also forbids `jax.distributed` and JAX's multi-host helpers |
+
+Departure: **the wiring uses a fixed anatomy seed** (`partition.ANATOMY_SEED`), and the run seed keys only noise.
+The design asked both that a save load into an instance "built from a different seed" and that load refuse a
+different connectome; both hold only if the anatomy does not depend on the run seed. Every game's Tome has the same
+anatomy; its experience (plastic state, glia, energy, noise) is what differs. Partitions save the seeds of their
+noise streams, so loading restores the run seed too.
+

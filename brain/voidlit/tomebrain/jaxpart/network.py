@@ -60,6 +60,16 @@ class Net:
     digest: str
     seed: int
     mu: np.ndarray = field(repr=False, default=None)
+    comp_base: np.ndarray = field(repr=False, default=None)
+
+    def slot(self, cell: int, comp: int, rec: int) -> int:
+        """Receptor slot of a cell's compartment (point cells: soma; 2-comp cells: soma/basal -> soma)."""
+        nc = 3 if cell < self.n3 else 2 if cell < self.n3 + self.n2 else 1
+        if nc == 1:
+            comp = 0
+        elif nc == 2:
+            comp = 0 if comp in (PR.SOMA, PR.BASAL) else 1
+        return int(self.comp_base[cell] + comp * PR.N_REC + rec)
 
     def idx(self, name: str) -> slice:
         """Index range of a population, or of a named assembly in params.ASSEMBLIES."""
@@ -251,7 +261,7 @@ def build(seed: int = 0, s_max: int = 96, mu: dict | None = None, gains: dict | 
     h.update(mu_v.tobytes())
     return Net(pops=pops, start=start, size=size, n=n, n3=n3, n2=n2, n_slot=n_slot, tables=T, point=point,
                n_gb=len(gb_pre), n_vog=len(vog_pre), n_astro=dom, s_max=s_max, digest=h.hexdigest(), seed=seed,
-               mu=mu_v)
+               mu=mu_v, comp_base=comp_base)
 
 
 # ====================================================================== state
@@ -344,7 +354,8 @@ def mg_block(v):
 
 def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: dict | None = None,
                 record: bool = False):
-    """Return a jitted ``window(state, ext[W, N], glucose)`` -> ``(state, (spikes[W, N], probe[W, 2]))``.
+    """Return a jitted ``window(state, ext[W, N], glucose, gclamp=None, gbus=None)``
+    -> ``(state, (spikes[W, N], probe[W, 2]))``. ``gbus[W, n_slot + 1]`` is conductance arriving over the bus.
 
     ``probe`` holds the mean excitatory and inhibitory conductance (nS) on the L2/3 PCs each ms."""
     import jax
@@ -481,10 +492,10 @@ def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: di
         return st, spk
 
     def ms_step(st, inp):
-        ext, glucose, gclamp = inp
+        ext, glucose, gclamp, gbus = inp
         t = st["t"]
         q = t % RING
-        G = st["G"] + st["Q"][q]
+        G = st["G"] + st["Q"][q] + gbus      # local deliveries plus conductance arriving over the spike bus
         Qr = st["Q"].at[q].set(0.0)
         # background: OU noise keyed by absolute tick, plus the population's tonic mean
         if FL["noise"]:
@@ -580,11 +591,13 @@ def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: di
             return st, (s, probe, jnp.stack([st["V"][:n3], va_max]))
         return st, (s, probe)
 
-    def window(st, ext, glucose, gclamp=None):
+    def window(st, ext, glucose, gclamp=None, gbus=None):
         W = ext.shape[0]
         if gclamp is None:
             gclamp = jnp.zeros((W, n3), f)
-        return lax.scan(ms_step, st, (ext, jnp.full((W,), glucose, f), gclamp))
+        if gbus is None:
+            gbus = jnp.zeros((W, n_slot + 1), f)
+        return lax.scan(ms_step, st, (ext, jnp.full((W,), glucose, f), gclamp, gbus))
 
     return jax.jit(window)
 

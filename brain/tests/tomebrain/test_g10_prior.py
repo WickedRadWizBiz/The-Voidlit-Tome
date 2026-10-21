@@ -4,7 +4,8 @@ G10a  the basal-ganglia race samples the habit prior: the winner is argmax(log p
       the chosen beat's mean log p matches exact sampling within 0.15, fallback <= 5%, no forbidden commit.
       Mutant: without the Gumbel excitability the race just takes the argmax.
 G10b  pacing at initialisation: KL(network beat histogram || teacher) <= 0.15.
-Also: the real brain is window-size invariant (W = 4 equals W = 1 bitwise), and TomeNetEngine plays and reloads.
+Also: the real brain is window-size invariant (W = 4 equals W = 1 bitwise, the mind read from it included), and
+TomeNetEngine plays and reloads.
 """
 
 import numpy as np
@@ -86,18 +87,26 @@ def test_g10b_pacing_matches_the_teacher():
     assert kl <= 0.15, (kl, hist.round(3), teacher.round(3))
 
 
-@pytest.mark.slow
 def test_the_real_brain_is_window_size_invariant():
-    X = sample_states(3, torch.Generator().manual_seed(5)).numpy()
+    """G6b on the real brain, with the amygdala's stimuli and the P fact slots driven: the network and the mind read
+    from it (needs, drive, reward, the Tome's modifiers) agree bitwise every turn."""
+    X = sample_states(4, torch.Generator().manual_seed(5)).numpy()
+    us = [{"gift": 1.0}, {"harm": 1.0, "lie": 0.5}, {}, {"loss": 1.0, "bearer_near_death": 0.6}]
     a, b = TomeBrain(3, W=4), TomeBrain(3, W=1)
-    for x in X:
+    for i, x in enumerate(X):
+        facts = np.roll(np.linspace(0.2, 0.9, 8, dtype=np.float32), i)
         outs = []
         for brain in (a, b):
-            brain.set_input(director_features=x)
+            brain.set_us(us[i])
+            brain.set_input(director_features=x, senses=np.full(8, 0.3, np.float32),
+                            body=np.array([0.7, 0.9, 0.2], np.float32), facts=facts)
             brain.phase_a()
             outs.append(brain.phase_b(x))
         assert outs[0].pace == outs[1].pace and outs[0].ms == outs[1].ms
-    assert a.digest() == b.digest()
+        assert np.array_equal(outs[0].facts, outs[1].facts)
+        assert np.array_equal(a.jax.probe_sum, b.jax.probe_sum)
+        assert a.mind.state_dict() == b.mind.state_dict(), i
+        assert a.digest() == b.digest()
 
 
 def test_net_engine_plays_saves_and_resumes(tmp_path):
@@ -116,4 +125,4 @@ def test_net_engine_plays_saves_and_resumes(tmp_path):
     for _ in range(2):
         cmd = bot_command(a)
         fa, fb = a.turn(cmd), b.turn(cmd)
-        assert fa.to_dict() == fb.to_dict()
+        assert fa.to_dict(include_debug=True) == fb.to_dict(include_debug=True)

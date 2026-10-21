@@ -43,6 +43,7 @@ US_RATE = 0.1              # spikes/ms per US cell at full intensity (100 Hz)
 NU = 2e-3
 TONIC_TAU_MS = 6_000.0
 QUANTUM = 4                # ms: the teaching signal is constant within each 4-ms quantum
+RULE_STATE = ("p_plus", "p_minus", "eligibility", "eligibility_trace")   # MSTDPET's traces, made at its first step
 
 
 class BNPartition(Partition):
@@ -141,7 +142,7 @@ class BNPartition(Partition):
         for (a, b), conn in self.net.connections.items():
             out[f"conn.{a}.{b}.w"] = conn.w
             rule = conn.update_rule
-            for attr in ("p_plus", "p_minus", "eligibility", "eligibility_trace"):
+            for attr in RULE_STATE:
                 if hasattr(rule, attr):
                     out[f"rule.{a}.{b}.{attr}"] = getattr(rule, attr)
         return out
@@ -158,6 +159,12 @@ class BNPartition(Partition):
         self._reward = torch.from_numpy(np.array(d["reward"], np.float32))
         sc = np.array(d["scalars"], np.float64)
         self.da_tonic, self.nm_ticks = float(sc[0]), int(sc[1])
+        # A save from before the first step has no learning-rule traces yet: drop this instance's, so the rule starts
+        # them afresh exactly as in a new instance instead of carrying on with an abandoned timeline's.
+        for (a, b), conn in self.net.connections.items():
+            for attr in RULE_STATE:
+                if f"rule.{a}.{b}.{attr}" not in d["tensors"] and hasattr(conn.update_rule, attr):
+                    delattr(conn.update_rule, attr)
         for key, arr in d["tensors"].items():
             kind, *path = key.split(".")
             if kind == "layer":

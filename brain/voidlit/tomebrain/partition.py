@@ -53,6 +53,9 @@ class Partition:
     def load_state_dict(self, d: dict) -> None:
         raise NotImplementedError
 
+    def check_state_dict(self, d: dict) -> None:
+        """Raise ValueError if ``d`` cannot be loaded into this partition (called before anything is loaded)."""
+
     def digest_arrays(self) -> list[np.ndarray]:
         return []
 
@@ -141,7 +144,8 @@ class JaxPartition(Partition):
         self.last = s
         self.counts += s.sum(0)
         self.count_ms += s.shape[0]
-        self.probe_sum += probe.sum(0)
+        for row in probe:                 # one ms at a time in float64: summing the window's float32 rows first
+            self.probe_sum += row         # would round differently for each W and break W=4 == W=1
         out = {name: s[:, idx] for name, idx in self.out_idx.items()}
         if "J.nm" in self.graded:
             out["J.nm"] = probe[:, 2:6]
@@ -153,15 +157,18 @@ class JaxPartition(Partition):
     def state_dict(self) -> dict:
         return {k: np.asarray(v) for k, v in self.state.items()}
 
-    def load_state_dict(self, d: dict) -> None:
-        import jax.numpy as jnp
-
+    def check_state_dict(self, d: dict) -> None:
         missing = set(self.state) ^ set(d)
         if missing:
             raise ValueError(f"JAX state keys differ: {sorted(missing)}")
         for k, v in d.items():
             if np.shape(v) != np.shape(self.state[k]):
                 raise ValueError(f"JAX state {k}: shape {np.shape(v)} != {np.shape(self.state[k])}")
+
+    def load_state_dict(self, d: dict) -> None:
+        import jax.numpy as jnp
+
+        self.check_state_dict(d)
         self.state = {k: jnp.asarray(v, dtype=self.state[k].dtype) for k, v in d.items()}
 
     def digest_arrays(self) -> list[np.ndarray]:

@@ -97,7 +97,11 @@ def cmd_play(args: argparse.Namespace) -> int:
             print(f"saved to {engine.save(text.split(maxsplit=1)[1] if ' ' in text else 'saves/quicksave')}")
             continue
         if text.startswith(":load"):
-            engine.load(text.split(maxsplit=1)[1] if " " in text else "saves/quicksave")
+            try:                        # a refused save leaves the game as it was: report it and play on
+                engine.load(text.split(maxsplit=1)[1] if " " in text else "saves/quicksave")
+            except (OSError, ValueError, KeyError) as e:
+                print(f"load failed: {e}")
+                continue
             print("loaded.")
             continue
         frame = engine.turn(text)

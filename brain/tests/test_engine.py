@@ -58,9 +58,8 @@ def test_save_and_load_resume_identically(scenario, director_model, tmp_path):
     a.save(tmp_path / "slot")
     b = make(scenario, director_model, seed=8)
     b.load(tmp_path / "slot")
-    b.director.gen.set_state(a.director.gen.get_state())
     for cmd in ["press on", "I search", "Elara, what are you hiding?"]:
-        assert a.turn(cmd).to_dict() == b.turn(cmd).to_dict()
+        assert a.turn(cmd).to_dict(include_debug=True) == b.turn(cmd).to_dict(include_debug=True)
 
 
 def test_talking_reaches_the_npc_brain(scenario, director_model):

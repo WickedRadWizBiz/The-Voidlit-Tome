@@ -2,7 +2,8 @@
 
 The file is a ``torch.save`` of tensors and plain containers only, read back with ``weights_only=True``. Loading
 refuses a different format, version or connectome; a different software build only warns, because the state is
-still valid but bit-exact continuation is guaranteed only on the same build.
+still valid but bit-exact continuation is guaranteed only on the same build. ``read`` makes every check without
+changing the brain and ``apply`` then loads it, so a game can refuse a save before it changes anything else.
 """
 
 from __future__ import annotations
@@ -73,11 +74,13 @@ def save(cosim, path: str | Path, extra: dict | None = None) -> Path:
     return path
 
 
-def load(cosim, path: str | Path) -> dict:
+def read(cosim, path: str | Path) -> dict:
+    """Read a brain save and check that it fits this brain (format, version, connectome, window, partitions),
+    changing nothing. Raises ValueError if it does not fit."""
     import torch
 
     blob = _to_numpy(torch.load(Path(path), weights_only=True))
-    if blob.get("format") != FORMAT or blob.get("version") != VERSION:
+    if not isinstance(blob, dict) or blob.get("format") != FORMAT or blob.get("version") != VERSION:
         raise ValueError("not a Tome brain save of this version")
     if blob["connectome_sha256"] != cosim.jax.net.digest:
         raise ValueError("this save was made with a different connectome; refusing to load it")
@@ -89,7 +92,18 @@ def load(cosim, path: str | Path) -> dict:
     if set(blob["partitions"]) != names:
         raise ValueError(f"partitions differ: saved {sorted(blob['partitions'])}, have {sorted(names)}")
     for p in cosim.partitions:
+        p.check_state_dict(blob["partitions"][p.name])
+    return blob
+
+
+def apply(cosim, blob: dict) -> dict:
+    """Load a save that ``read`` accepted. Returns its ``extra``."""
+    for p in cosim.partitions:
         p.load_state_dict(blob["partitions"][p.name])
     cosim.bus.load_state_dict(blob["bus"])
     cosim.clock.load_state_dict(blob["clock"])
     return blob["extra"]
+
+
+def load(cosim, path: str | Path) -> dict:
+    return apply(cosim, read(cosim, path))

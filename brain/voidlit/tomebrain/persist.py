@@ -4,6 +4,7 @@ The file is a ``torch.save`` of tensors and plain containers only, read back wit
 refuses a different format, version or connectome; a different software build only warns, because the state is
 still valid but bit-exact continuation is guaranteed only on the same build. ``read`` makes every check without
 changing the brain and ``apply`` then loads it, so a game can refuse a save before it changes anything else.
+``snapshot`` is a save held in memory: applying it takes the brain back to that moment (a failed load's undo).
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ import warnings
 from pathlib import Path
 
 import numpy as np
+
+from .partition import check_shapes, shapes_of
 
 FORMAT, VERSION = "voidlit.tomebrain", 1
 
@@ -58,46 +61,68 @@ def _to_numpy(obj):
     return obj
 
 
-def save(cosim, path: str | Path, extra: dict | None = None) -> Path:
-    import torch
-
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    blob = {
+def snapshot(cosim, extra: dict | None = None) -> dict:
+    """The whole brain as a save holds it (arrays, not tensors), in memory."""
+    return {
         "format": FORMAT, "version": VERSION, "build": build_info(),
         "connectome_sha256": cosim.jax.net.digest, "W": cosim.W,
         "clock": cosim.clock.state_dict(), "bus": cosim.bus.state_dict(),
         "partitions": {p.name: p.state_dict() for p in cosim.partitions},
         "extra": extra or {},
     }
-    torch.save(_to_torch(blob), path)
+
+
+def save(cosim, path: str | Path, extra: dict | None = None) -> Path:
+    import torch
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(_to_torch(snapshot(cosim, extra)), path)
     return path
 
 
+def check(cosim, blob: dict) -> None:
+    """Raise ValueError unless ``blob`` fits this brain whole (format, version, connectome, window, every partition,
+    the bus and the clock), changing nothing."""
+    if not isinstance(blob, dict) or blob.get("format") != FORMAT or blob.get("version") != VERSION:
+        raise ValueError("not a Tome brain save of this version")
+    try:
+        if blob["connectome_sha256"] != cosim.jax.net.digest:
+            raise ValueError("this save was made with a different connectome; refusing to load it")
+        if int(blob["W"]) != cosim.W:
+            raise ValueError(f"this save was made with a {blob['W']}-ms window, not {cosim.W}")
+        if blob["build"] != build_info():
+            warnings.warn("loading a brain saved by a different software build; it may not continue bit-exactly")
+        names = {p.name for p in cosim.partitions}
+        if set(blob["partitions"]) != names:
+            raise ValueError(f"partitions differ: saved {sorted(blob['partitions'])}, have {sorted(names)}")
+        for p in cosim.partitions:
+            p.check_state_dict(blob["partitions"][p.name])
+        clock, bus = blob["clock"], blob["bus"]
+        check_shapes("clock", clock, {"t_ms": (), "turn": (), "phase": None})
+        check_shapes("bus", bus, shapes_of(cosim.bus.state_dict()))
+        if int(bus["W"]) != cosim.W or clock["phase"] not in ("idle", "A", "B", "quiet"):
+            raise ValueError("the bus or the clock does not fit this brain")
+        # every window writes every source, so the bus holds each one up to the tick before the clock's
+        if any(int(t) != int(clock["t_ms"]) - 1 for t in bus["written"].values()):
+            raise ValueError("the bus and the clock disagree")
+        if not isinstance(blob["extra"], dict):
+            raise ValueError("the save's extra state is not a dict")
+    except (KeyError, TypeError, IndexError) as e:
+        raise ValueError(f"damaged brain save: {e!r}") from None
+
+
 def read(cosim, path: str | Path) -> dict:
-    """Read a brain save and check that it fits this brain (format, version, connectome, window, partitions),
-    changing nothing. Raises ValueError if it does not fit."""
+    """Read a brain save and ``check`` it, changing nothing. Raises ValueError if it does not fit."""
     import torch
 
     blob = _to_numpy(torch.load(Path(path), weights_only=True))
-    if not isinstance(blob, dict) or blob.get("format") != FORMAT or blob.get("version") != VERSION:
-        raise ValueError("not a Tome brain save of this version")
-    if blob["connectome_sha256"] != cosim.jax.net.digest:
-        raise ValueError("this save was made with a different connectome; refusing to load it")
-    if int(blob["W"]) != cosim.W:
-        raise ValueError(f"this save was made with a {blob['W']}-ms window, not {cosim.W}")
-    if blob["build"] != build_info():
-        warnings.warn("loading a brain saved by a different software build; it may not continue bit-exactly")
-    names = {p.name for p in cosim.partitions}
-    if set(blob["partitions"]) != names:
-        raise ValueError(f"partitions differ: saved {sorted(blob['partitions'])}, have {sorted(names)}")
-    for p in cosim.partitions:
-        p.check_state_dict(blob["partitions"][p.name])
+    check(cosim, blob)
     return blob
 
 
 def apply(cosim, blob: dict) -> dict:
-    """Load a save that ``read`` accepted. Returns its ``extra``."""
+    """Load a save that ``read`` accepted, or a ``snapshot``. Returns its ``extra``."""
     for p in cosim.partitions:
         p.load_state_dict(blob["partitions"][p.name])
     cosim.bus.load_state_dict(blob["bus"])

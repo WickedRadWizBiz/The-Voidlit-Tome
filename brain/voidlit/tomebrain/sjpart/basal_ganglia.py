@@ -24,7 +24,7 @@ import numpy as np
 import torch
 
 from ...cortex.features import BEATS
-from ..partition import Partition
+from ..partition import Partition, check_shapes, check_streams, shapes_of
 from ..rng import Streams
 from .habit import PER_BEAT, Habit
 from .nodes import PerNeuronLIF
@@ -278,7 +278,13 @@ class SJPartition(Partition):
                                  self.phase_b_tick, self.da_mod], np.float64),
         }
 
+    def check_state_dict(self, d: dict) -> None:
+        """Every array of the basal ganglia and the habit cortex, at its shape."""
+        check_shapes("basal ganglia", d, shapes_of(self.state_dict()))
+        check_streams("basal ganglia", d["streams"], "sj")
+
     def load_state_dict(self, d: dict) -> None:
+        self.check_state_dict(d)
         t = lambda a: torch.from_numpy(np.array(a, np.float32))  # noqa: E731
         self.streams = Streams.from_state(d["streams"])
         self.habit.streams = self.streams
@@ -294,7 +300,7 @@ class SJPartition(Partition):
         sc = np.array(d["scalars"], np.float64)
         self.kappa_h, self.da_tonic, self.ht_tonic = float(sc[0]), float(sc[1]), float(sc[2])
         self.in_phase_b, self.nm_ticks, self.phase_b_tick = bool(sc[3]), int(sc[4]), int(sc[5])
-        self.da_mod = float(sc[6]) if len(sc) > 6 else 0.0
+        self.da_mod = float(sc[6])
 
     def digest_arrays(self) -> list[np.ndarray]:
         arrs = [self.pop.v.numpy(), self.prev.numpy(), self.habit.v.numpy(), self.habit_trace.numpy()]

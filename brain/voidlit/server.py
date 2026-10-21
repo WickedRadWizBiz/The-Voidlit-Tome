@@ -28,6 +28,7 @@ from websockets.exceptions import ConnectionClosed
 
 from .app import build_engine
 from .dev import require_dev
+from .tome.engine import SaveError
 from .tome.frames import PROTOCOL_VERSION
 from .voice.llama_local import ChatModel
 
@@ -96,9 +97,9 @@ class TomeSession:
             path = await asyncio.to_thread(self.engine.save, self.save_root / slot)
             await self.send({"type": "saved", "slot": slot, "path": str(path)})
         elif name == "load":
-            try:
+            try:                        # a load is all or nothing: a save it refuses leaves the game as it was
                 await asyncio.to_thread(self.engine.load, self.save_root / slot)
-            except (OSError, ValueError, KeyError) as e:
+            except SaveError as e:
                 await self.send({"type": "error", "message": f"load failed: {e}"})
                 return
             await self.send({"type": "loaded", "slot": slot})

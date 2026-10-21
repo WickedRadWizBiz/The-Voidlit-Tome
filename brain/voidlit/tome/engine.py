@@ -55,7 +55,7 @@ from .ledger import DICE_DEFLECTIONS, FRAMES, MOOD_DEFLECTIONS, DisclosurePlan, 
 from .frames import PALETTE, Block, Span, TomeFrame, text_block
 
 ENGAGING = {Intent.FIGHT, Intent.FORCE, Intent.SNEAK, Intent.SEARCH, Intent.USE}
-SAVE_VERSION = 3        # 3: the Tome's amygdala and ledger (M4, M5), the Director's generator
+SAVE_VERSION = 4        # 3: the Tome's amygdala and ledger (M4, M5), the Director's generator; 4: NPCs' last decisions
 TWIST_PIPS = ("grit", "grit", "guile", "guile", "insight", "insight")
 APPROACH_WORDS = {"grit": "force", "guile": "stealth or a trick", "insight": "careful study"}
 TOME_ALIASES = ("tome", "book", "monolith")
@@ -90,6 +90,20 @@ SUGGEST_TELL = "Its light leans on the words as it says them."
 UNPROMPTED_GAP = 2      # the Tome speaks unbidden at most once every two turns
 # Smothering the Tome's glow, in words (whole words only: "discover" and "recover" are not "cover").
 SMOTHER_CUES = re.compile(r"\b(?:smother\w*|cover(?:s|ed|ing)?|shade|dim)\b|\bhide the\b")
+
+
+class SaveError(ValueError):
+    """A save this game cannot load: missing, unreadable, damaged, or another game's or build's. The game that tried
+    to load it is exactly as it was."""
+
+
+def _rng_state(rng: random.Random) -> list:
+    v, state, gauss = rng.getstate()
+    return [v, list(state), gauss]
+
+
+def _set_rng(rng: random.Random, s: list) -> None:
+    rng.setstate((s[0], tuple(s[1]), s[2]))
 
 
 @dataclass
@@ -1272,53 +1286,98 @@ class TomeEngine:
                          over=st.over, debug=debug)
 
     # ================================================================ persistence
+    # A save is a directory: campaign.json (the game), brains/<npc>.pt (each NPC's brain) and, in the network
+    # engine, the Tome's own brain. ``_snapshot`` holds the same in memory; ``load`` takes a save all or nothing.
+    def _voice_rng(self) -> random.Random | None:
+        return getattr(getattr(self.voice, "fallback", self.voice), "rng", None)
+
+    def _campaign(self) -> dict:
+        """The game's own state, as campaign.json holds it."""
+        voice_rng = self._voice_rng()
+        return {
+            "version": SAVE_VERSION, "scenario": self.scenario.id, "player_name": self.player_name,
+            "seq": self.seq, "state": self.state.to_dict(), "rng": _rng_state(self.rng),
+            "voice_rng": None if voice_rng is None else _rng_state(voice_rng),
+            "ledger": self.ledger.state_dict(), "last_unprompted": self.last_unprompted,
+            "speech_rng": _rng_state(self.speech_rng),
+            "director_gen": bytes(self.director.gen.get_state().tolist()).hex(),   # its spiking encoder's noise
+        }
+
     def save(self, directory: str | Path) -> Path:
         d = Path(directory)
         (d / "brains").mkdir(parents=True, exist_ok=True)
-        rng_state = self.rng.getstate()
-        voice_rng = getattr(getattr(self.voice, "fallback", self.voice), "rng", None)
-        blob = {
-            "version": SAVE_VERSION, "scenario": self.scenario.id, "player_name": self.player_name,
-            "seq": self.seq, "state": self.state.to_dict(),
-            "rng": [rng_state[0], list(rng_state[1]), rng_state[2]],
-            "voice_rng": None if voice_rng is None else
-            [voice_rng.getstate()[0], list(voice_rng.getstate()[1]), voice_rng.getstate()[2]],
-            "ledger": self.ledger.state_dict(), "last_unprompted": self.last_unprompted,
-            "speech_rng": [self.speech_rng.getstate()[0], list(self.speech_rng.getstate()[1]),
-                           self.speech_rng.getstate()[2]],
-            "director_gen": bytes(self.director.gen.get_state().tolist()).hex(),   # its spiking encoder's noise
-        }
-        (d / "campaign.json").write_text(json.dumps(blob, indent=1))
+        (d / "campaign.json").write_text(json.dumps(self._campaign(), indent=1))
         for nid, brain in self.brains.items():
             brain.save(d / "brains" / f"{nid}.pt")
         return d
 
     def load(self, directory: str | Path) -> None:
-        """Every file is read and checked before anything changes, so a refused or damaged save leaves the game as
-        it was."""
+        """Load a save, all or nothing. Every file is read and checked before anything changes, and should taking it
+        in still fail, the game takes back what it held. Raises SaveError, with the game exactly as it was."""
+        d = Path(directory)
+        try:
+            saved = self._read_save(d)
+        except Exception as e:          # missing, unreadable, damaged or another game's: nothing has changed yet
+            raise SaveError(f"{d.name}: {e}") from e
+        held = self._snapshot()
+        try:
+            self._take_save(saved)
+        except Exception as e:
+            self._take_save(held)
+            raise SaveError(f"{d.name}: {e} (nothing was loaded)") from e
+
+    def _snapshot(self) -> dict:
+        """What a save made now would hold, in memory: taking it back undoes a load that failed halfway."""
+        return {"campaign": json.loads(json.dumps(self._campaign())),       # exactly as campaign.json reads back
+                "npcs": {nid: brain.state_dict() for nid, brain in self.brains.items()}}
+
+    def _read_save(self, d: Path) -> dict:
+        """Read a save and check that all of it fits this game, changing nothing."""
         import torch
 
-        d = Path(directory)
-        blob = json.loads((d / "campaign.json").read_text())
-        if blob.get("version") != SAVE_VERSION or blob.get("scenario") != self.scenario.id:
+        saved = {"campaign": json.loads((d / "campaign.json").read_text()),
+                 # tensors and plain containers only: a save file cannot run code
+                 "npcs": {nid: torch.load(d / "brains" / f"{nid}.pt", weights_only=True) for nid in self.brains}}
+        self._check_save(saved)
+        return saved
+
+    def _check_save(self, saved: dict) -> None:
+        import torch
+
+        blob, sc = saved["campaign"], self.scenario
+        if not isinstance(blob, dict) or blob.get("version") != SAVE_VERSION or blob.get("scenario") != sc.id:
             raise ValueError("save does not match this scenario or engine version")
+        if set(blob) != set(self._campaign()) or set(blob["state"]) != set(self.state.to_dict()):
+            raise ValueError("the campaign is incomplete")
         state = GameState.from_dict(blob["state"])
-        npc_states = {nid: torch.load(d / "brains" / f"{nid}.pt", weights_only=False) for nid in self.brains}
-        director_gen = torch.tensor(list(bytes.fromhex(blob["director_gen"])), dtype=torch.uint8)
-        for nid, brain in self.brains.items():          # each checks that its state fits before taking it
-            brain.load_state_dict(npc_states[nid])
-        self.director.gen.set_state(director_gen)
-        self.player_name = blob["player_name"]
-        self.seq = blob["seq"]
-        self.state = state
-        r = blob["rng"]
-        self.rng.setstate((r[0], tuple(r[1]), r[2]))
-        voice_rng = getattr(getattr(self.voice, "fallback", self.voice), "rng", None)
-        if voice_rng is not None and blob.get("voice_rng"):
-            v = blob["voice_rng"]
-            voice_rng.setstate((v[0], tuple(v[1]), v[2]))
-        self.ledger.load_state_dict(blob.get("ledger", {}))
-        self.last_unprompted = int(blob.get("last_unprompted", -UNPROMPTED_GAP))
-        if blob.get("speech_rng"):
-            v = blob["speech_rng"]
-            self.speech_rng.setstate((v[0], tuple(v[1]), v[2]))
+        if (not set(state.deck.order) <= set(sc.chapters) or state.deck.current not in sc.chapters
+                or not set(state.npcs_present) | set(state.npcs_met) <= set(sc.npcs)):
+            raise ValueError("the campaign's game does not fit this scenario")
+        for s in (blob["rng"], blob["speech_rng"]) + ((blob["voice_rng"],) if blob["voice_rng"] is not None else ()):
+            _set_rng(random.Random(), s)            # each a state a generator takes
+        torch.Generator().set_state(torch.tensor(list(bytes.fromhex(blob["director_gen"])), dtype=torch.uint8))
+        led = blob["ledger"]
+        if not (isinstance(blob["player_name"], str) and isinstance(blob["seq"], int)
+                and isinstance(blob["last_unprompted"], int) and isinstance(led, dict)
+                and set(led) == {"disclosed", "asked"} and all(isinstance(x, str) for v in led.values() for x in v)):
+            raise ValueError("the campaign is damaged")
+        for nid, brain in self.brains.items():
+            brain.check_state_dict(saved["npcs"][nid])
+
+    def _take_save(self, saved: dict) -> None:
+        """Load what ``_read_save`` accepted, or what ``_snapshot`` kept."""
+        import torch
+
+        blob = saved["campaign"]
+        for nid, brain in self.brains.items():
+            brain.load_state_dict(saved["npcs"][nid])
+        self.director.gen.set_state(torch.tensor(list(bytes.fromhex(blob["director_gen"])), dtype=torch.uint8))
+        self.player_name, self.seq = blob["player_name"], blob["seq"]
+        self.state = GameState.from_dict(blob["state"])
+        _set_rng(self.rng, blob["rng"])
+        voice_rng = self._voice_rng()
+        if voice_rng is not None and blob["voice_rng"] is not None:
+            _set_rng(voice_rng, blob["voice_rng"])
+        self.ledger.load_state_dict(blob["ledger"])
+        self.last_unprompted = blob["last_unprompted"]
+        _set_rng(self.speech_rng, blob["speech_rng"])

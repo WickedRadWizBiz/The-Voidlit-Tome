@@ -1,6 +1,7 @@
 import json
 
 import pytest
+import torch
 
 from voidlit.app import build_engine
 from voidlit.playtest import bot_command
@@ -60,6 +61,27 @@ def test_save_and_load_resume_identically(scenario, director_model, tmp_path):
     b.load(tmp_path / "slot")
     for cmd in ["press on", "I search", "Elara, what are you hiding?"]:
         assert a.turn(cmd).to_dict(include_debug=True) == b.turn(cmd).to_dict(include_debug=True)
+
+
+def test_a_loaded_npc_speaks_from_the_decision_it_had(scenario, director_model, tmp_path):
+    """At seed 35 an NPC beat brings Marcus in at turn 21 while he is out of the scene, so he speaks from his last
+    decision without perceiving. A game loaded just before holds that decision too: the turn goes exactly as in the
+    original, and his brain takes no extra step."""
+    a = make(scenario, director_model, seed=35)
+    a.start()
+    for _ in range(20):
+        a.turn(bot_command(a))
+    assert "marcus" not in a.state.npcs_present and a.brains["marcus"].last_decision is not None
+    a.save(tmp_path / "slot")
+    b = make(scenario, director_model, seed=135)
+    b.load(tmp_path / "slot")
+    cmd = bot_command(a)
+    fa, fb = a.turn(cmd), b.turn(cmd)
+    assert any(blk.data.get("npc") == "marcus" for blk in fa.blocks) and "marcus" not in fa.debug["decisions"]
+    assert fa.to_dict(include_debug=True) == fb.to_dict(include_debug=True)
+    ma, mb = a.brains["marcus"], b.brains["marcus"]
+    assert ma.turn == mb.turn and torch.equal(ma.gen.get_state(), mb.gen.get_state())
+    assert torch.equal(ma.c_spines.w, mb.c_spines.w) and torch.equal(ma.c_tactics.w, mb.c_tactics.w)
 
 
 def test_talking_reaches_the_npc_brain(scenario, director_model):

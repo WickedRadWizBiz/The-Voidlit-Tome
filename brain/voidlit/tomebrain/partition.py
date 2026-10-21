@@ -15,9 +15,49 @@ import numpy as np
 from .bus import SpikeBus
 from .jaxpart import network as NW
 from .jaxpart import params as PR
+from .rng import Streams
 
 ANATOMY_SEED = 0   # the Tome's wiring is the same in every game; the run seed only keys its noise
 MAX_W = 4          # the JAX loop is compiled once for windows of up to MAX_W ms
+
+
+def shapes_of(d: dict) -> dict:
+    """The shape of every number or array of numbers in a nested state dict (None for anything else): the template
+    ``check_shapes`` holds a save against."""
+    out = {}
+    for k, v in d.items():
+        if isinstance(v, dict):
+            out[k] = shapes_of(v)
+        else:
+            a = np.asarray(v)
+            out[k] = a.shape if a.dtype.kind in "biuf" else None
+    return out
+
+
+def check_shapes(what: str, d, want: dict) -> None:
+    """Raise ValueError unless ``d`` has exactly the keys of ``want``, each a number or an array of numbers of the
+    shape there (a nested dict for a nested one; None takes anything, for the caller to check)."""
+    if not isinstance(d, dict):
+        raise ValueError(f"{what}: not a dict")
+    if set(d) != set(want):
+        raise ValueError(f"{what}: keys differ: {sorted(map(str, set(d) ^ set(want)))}")
+    for k, shape in want.items():
+        if isinstance(shape, dict):
+            check_shapes(f"{what}.{k}", d[k], shape)
+        elif shape is not None:
+            a = np.asarray(d[k])
+            if a.dtype.kind not in "biuf" or a.shape != tuple(shape):
+                raise ValueError(f"{what}.{k}: {a.dtype} of shape {a.shape}, not numbers of shape {tuple(shape)}")
+
+
+def check_streams(what: str, d, partition: str) -> None:
+    """Raise ValueError unless ``d`` is the state of the ``partition`` partition's noise streams."""
+    try:
+        ok = Streams.from_state(d).partition == partition
+    except (KeyError, TypeError, ValueError):
+        ok = False
+    if not ok:
+        raise ValueError(f"{what}: not the {partition!r} partition's noise streams")
 
 
 @dataclass(frozen=True)
@@ -54,7 +94,10 @@ class Partition:
         raise NotImplementedError
 
     def check_state_dict(self, d: dict) -> None:
-        """Raise ValueError if ``d`` cannot be loaded into this partition (called before anything is loaded)."""
+        """Raise ValueError unless ``load_state_dict`` can take ``d`` whole: every key it reads and nothing else, each
+        at the shape this instance holds. It changes nothing, so a save can be refused before any partition loads.
+        By default: the keys and shapes of this instance's own state."""
+        check_shapes(self.name, d, shapes_of(self.state_dict()))
 
     def digest_arrays(self) -> list[np.ndarray]:
         return []
@@ -158,12 +201,7 @@ class JaxPartition(Partition):
         return {k: np.asarray(v) for k, v in self.state.items()}
 
     def check_state_dict(self, d: dict) -> None:
-        missing = set(self.state) ^ set(d)
-        if missing:
-            raise ValueError(f"JAX state keys differ: {sorted(missing)}")
-        for k, v in d.items():
-            if np.shape(v) != np.shape(self.state[k]):
-                raise ValueError(f"JAX state {k}: shape {np.shape(v)} != {np.shape(self.state[k])}")
+        check_shapes("JAX state", d, {k: np.shape(v) for k, v in self.state.items()})
 
     def load_state_dict(self, d: dict) -> None:
         import jax.numpy as jnp

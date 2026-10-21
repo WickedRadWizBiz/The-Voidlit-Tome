@@ -142,12 +142,12 @@ committed.
 - [x] **M5 (done):** `tome/ledger.py` (facts/topics/suggestions/probes from TOML, DisclosurePlan, TruthVerifier),
       senses asks/claims/addressed_tome (+ GBNF), `voice/style.py` (hidden registers), guard + coverage check on LLM
       lines, P fact slots + RHETORIC/FRAME drive the network Tome's speech. G11, G12 pass (fast); design §20 M5.
-- [ ] Waiting on: the full slow run after the BG fixes (G10c pacing parity failed before them: twist +0.055 > 0.04).
+- [x] Full slow suite after the BG fixes: 29/29 pass (G10c, G11 200 games, G12 net, G23, G10a/b).
 - [ ] Next: M6 cerebellum / imagination / upper-hand belief (G20), Daw arbitration kappa_h; M7 ToM / Witness /
       counters (G18, G19, G15).
 - [ ] M8 corruption (NPC + player tiers, Rune, `resist` message, Unreal tap + CLI Enter); G11 puppet-claim clause.
 
 ## Next immediate action
-Read the slow run (`scratchpad/slow2.log`). If G10c still fails, measure net vs Director beat histograms over
-40 seeds and find what shifts twist (learning from intrinsic reward is expected to move pacing a little; the gate's
-0.04 tolerance may need the M6 arbitration). Then commit, and start M6.
+Review workflow over the M4+M5 diff (f90a3cf..HEAD): truth-guard holes, save/load and determinism, game-logic
+regressions, test validity. Fix confirmed findings. Then M6 (cerebellum, imagination, upper-hand belief G20, Daw
+arbitration kappa_h) via understand -> implement -> verify workflows.

@@ -1936,6 +1936,8 @@ unconditioned stimuli (harm, defiance, gift, loss, bearer near death, lie) to th
 | G23 | puppeteer and bend bursts rise monotonically as the Lumen falls (0.069 → 0.292 per cell per second, Lumen 6 → 1); an orexin → PVT lesion removes most of the rise |
 | G24 | an unpredicted gift bursts the VTA (≥ base + 5 Hz) and its fading is a dip |
 | G10a (rechecked) | 0.88 and 0.87 (two seeds, 150 races each), chosen log p within 0.10 of exact sampling, no fallbacks |
+| G10c (rechecked) | the network Tome and the Director, same smart bot, 40 seeds: escape rates within 10 points and every beat's share within 0.04 (it failed before the race fixes: twist +0.055) |
+| full slow suite | 29 slow and balance gates pass (28.7 min) |
 
 Departures and fixes, each found by measurement:
 

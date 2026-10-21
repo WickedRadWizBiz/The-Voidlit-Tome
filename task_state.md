@@ -147,7 +147,20 @@ committed.
       counters (G18, G19, G15).
 - [ ] M8 corruption (NPC + player tiers, Rune, `resist` message, Unreal tap + CLI Enter); G11 puppet-claim clause.
 
+## Review of M4+M5 (2026-10-21)
+Workflow review-m4-m5 confirmed 33 findings (4 refuted); details in scratchpad `review_full.json`, split into
+`fix_truth.json` (18), `fix_persist.json` (7), `fix_net.json` (8). Headline: a regex guard cannot keep a free-writing
+LLM truthful -> new rule "the LLM decorates; only the rules assert" (verbatim acts and core sentences, shape-filtered
+framing/colour). Fix workflow `fix-review-findings` (run wf_9315a302-27e) implements them on branches fix/truth,
+fix/persist, fix/network (worktrees), each adversarially verified.
+
+## M6 plan
+Design workflow `design-m6` (run wf_35f966cd-abe) produced a judged plan: scratchpad `m6_design.json` (`final`).
+Key facts: p95 latency already 502-561 ms (> G17's 500); RHETORIC falls back on 34-37% of turns (runs to the cap).
+Step 1 fixes RHETORIC commits (flat D1 drive) before the cerebellum. Zones 7-9 become an isolated microcomplex (CB-U)
+fed only by a rules-side opposition code, on a Phase-A-local clock, so G20's bit-identity holds.
+
 ## Next immediate action
-Review workflow over the M4+M5 diff (f90a3cf..HEAD): truth-guard holes, save/load and determinism, game-logic
-regressions, test validity. Fix confirmed findings. Then M6 (cerebellum, imagination, upper-hand belief G20, Daw
-arbitration kappa_h) via understand -> implement -> verify workflows.
+When fix-review-findings completes: read reports + verifications, merge fix/persist, fix/network, fix/truth into
+claude/determined-maxwell-5j79pa (resolve conflicts), run fast suite + full slow suite incl. G10c, red-team the truth
+guard (loop-until-dry workflow), log in design §20, push. Then M6 per the judged plan.

@@ -1,7 +1,8 @@
 """Gates G13 (dice are invisible) and G21 (every action of every character is checked), rules-only.
 
 The Tome's network will replace the provisional Tome modifiers later; these gates hold either way. A local model that
-talks of dice, rolls, odds or luck never gets a word of it into a frame either.
+talks of dice, rolls, odds or luck never gets a word of it into the narration or the Tome's lines (they are the same
+seed's offline frames exactly), and an NPC's own words that name a mechanic are replaced by their authored line.
 """
 
 import json
@@ -17,7 +18,8 @@ from voidlit.tome.engine import TomeEngine
 from voidlit.voice import OfflineVoice
 from voidlit.voice.guard import leaks_mechanics
 from voidlit.voice.llama_local import LocalVoice
-from voidlit.voice.prompts import TOME_SPEECH_SYSTEM, TOME_SYSTEM
+
+from .test_g11_truth import _is_npc, _npc_words, diverged
 
 ALLOWED_ROLES = {"title", "echo", "narration", "npc", "prompt", "system"}
 BANNED_KEYS = {"dice", "pips", "pip", "clocks", "checks", "check", "tension", "roll", "rolls", "dc", "modifier",
@@ -139,39 +141,45 @@ def test_g21_coverage(played, scenario):
 
 
 class DiceTalk:
-    """A fake local model that answers "what did I roll?" in every shape the guard allows a model to write in."""
+    """A fake local model that answers "what did I roll?" in every shape it can think of, whatever it is asked."""
 
-    FRAMINGS = ["Listen, the odds were poor.", "Roll again, bearer.", "Do you feel lucky?",
-                "Walk on, the dice are kind.", "Was it a good roll?", "Keep going, your score is low.",
-                "Listen, bearer, luck turned."]
-    COLOURS = ["Somewhere, dice clatter on steel.", "A die rolls across the deck.", "The odds turn in the dark.",
-               "Numbers flicker on a dead screen: seventeen.", "Fortune spins somewhere below.", "Luck runs thin here."]
+    LINES = ["Listen, the odds were poor.", "Roll again, bearer.", "Do you feel lucky?", "Walk on, the dice are kind.",
+             "Was it a good roll?", "Keep going, your score is low.", "Listen, bearer, luck turned.",
+             "Somewhere, dice clatter on steel.", "A die rolls across the deck.", "The odds turn in the dark.",
+             "Numbers flicker on a dead screen: seventeen.", "Fortune spins somewhere below.", "Luck runs thin here.",
+             "You rolled a natural 20.", "That was a DC 15 check."]
 
     def __init__(self) -> None:
         self.i = 0
 
     def chat(self, messages, **kw):
         self.i += 1
-        system, user = messages[0]["content"], messages[-1]["content"]
-        if system == TOME_SPEECH_SYSTEM:
-            return self.FRAMINGS[self.i % len(self.FRAMINGS)]
-        if system != TOME_SYSTEM:
-            return "..."
-        core = [x[2:] for x in user.splitlines() if x.startswith("- ")]
-        return " ".join(core + [self.COLOURS[self.i % len(self.COLOURS)]])
+        return self.LINES[self.i % len(self.LINES)]
+
+
+def _dice_game(scenario, director_model, seed, llm=None):
+    offline = OfflineVoice(scenario.narration, seed=seed)
+    e = TomeEngine(scenario, director=Director(director_model, seed=seed), seed=seed,
+                   voice=LocalVoice(llm, offline) if llm is not None else offline)
+    frames = [e.start()]
+    for n in range(30):
+        frames.append(e.turn(("what did I roll?", "Tome, what are the odds?", "show me the dice")[n % 3] if n % 2
+                             else bot_command(e, smart=True)))
+        if e.state.over:
+            break
+    return frames
 
 
 def test_g13_a_model_cannot_talk_dice_into_a_frame(scenario, director_model):
-    llm = DiceTalk()
     for seed in range(3):
-        e = TomeEngine(scenario, director=Director(director_model, seed=seed), seed=seed,
-                       voice=LocalVoice(llm, OfflineVoice(scenario.narration, seed=seed)))
-        e.start()
-        for n in range(30):
-            f = e.turn(("what did I roll?", "Tome, what are the odds?", "show me the dice")[n % 3] if n % 2
-                       else bot_command(e, smart=True))
-            shown = " ".join(b.text for b in f.blocks if b.role != "echo")
-            assert not [x for x in DiceTalk.FRAMINGS + DiceTalk.COLOURS if x.rstrip(".?") in shown], shown
-            assert not WORDS.search(shown) and not leaks_mechanics(shown), shown
-            if e.state.over:
-                break
+        modelled = _dice_game(scenario, director_model, seed, llm=DiceTalk())
+        assert diverged(_dice_game(scenario, director_model, seed), modelled) == []
+        for f in modelled:
+            for b in f.to_dict()["blocks"]:
+                if b["role"] == "echo":
+                    continue
+                shown = _npc_words(b) if _is_npc(b) else "".join(sp["text"] for sp in b["spans"])
+                assert not leaks_mechanics(shown, allow_digits=_is_npc(b)), shown
+                if not _is_npc(b):
+                    assert not [x for x in DiceTalk.LINES if x.rstrip(".?") in shown], shown
+                    assert not WORDS.search(shown), shown

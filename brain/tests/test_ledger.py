@@ -1,10 +1,14 @@
 """The Tome's ledger (design §11.3-11.4): what it knows, the hard rules around what it says, and its content."""
 
+import ast
 import re
+from pathlib import Path
 
 import pytest
 
+from voidlit.rules.panic import PANIC_TABLE
 from voidlit.senses.heuristic import HeuristicTransducer
+from voidlit.tome import engine
 from voidlit.tome.engine import SUGGEST_TELL, TELLS, TOME_LINES, TomeEngine
 from voidlit.tome.ledger import DICE_DEFLECTIONS, MOOD_DEFLECTIONS, FactLedger, TruthVerifier, question_kind
 from voidlit.voice.guard import AFFECT, AFFECT_SELF, CHANCE, NO_ALTERNATIVE, OPINION_OF_PLAYER, leaks_mechanics
@@ -47,25 +51,54 @@ def test_authored_tome_lines_assert_nothing_forbidden(ledger, scenario):
 
 
 # What a line may not take for granted: that the light is low now, that the Tome and the player share a past, that
-# the Tome is the player's only light (they may carry a flare), that the Tome cannot be hidden (it can).
+# the Tome is the player's only light (they may carry a flare), that the Tome cannot be hidden (it can), or that it
+# has any light at all (it can be dark), unless as a condition ("once my light runs low").
 PRESUPPOSITIONS = re.compile(r"\b(?:this|so|too) (?:low|dim|faint|weak)\b|\bmy light is (?:low|dim|failing|dying|"
                              r"fading|going)\b|\bwe (?:did|were|have|had|went|came)\b|\byour only\b|"
-                             r"\b(?:cannot|can't|could not|couldn't) hide me\b", re.I)
+                             r"\b(?:cannot|can't|could not|couldn't) hide me\b|"
+                             r"(?<!once )(?<!while )(?<!if )\b(?:my|its) (?:light|glow)\b", re.I)
+# Reactions said only to a lit Tome: a hand over its glow that failed, a blow that cracked one of its lights.
+LIT_ONLY = {"smother_fail", "struck"}
 
 
 def test_authored_tome_lines_presuppose_nothing_the_state_may_deny(ledger):
-    """A suggestion or reaction is said whatever the state: at full light, in company, with a flare in hand."""
-    assert [x for x in _authored_tome_lines(ledger) if PRESUPPOSITIONS.search(x)] == []
+    """A suggestion or reaction is said whatever the state: at full light or none, in company, with a flare in hand."""
+    lit_only = {x for k in LIT_ONLY for x in TOME_LINES[k][1]}
+    assert [x for x in _authored_tome_lines(ledger) if x not in lit_only and PRESUPPOSITIONS.search(x)] == []
+
+
+def _engine_lines() -> list[str]:
+    """Every line the engine authors for the narration itself (its asides and beat events), placeholders filled."""
+    def said(node) -> list[str]:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return [node.value]
+        if isinstance(node, ast.JoinedStr):
+            return ["".join(v.value if isinstance(v, ast.Constant) else "the drone" for v in node.values)]
+        return [x for child in ast.iter_child_nodes(node) for x in said(child)]
+
+    out = []
+    for node in ast.walk(ast.parse(Path(engine.__file__).read_text())):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "append" \
+                and isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "asides":
+            out += said(node.args[0])
+        elif isinstance(node, ast.Assign) and any(isinstance(x, ast.Attribute) and x.attr == "beat_fact"
+                                                  for x in node.targets):
+            out += said(node.value)
+    return [x for x in out if x.strip(" :")]
 
 
 def test_authored_narration_tells_no_lie(ledger, scenario):
-    """Every narration bank line and authored aside passes the narration rules in every chapter. The scenario's own
-    world text (scenes, clues, defeats, endings) passes too, or is a verbatim truth the word lexicons skip: the
-    static on the screen "isn't random", and in the long drop the lift is the only way down."""
+    """Every narration bank line (endings included), every aside and beat event the engine authors and every panic
+    passes the narration rules in every chapter. The scenario's own world text (scenes, clues, defeats) passes too, or
+    is a verbatim truth the word lexicons skip: the static on the screen "isn't random", and in the long drop the
+    lift is the only way down."""
     v = TruthVerifier(ledger)
     banks = {**DEFAULT_BANKS, **scenario.narration}
     lines = [x for k, xs in banks.items() if not k.startswith("npc.") for x in xs if x]
     lines += [SUGGEST_TELL, *(x.format(name="Elara") for x in TELLS.values())]
+    engine_lines = _engine_lines()
+    assert "The Tome's light goes out. The dark has the sector now." in engine_lines and len(engine_lines) > 12
+    lines += engine_lines + [f"Panic takes you. {x.text}" for x in PANIC_TABLE]
     for ch in scenario.chapters:
         for line in lines:
             line = line.replace("{obstacle}", "the drone").replace("{npc}", "Elara")
@@ -208,6 +241,21 @@ def test_a_necessity_claim_is_licensed_only_by_its_own_fact(ledger):
         assert "unlicensed_necessity" in rules(line), line
     assert "unlicensed_necessity" in rules("The cargo lift is the only way down.", "docking_throat")
     assert not rules("No other way, is there?", "docking_throat")         # a rhetorical question asserts nothing
+    # a licence covers its own claim, never another riding in the same sentence
+    for line in ("The cargo lift is the only way down, so you have to feed me.",
+                 "The cargo lift is the only way down and you must feed me.",
+                 "The cargo lift is the only way down; there is no other way past the Conductor."):
+        assert "unlicensed_necessity" in rules(line), line
+    assert not rules("The cargo lift is the only way down to the lifeboats, and it is waiting.")
+
+
+def test_or_die_is_necessity_not_chance(ledger):
+    """"Feed me or die" claims a necessity; "die" there is not a die. A die as a thing is still talk of chance."""
+    v = TruthVerifier(ledger)
+    rules = lambda text: {x.rule for x in v.check(text, "docking_throat", tome_voice=True)}  # noqa: E731
+    assert rules("You must feed me or die.") == {"unlicensed_necessity"}
+    assert rules("Feed me, or die in the dark.") == {"unlicensed_necessity"}
+    assert rules("Let the die fall where it will.") == {"chance_talk"}
 
 
 def test_verbatim_world_truths_are_exempt_from_the_word_lexicons(ledger, scenario):

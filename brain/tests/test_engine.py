@@ -7,7 +7,7 @@ from voidlit.app import build_engine
 from voidlit.playtest import bot_command
 from voidlit.cortex.director import Director
 from voidlit.senses import HeuristicTransducer
-from voidlit.tome.engine import TomeEngine
+from voidlit.tome.engine import TOME_LINES, TomeEngine, Turn
 from voidlit.voice import LocalTransducer, LocalVoice, OfflineVoice
 
 def make(scenario, director_model, seed=0, **kw):
@@ -149,3 +149,110 @@ def test_build_engine_without_models_is_offline():
     assert llm is False and isinstance(engine.voice, OfflineVoice)
     engine, llm = build_engine(seed=1, voice_llm=FakeLlm("The dark listens."))
     assert llm is True and isinstance(engine.voice, LocalVoice)
+
+
+def test_a_model_given_to_the_app_speaks_for_the_npcs_and_nothing_else(scenario):
+    """With a model, the app's voice is a LocalVoice: the model is asked for the NPCs' words only, and every narration
+    and Tome line is the one the same seed tells without a model."""
+    llm = FakeLlm("Stay close to me.")
+    a, _ = build_engine(seed=4, voice_llm=llm, brain="director")
+    b, _ = build_engine(seed=4, brain="director")
+    a.start(), b.start()
+    is_npc = lambda x: x.get("data", {}).get("npc") not in (None, "tome")  # noqa: E731
+    npc_words = []
+    for text in ["Elara, can we trust each other?", "Tome, what does Elara want?", "I force the iris",
+                 "Elara, what are you hiding?", "Where is the lifeboat?", "look around"]:
+        fa, fb = a.turn(text).to_dict(), b.turn(text).to_dict()
+        npc_words += [x["spans"][1]["text"] for x in fa["blocks"] if is_npc(x)]
+        assert [x for x in fa["blocks"] if not is_npc(x)] == [x for x in fb["blocks"] if not is_npc(x)]
+    assert llm.calls and all("[DOMINANT PLOT]" in m[0]["content"] for m, _ in llm.calls)
+    assert "“Stay close to me.”" in npc_words
+
+
+class Ears(OfflineVoice):
+    """The offline voice, keeping every request for an NPC's words."""
+
+    def __init__(self, *a, **kw):
+        super().__init__(*a, **kw)
+        self.asked = []
+
+    def speak(self, req):
+        self.asked.append(req)
+        return super().speak(req)
+
+
+def test_words_lost_to_panic_reach_no_one(scenario, director_model):
+    """A turn lost to panic is narrated as lost, and no NPC answers words the player never said."""
+    e = make(scenario, director_model, seed=2)
+    e.voice = Ears(scenario.narration, seed=2)
+    e.start()
+    e.state.npcs_present = ["elara"]
+    e.state.lose_turn = True
+    f = e.turn("Elara, I trust you, please, we will stay together")
+    assert "The moment passes without you." in f.text and "Elara studies you" not in f.text
+    assert not [r for r in e.voice.asked if not r.unprompted]
+
+
+def test_words_said_to_the_tome_are_not_the_lone_npcs_to_answer(scenario, director_model):
+    for text in ("Tome, what does Elara want?", "Hey Tome, what does Elara want?", "Where is Elara, Tome?"):
+        e = make(scenario, director_model, seed=2)
+        e.voice = Ears(scenario.narration, seed=2)
+        e.start()
+        e.state.npcs_present = ["elara"]
+        f = e.turn(text)
+        assert not [r for r in e.voice.asked if not r.unprompted], text
+        assert "Elara has lived forty days by rationing light." in f.text, text
+
+
+def test_a_search_that_finds_nothing_new_is_not_told_as_a_find(scenario, director_model):
+    for seed in range(20):
+        e = make(scenario, director_model, seed=seed)
+        e.start()
+        e.state.obstacles.clear()
+        e.state.clues_revealed = list(e.chapter.clues) + list(scenario.lore)
+        e.state.light_taken = True
+        f = e.turn("I search the room")
+        rec = next(r for r in e.checks.records if r.action == "player.search")
+        if rec.degree.value != "fail":
+            assert "nothing new" in f.text, f.text
+            assert "find what your eyes missed" not in f.text and "You find something" not in f.text
+            return
+    pytest.fail("no search got past a fail")
+
+
+def test_light_fed_to_a_full_tome_does_not_burn_brighter(scenario, director_model):
+    e = make(scenario, director_model, seed=1, background="salvager")
+    e.start()
+    assert e.state.lumen.dice == 6
+    f = e.turn("I light the flare")
+    assert "burns no brighter" in f.text and "The words burn brighter" not in f.text
+    e.state.lumen.dice = 3
+    f = e.turn("I light the flare")
+    assert "The words burn brighter" in f.text and e.state.lumen.dice == 4
+
+
+def test_the_blow_that_puts_out_the_last_light_is_answered_as_such(scenario, director_model):
+    for seed in range(30):
+        e = make(scenario, director_model, seed=seed)
+        e.start()
+        e.state.lumen.dice = 1
+        f = e.turn("I smash the tome")
+        if e.state.lumen.dice == 0:
+            tome = " ".join(b.text for b in f.blocks if b.speaker == "The Tome")
+            assert any(x in tome for x in TOME_LINES["struck_out"][1]), tome
+            assert not any(x in tome for x in TOME_LINES["struck"][1]), tome
+            return
+    pytest.fail("no blow landed")
+
+
+def test_a_power_lurch_in_the_dark_drags_no_light_down(scenario, director_model):
+    e = make(scenario, director_model, seed=0)
+    e.start()
+    clock = next(c for c in e.state.clocks if c.consequence == "lumen")
+    for c in e.state.clocks:
+        c.filled = 0
+    clock.filled = clock.segments - 1
+    e.state.lumen.dice = 0
+    t = Turn(text="")
+    e._tick_worst_clock(t, 1)
+    assert "the dark deepens" in t.beat_fact and "light" not in t.beat_fact, t.beat_fact

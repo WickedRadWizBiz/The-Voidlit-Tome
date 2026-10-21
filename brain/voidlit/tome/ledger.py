@@ -12,8 +12,9 @@ volunteer the facts it is allowed to withhold, but it never states a falsehood a
    only be a prediction, an opinion, or a rhetorical question.
 
 Outcome facts (everything the rules resolved this turn, including what a successful action uncovered) are never
-omittable; the engine always narrates them. Whatever a language model adds around the verbatim lines is shape-checked
-(``voice/guard.py``), and ``TruthVerifier`` checks every whole line the Tome or the narration speaks, as the backstop.
+omittable; the engine always narrates them. The narration and the Tome's words are authored text (the offline voice;
+no language model writes them), and ``TruthVerifier`` audits every whole line of it: gate G11 over played games, the
+authored-line tests over every line in every chapter, and the engine's logged backstop each turn.
 """
 
 from __future__ import annotations
@@ -115,6 +116,17 @@ TOME_SUBJECT = re.compile(r"\b(?:the tome|your tome|this tome|the book|the glass
                           r"the slab|its light|its glow|its surface|its words|the light you carry)\b", re.I)
 RHETORICAL_END = re.compile(r"\?\s*$")
 ATTRIBUTION_WINDOW = 40          # characters after the Tome is named that narration may not pin a feeling on it
+# Where a necessity claim's clause ends: punctuation, or a conjunction that starts another claim ("The cargo lift is the
+# only way down, so you have to feed me"). "or" is not one: "feed me or die" is a single claim.
+_CLAUSE_BREAK = re.compile(r"[,;:]|\s-\s|\b(?:so|and|but|then|because|therefore|thus|hence|yet|while)\b", re.I)
+
+
+def necessity_claims(sentence: str) -> list[str]:
+    """Each necessity claim in a sentence ("the only way", "you have to", "or die"), as the clause it stands in. A
+    licence covers its own claim, never another one riding in the same sentence."""
+    breaks = [0, *(m.start() for m in _CLAUSE_BREAK.finditer(sentence)), len(sentence)]
+    return [sentence[max(b for b in breaks if b <= m.start()):min(b for b in breaks if b >= m.end())]
+            for m in NO_ALTERNATIVE.finditer(sentence)]
 
 
 @dataclass
@@ -242,19 +254,13 @@ class FactLedger:
     def disclose(self, fact_ids) -> None:
         self.disclosed.update(fact_ids)
 
-    def licenses(self, sentence: str, chapter: str) -> bool:
-        """Whether a necessity claim ("the only way ...") is licensed: it must be about an in-scope, public
-        ``no_alternative`` fact (it covers that fact's content) and deny nothing. A licence never covers a chapter."""
-        return not NEGATION.search(sentence) and any(
-            f.no_alternative and (f.id in self.disclosed or not f.omittable) and covers(f.text, sentence, 0.6)
+    def licenses(self, claim: str, chapter: str) -> bool:
+        """Whether a necessity claim ("the only way ...", one clause: ``necessity_claims``) is licensed: it must be
+        about an in-scope, public ``no_alternative`` fact (it covers that fact's content) and deny nothing. A licence
+        never covers a chapter."""
+        return not NEGATION.search(claim) and any(
+            f.no_alternative and (f.id in self.disclosed or not f.omittable) and covers(f.text, claim, 0.6)
             for f in self.in_scope(chapter))
-
-    def vocabulary(self) -> list[str]:
-        """What the ledger is about: every topic's question words and every fact's key terms. A model writing
-        around the verbatim lines may use none of them (voice/guard.py)."""
-        words = {w for ws in self.topic_words.values() for w in ws}
-        words |= {k for f in self.facts.values() for k in f.keywords}
-        return sorted(words)
 
     def state_dict(self) -> dict:
         return {"disclosed": sorted(self.disclosed), "asked": sorted(self.asked)}
@@ -265,11 +271,11 @@ class FactLedger:
 
 
 class TruthVerifier:
-    """Checks a whole line against the ledger: the backstop behind the voice's shape checks.
+    """Checks a whole line against the ledger: the audit of every authored line, and the engine's backstop.
 
     ``tome_voice`` applies the rules for the Tome's own words (no feeling, need or opinion at all); with
     ``narration`` it applies them as narration by the Tome (nothing in the first person, nothing pinned on the Tome;
-    the player's fear may still be told). ``exempt`` lines were spliced in verbatim from the ledger or the rules (a
+    the player's fear may still be told). ``exempt`` lines are said verbatim from the ledger or the rules (a
     fact, a clue, a scene): they still may not contradict or leak, but the word lexicons skip them, so the clue "the
     static isn't random" is told whole."""
 
@@ -292,8 +298,8 @@ class TruthVerifier:
         if CHANCE.search(free) or (tome_voice and not narration and DICE_WORDS.search(free)):
             out.append(Violation("dice_denial" if DICE_DENIAL.search(free) else "chance_talk", text))
         for sentence in sentences(free):
-            if NO_ALTERNATIVE.search(sentence) and not RHETORICAL_END.search(sentence) \
-                    and not self.ledger.licenses(sentence, chapter):
+            if not RHETORICAL_END.search(sentence) and not all(
+                    self.ledger.licenses(claim, chapter) for claim in necessity_claims(sentence)):
                 out.append(Violation("unlicensed_necessity", sentence))
         if tome_voice and not narration:
             if AFFECT.search(free) or AFFECT_SELF.search(free):

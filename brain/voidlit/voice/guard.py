@@ -1,13 +1,9 @@
-"""Output guard for the local LLM voice: the LLM decorates; only the rules assert.
+"""The words the rules hold every line to: the mechanics check and the truth verifier's lexicons.
 
-A Tome line on the LLM path is its speech acts, spliced in verbatim, plus at most two short sentences of *framing*
-the model wrote, each a command, a form of address or a question. A narration is the *core* sentences the rules
-decided this turn, verbatim, plus at most two short sentences of *colour* about the place. This module checks what
-the model wrote around the verbatim lines: anything outside the allowed shapes and words is rejected and the offline
-voice speaks instead. The offline banks are the reference and never trip it.
-
-As far as the player knows there are no dice: any line that names a die, a roll, a check or a modifier, or (for
-narration) any digit at all, is rejected too. The lexicons here are also the truth verifier's (``tome/ledger.py``).
+The narration and the Tome's own words are authored (the offline voice); a local model writes only the NPCs' own
+dialogue (voice/llama_local.py). As far as the player knows there are no dice: any line that names a die, a roll, a
+check or a modifier, or (outside an NPC's own words) any digit at all, leaks a mechanic. The lexicons and the text
+plumbing here are the truth verifier's (``tome/ledger.py``), which audits every authored line.
 """
 
 from __future__ import annotations
@@ -23,13 +19,9 @@ _MECHANICS = re.compile(
     re.IGNORECASE)
 _DC = re.compile(r"\bDC\s*\d*\b")
 _DIGIT = re.compile(r"\d")
-# the words of dice, in any sense: what a model writes may not use them at all ("was it a good roll?")
-DICE_WORDS = re.compile(r"\b(?:dice|die|dies|rolls?|rolled|rolling|checks?|scores?|stats?|modifiers?|bonus\w*|"
-                        r"penalt\w*)\b", re.I)
-# numbers in words: what a model writes may not count anything either
-NUMBER_WORDS = re.compile(r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\w+teen|twenty|"
-                          r"thirty|forty|fifty|sixty|seventy|eighty|ninety|hundreds?|thousands?|millions?|numbers?|"
-                          r"numerals?|digits?|count|counts|counted|counting|tally|tallies)\b", re.I)
+# the words of dice, in any sense ("was it a good roll?"); "die" only as a thing ("the die"), never "or die"
+DICE_WORDS = re.compile(r"\b(?:dice|(?:a|an|the|one|that|this|each|every|your|my|our|their|his|her|its) die|rolls?|"
+                        r"rolled|rolling|checks?|scores?|stats?|modifiers?|bonus\w*|penalt\w*)\b", re.I)
 
 
 def leaks_mechanics(text: str, allow_digits: bool = False) -> bool:
@@ -112,43 +104,11 @@ NO_ALTERNATIVE = re.compile(
 
 NEGATION = re.compile(r"\b(?:not|no|never|nothing|none|nobody|no one|nowhere|neither|nor|without|cannot|nay|naught|"
                       r"nought)\b|n't\b", re.I)
-# words that reframe what stands beside them (a dream, a lie, a doubt, a reversal); free text may not use them
-HEDGE = re.compile(r"\b(?:dream\w*|seem\w*|appear\w*|imagin\w*|illusion\w*|pretend\w*|lie|lies|lied|lying|liars?|"
-                   r"false\w*|untrue|unreal|fake\w*|trick\w*|wrong|mistak\w*|maybe|perhaps|possibl\w*|probabl\w*|"
-                   r"might|almost|nearly|barely|hardly|scarcely|apparent\w*|suppos\w*|alleged\w*|claim\w*|rumou?r\w*|"
-                   r"says?|said|think\w*|thought|believ\w*|guess\w*|true|truly|truth\w*|honest\w*|real|really|"
-                   r"sure\w*|certain\w*|doubt\w*|trust\w*|know\w*|knew|as if|as though|or so|unless|until|except|"
-                   r"instead|yet|still|again|undo\w*|undone|revers\w*|anyway|however|but|though|although|whereas|"
-                   r"only|once|if|whether|or|should|ought|nonsense|rubbish|absurd\w*|ridiculous|ludicrous|"
-                   r"doubtful|unlikely|impossibl\w*)\b", re.I)
-# what an action came to: the rules decide it and the core sentences say it; a model's own words never do
-OUTCOME = re.compile(r"\b(?:fail\w*|miss(?:ed|es)?|lost|lose|loses|losing|win|wins|won|winning|succe\w*|works?|"
-                     r"worked|broke|broken|break\w*|crack\w*|wound\w*|bleed\w*|blood\w*|bled|hit|hits|struck|strik\w*|"
-                     r"land(?:s|ed)|skid\w*|dead|death|kill\w*|harm\w*|safe\w*|unharmed|surviv\w*|open\w*|shut\w*|"
-                     r"clos(?:ed|es|ing)|clear\w*|gone|beaten|defeat\w*|overcome|decid\w*|decision\w*|holds?|held|"
-                     r"giv(?:e|es|en|ing)|gave|yield\w*|victor\w*|triumph\w*|reward\w*|punish\w*|prize\w*|"
-                     r"fight\w*|fought|battle\w*|wreck\w*|lifeless|corpse\w*|bod(?:y|ies)|slain|slump\w*|fallen|"
-                     r"collaps\w*|ends?|ended|ending|finish\w*)\b|\b(?:is|are|was|it's) (?:over|done)\b", re.I)
-# the places and choices a scene offers are the rules' to name, not colour's
-OPTIONS = re.compile(r"\b(?:ways?|path\w*|road\w*|route\w*|exit\w*|doors?|doorway\w*|hatch\w*|airlock\w*|escap\w*|"
-                     r"choice\w*|choos\w*|option\w*|alternativ\w*|hope\w*|rest|rests|resting|respite|shelter\w*|"
-                     r"refuge|sanctuary)\b", re.I)
-# colour is the place as it is now: it tells no past and foretells nothing
-TENSE = re.compile(r"\b(?:was|wasn't|were|had|has|have|did|does|been|will|won't|would|shall|could|can|may)\b", re.I)
-SECOND_PERSON = re.compile(r"\b(?:you|your|yours|yourself|yourselves|you're|you'll|you've|you'd|thee|thy|thou)\b",
-                           re.I)
-FIRST_PERSON = re.compile(r"\b(?:I|I'm|I'll|I've|I'd|me|my|mine|myself|we|we're|we'll|we've|we'd|us|our|ours|"
-                          r"ourselves)\b", re.I)
-SPEAKER = re.compile(r"\b(?:I|I'm|I'll|I've|I'd|we|we're|we'll|we've|we'd)\b", re.I)
-# the Tome itself, as narration can name it
-TOME_REF = re.compile(r"\b(?:tome\w*|book\w*|glass\w*|monolith\w*|slab\w*|pages?|words?|letters?|ink)\b|"
-                      r"\bits (?:light|glow|surface)\b|\bthe light you carry\b", re.I)
 
 # ------------------------------------------------------------------------------------------------ text plumbing
 _TYPO = str.maketrans({"’": "'", "‘": "'", "‛": "'", "`": "'", "“": '"', "”": '"', "„": '"', "–": "-", "—": "-",
                        "…": "..."})
 _SPLIT = re.compile(r"(?:(?<=[.!?])|(?<=[.!?][\"')]))\s+")
-_WORDS = re.compile(r"[a-z][a-z']*", re.I)
 
 
 def normalize(text: str) -> str:
@@ -165,21 +125,14 @@ def _bare(sentence: str) -> str:
 
 
 def _verbatim(sentence: str) -> re.Pattern:
-    """A core sentence standing whole in a text: at its start or after a sentence's end (or one already taken
+    """A verbatim line standing whole in a text: at its start or after a sentence's end (or one already taken
     out, marked "|"), and closed by its own kind of ending (a statement never turns into a question)."""
     end = r"\?+" if normalize(sentence).rstrip("\"')").endswith("?") else r"[.!]+"
     return re.compile(rf"(?:^\s*|(?<=[.!?\"')|])\s+){re.escape(_bare(sentence))}(?:{end}[\"')]*(?=\s|$)|$)")
 
 
-def missing_core(text: str, core: Iterable[str]) -> list[str]:
-    """The core sentences ``text`` does not say verbatim, each as a whole sentence (case, whitespace, typographic
-    quotes and the final punctuation aside). Writing one inside a longer sentence does not count."""
-    low = normalize(text).lower()
-    return [c for c in core if _bare(c) and not _verbatim(c).search(low)]
-
-
 def strip_core(text: str, core: Iterable[str]) -> str:
-    """What is left of ``text`` once every verbatim core sentence is taken out: the words the model added."""
+    """What is left of ``text`` once every verbatim line is taken out: the words nothing vouches for."""
     low = normalize(text).lower()
     for c in sorted({c for c in core if _bare(c)}, key=len, reverse=True):
         low = _verbatim(c).sub(" | ", low, count=1)
@@ -193,12 +146,6 @@ _STOP = frozenset("the a an and or but of to in on at by for with from into onto
 _CONTENT = re.compile(r"[a-z][a-z']+")
 
 
-def content_words(text: str, min_len: int = 4) -> set[str]:
-    """The words that carry a text's meaning (possessives reduced to their noun: "reactor's" -> "reactor")."""
-    words = {re.sub(r"'s$", "", w.strip("'")) for w in _CONTENT.findall(normalize(text).lower())}
-    return {w for w in words if w not in _STOP and len(w) >= min_len}
-
-
 def covers(required: str, text: str, threshold: float = 0.5) -> bool:
     """Whether ``text`` is about ``required``: at least ``threshold`` of its content words appear. A licence test
     (a necessity claim must be about the fact that licenses it), never a test that something was said."""
@@ -208,95 +155,3 @@ def covers(required: str, text: str, threshold: float = 0.5) -> bool:
     have = {w.strip("'") for w in _CONTENT.findall(normalize(text).lower())}
     return len(words & have) / len(words) >= threshold
 
-
-def _avoided(low: str, avoid: Iterable[str]) -> bool:
-    """Whether a lowercased text uses any avoided word or phrase (a simple plural counts)."""
-    return any(re.search(rf"\b{re.escape(w.lower())}(?:s|es)?\b", low) for w in avoid if w)
-
-
-def _lexical(text: str) -> list[str]:
-    """Rules any text the model wrote breaks, whatever its shape."""
-    checks = (("number", _DIGIT), ("number", NUMBER_WORDS), ("mechanics", _MECHANICS), ("mechanics", _DC),
-              ("mechanics", DICE_WORDS), ("outcome", OUTCOME), ("chance", CHANCE),
-              ("affect", AFFECT), ("affect", AFFECT_SELF), ("opinion", OPINION_OF_PLAYER), ("opinion", JUDGEMENT),
-              ("necessity", NO_ALTERNATIVE), ("negation", NEGATION), ("hedge", HEDGE))
-    return [rule for rule, pat in checks if pat.search(text)]
-
-
-# ------------------------------------------------------------------------------------------------ framing (speech)
-# The first word of a framing command or address. Everything after it is at most a form of address.
-FRAME_OPENERS = frozenset(
-    "listen come closer mind go keep feed find bring oh walk quiet wait careful slowly hush look hear stay step "
-    "tread follow heed watch move hurry steady breathe rest take carry ask be now ah so easy gently softly friend "
-    "bearer thief little stop run turn climb press lean".split())
-ADDRESSES = ("friend", "bearer", "little light", "thief")
-# a question that takes something for granted: why it happened, or that it did
-PRESUPPOSING = re.compile(r"\b(?:why|how come|did|didn't|was|wasn't|were|weren't|had|hadn't|has|hasn't|have|haven't|"
-                          r"\w+ed)\b", re.I)
-FRAMING_WORDS = 20
-QUESTION_WORDS = 8
-
-
-def framing_problems(text: str, avoid: Iterable[str] = (), addresses: Iterable[str] = ADDRESSES) -> list[str]:
-    """Why a model-written framing cannot stand beside the Tome's verbatim speech acts (empty if it can).
-
-    At most two finished sentences and twenty words; each a short question in the present (no "why", nothing that
-    happened), or commands and forms of address only (every clause a form of address or opening with a whitelisted
-    word); no number, mechanics, outcome, chance, feeling or need, opinion of the player, necessity, negation or
-    hedge; no speaker ("I", "we"); and none of ``avoid`` (the scene's topics, people, secrets and obstacles). A form
-    of address is never itself an avoided word ("little light")."""
-    text = normalize(text)
-    parts = sentences(text)
-    out = []
-    if not parts or len(parts) > 2 or len(_WORDS.findall(text)) > FRAMING_WORDS:
-        out.append("framing_length")
-    if not re.search(r"[.!?][\"')]*$", text):
-        out.append("framing_shape")                  # unfinished, it would run on into the Tome's own words
-    names = sorted((a.lower() for a in addresses if a), key=len, reverse=True)
-    for sent in parts:
-        low = sent.lower()
-        bare = low                                  # forms of address stand in as one neutral word
-        for a in names:
-            bare = re.sub(rf"\b{re.escape(a)}\b", "\x00", bare)
-        if low.rstrip("\"' ").endswith("?"):
-            if not 0 < len(_WORDS.findall(bare)) <= QUESTION_WORDS or PRESUPPOSING.search(bare):
-                out.append("framing_shape")
-        else:
-            clauses = [_WORDS.findall(c) for c in re.split(r"[,;:\-]+", bare) if c.strip(" .!?\"'")]
-            if not clauses or any(c and c[0] not in FRAME_OPENERS for c in clauses):
-                out.append("framing_shape")
-        out += _lexical(low)
-        if SPEAKER.search(bare):
-            out.append("speaker")
-        if _avoided(bare, avoid):
-            out.append("avoided_word")
-    return list(dict.fromkeys(out))
-
-
-# ------------------------------------------------------------------------------------------------ colour (narration)
-COLOUR_SENTENCES = 2
-COLOUR_WORDS = 30
-
-
-def colour_problems(text: str, avoid: Iterable[str] = ()) -> list[str]:
-    """Why what a model added around the core sentences is not pure colour (empty if it is).
-
-    At most two sentences and thirty words about the place as it is now (no past, no future); no "you" or "I";
-    nothing about the Tome; no number, mechanics, outcome, chance, feeling, opinion, necessity, negation or hedge;
-    none of the places and choices the scene offers; and none of ``avoid`` (the scene's topics, people, secrets and
-    obstacles, and this turn's core words, so colour can never speak to what the rules decided)."""
-    text = normalize(text)
-    low = text.lower()
-    parts = [s for s in sentences(text) if _WORDS.search(s)]
-    out = []
-    if len(parts) > COLOUR_SENTENCES or len(_WORDS.findall(text)) > COLOUR_WORDS \
-            or any(len(_WORDS.findall(s)) < 3 for s in parts):  # a bare "Ha." or "Hardly." comments on the rest
-        out.append("colour_length")
-    for rule, pat in (("second_person", SECOND_PERSON), ("first_person", FIRST_PERSON), ("tome", TOME_REF),
-                      ("necessity", OPTIONS), ("tense", TENSE)):
-        if pat.search(text):
-            out.append(rule)
-    out += _lexical(text)
-    if _avoided(low, avoid):
-        out.append("avoided_word")
-    return list(dict.fromkeys(out))

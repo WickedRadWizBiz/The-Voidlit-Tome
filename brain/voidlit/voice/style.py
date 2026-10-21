@@ -2,9 +2,9 @@
 
 ``VoiceStyle`` is never serialised into a frame or a protocol message. The register is the nearest centroid in the
 space (P, A, D, bond, contempt, hunger, fear); this mapping is designed, not learned. The style reaches the player
-only as wording: sentence length, form of address, where the useful detail sits, imperatives, fragments. The voice
-never receives an emotion word. The wrappers the offline voice adds around a line assert nothing, and the framing a
-language model writes in their place is held to the same shapes (commands, forms of address, short questions).
+only as wording: the form of address, where the useful detail sits, how often the register's wrappers (its commands,
+fragments and openers) are added, and a warm Tome's unasked caution. The Tome's words are always authored: its speech
+acts, verbatim, inside the wrappers below, which assert nothing.
 """
 
 from __future__ import annotations
@@ -26,15 +26,15 @@ CENTROIDS: dict[str, tuple[float, ...]] = {
     "wary":     (0.0, 0.6, -0.2, 0.0, 0.0, 0.0, 0.6),
 }
 
-# register -> (sentence words, address, detail position, imperative ratio, lexicon, fragments, answer sentences, temp)
-SHAPES: dict[str, tuple] = {
-    "warm":     ((14, 22), "friend", "first", 0.2, "light", False, 3, 0.80),
-    "clinical": ((10, 16), None, "first", 0.0, "neutral", False, 2, 0.70),
-    "cold":     ((6, 10), "bearer", "last", 0.1, "ownership", False, 1, 0.70),
-    "hungry":   ((12, 20), "little light", "last", 0.5, "hunger", False, 2, 0.90),
-    "wounded":  ((8, 14), None, "last", 0.0, "light", False, 2, 0.85),
-    "gloating": ((8, 14), "thief", "last", 0.3, "ownership", False, 2, 0.90),
-    "wary":     ((6, 12), None, "first", 0.2, "neutral", True, 1, 0.75),
+# register -> (address, detail position)
+SHAPES: dict[str, tuple[str | None, str]] = {
+    "warm":     ("friend", "first"),
+    "clinical": (None, "first"),
+    "cold":     ("bearer", "last"),
+    "hungry":   ("little light", "last"),
+    "wounded":  (None, "last"),
+    "gloating": ("thief", "last"),
+    "wary":     (None, "first"),
 }
 
 # Offline wrappers: interjections, imperatives and forms of address only. None of them asserts anything, so a Tome
@@ -49,7 +49,7 @@ LEADS: dict[str, tuple[str, ...]] = {
     "wary": ("Quiet.", "Wait."),
 }
 TRAILS: dict[str, tuple[str, ...]] = {
-    "warm": ("Mind your step.", "Go gently, {addr}.", "Keep close to my light."),
+    "warm": ("Mind your step.", "Go gently, {addr}.", "Keep close to me."),
     "clinical": (),
     "cold": (),
     "hungry": ("Feed me.", "Find me light.", "Bring me light."),
@@ -59,22 +59,16 @@ TRAILS: dict[str, tuple[str, ...]] = {
 }
 WRAPPERS: frozenset[str] = frozenset(
     w.replace("{addr}", a or "").replace("{Addr}", (a or "").capitalize()).replace(" ,", ",").replace(", .", ".")
-    for reg, (_, a, *_r) in SHAPES.items() for w in LEADS[reg] + TRAILS[reg])
+    for reg, (a, _) in SHAPES.items() for w in LEADS[reg] + TRAILS[reg])
 
 
 @dataclass(frozen=True)
 class VoiceStyle:
     register: str = "clinical"
-    intensity: float = 0.0
-    sentence_len: tuple[int, int] = (10, 16)
+    intensity: float = 0.0             # how clearly the register won: how often its wrappers are added
     address: str | None = None
     detail_position: str = "first"
     unasked_caution: bool = False      # warm only; the caution must be a true ledger fact
-    imperative_ratio: float = 0.0
-    lexicon: str = "neutral"
-    fragments: bool = False
-    answer_len: int = 2
-    temperature: float = 0.7
 
 
 def style_for(P: float = 0.0, A: float = 0.0, D: float = 0.0, bond: float = 0.0, contempt: float = 0.0,
@@ -85,10 +79,9 @@ def style_for(P: float = 0.0, A: float = 0.0, D: float = 0.0, bond: float = 0.0,
     reg = order[0]
     # how clearly this register won: 0 on a tie with the runner-up, 1 when far closer
     intensity = 1.0 - dist[reg] / max(dist[order[1]], 1e-9)
-    words, addr, pos, imp, lex, frag, ans, temp = SHAPES[reg]
-    return VoiceStyle(register=reg, intensity=round(min(1.0, max(0.0, intensity)), 3), sentence_len=words,
-                      address=addr, detail_position=pos, unasked_caution=reg == "warm", imperative_ratio=imp,
-                      lexicon=lex, fragments=frag, answer_len=ans, temperature=temp)
+    addr, pos = SHAPES[reg]
+    return VoiceStyle(register=reg, intensity=round(min(1.0, max(0.0, intensity)), 3), address=addr,
+                      detail_position=pos, unasked_caution=reg == "warm")
 
 
 def style_from_mind(mind) -> VoiceStyle:
@@ -135,45 +128,4 @@ def render(lines: list[str], style: VoiceStyle, rng: random.Random, caution: str
     return " ".join(x for x in parts if x).strip()
 
 
-def splice(lines: list[str], style: VoiceStyle, framing: str, caution: str | None = None) -> str:
-    """The LLM path: the model's framing (already shape-checked, voice/guard.py) takes the offline wrappers' place
-    around the Tome's speech acts, which are spliced in verbatim. The model decorates; only the rules assert."""
-    if not lines:
-        return ""
-    body = _body(lines, style, caution)
-    parts = body + [framing] if style.detail_position == "first" else [framing] + body
-    return " ".join(x.strip() for x in parts if x and x.strip()).strip()
-
-
-def framing_line(style: VoiceStyle) -> str:
-    """Craft instructions for the framing the LLM may write around the Tome's words. It never names an emotion."""
-    out = [f"Call them {style.address}." if style.address else "Use no name for them.",
-           "A short command." if style.imperative_ratio >= 0.3 else "A short command or a short question."]
-    if style.lexicon == "hunger":
-        out.append("Ask to be fed.")
-    elif style.lexicon == "ownership":
-        out.append("Speak as one who keeps them.")
-    if style.fragments:
-        out.append("Use fragments.")
-    if style.register == "wounded":
-        out.append("Trail off with an ellipsis.")
-    return " ".join(out)
-
-
-def craft_line(style: VoiceStyle) -> str:
-    """Craft instructions for the colour the LLM may add to a narration. It never names an emotion."""
-    lo, hi = style.sentence_len
-    out = [f"Use sentences of {lo} to {hi} words."]
-    if style.lexicon == "hunger":
-        out.append("Use words of warmth, cold and food.")
-    elif style.lexicon == "ownership":
-        out.append("Use words of keeping and owning.")
-    if style.fragments:
-        out.append("Use fragments.")
-    if style.register == "wounded":
-        out.append("Trail off with an ellipsis.")
-    return " ".join(out)
-
-
-__all__ = ["VoiceStyle", "style_for", "style_from_mind", "style_from_game", "render", "splice", "framing_line",
-           "craft_line", "WRAPPERS", "CENTROIDS"]
+__all__ = ["VoiceStyle", "style_for", "style_from_mind", "style_from_game", "render", "WRAPPERS", "CENTROIDS"]

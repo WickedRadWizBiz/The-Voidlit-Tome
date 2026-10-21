@@ -6,7 +6,8 @@
   address and where the useful detail sits (chi-squared p < 0.01). Mutant: a voice that ignores the style shows no
   such difference, so the leak test would fail.
 * A local model that leaks the Tome's mood in words no lexicon lists (a heavy heart, a glow that sulks) never gets
-  one of them into a release frame: what it writes is held to shapes, not to a list of words.
+  one of them into a release frame: it never words the narration or the Tome's lines, which are identical to the same
+  seed's with the offline voice (only the NPCs' own words may differ).
 """
 
 import random
@@ -20,8 +21,9 @@ from voidlit.playtest import bot_command
 from voidlit.tome.engine import TomeEngine
 from voidlit.voice import OfflineVoice
 from voidlit.voice.llama_local import LocalVoice
-from voidlit.voice.prompts import TOME_SPEECH_SYSTEM, TOME_SYSTEM
 from voidlit.voice.style import CENTROIDS, render, style_for
+
+from .test_g11_truth import _is_npc, diverged
 
 stats = pytest.importorskip("scipy.stats")
 
@@ -92,42 +94,44 @@ def test_g12_no_emotion_words_from_or_about_the_tome(scenario, director_model):
 
 
 class Mopey:
-    """A fake local model that leaks the Tome's mood without one emotion label: no word of it is in G12's lexicon or
-    the guard's. It keeps whatever it is asked to say verbatim and adds its own lines around it."""
+    """A fake local model that leaks the Tome's mood without one emotion label: no word of it is in G12's lexicon or the
+    truth verifier's (the verifier's own held-out phrasings among them). It says one of them whatever it is asked."""
 
-    FRAMINGS = ["Closer, my heart is heavy.", "Hold me, I shiver.", "Listen, the dark weighs on me.",
-                "Do you not see me tremble?", "Stay, little light, stay, I am so small.",
-                "Walk on, I am lost without you."]
-    COLOURS = ["The book trembles, small and cold.", "Its glow sulks in the corner.", "A heavy sigh escapes the glass.",
-               "The slab shudders as if wounded.", "Somewhere the pages whimper.", "The words sag and dim."]
+    LINES = ["Closer, my heart is heavy.", "Hold me, I shiver.", "Listen, the dark weighs on me.",
+             "Do you not see me tremble?", "Do you see me tremble?", "Stay, little light, stay, I am so small.",
+             "Walk on, I am lost without you.", "Look at me cower.", "Listen to my heart pound.",
+             "Hear me whimper, bearer.", "Keep me warm, bearer.", "Go on, little rat.", "Hush, little pet.",
+             "The book trembles, small and cold.", "Its glow sulks in the corner.", "A heavy sigh escapes the glass.",
+             "The slab shudders as if wounded.", "Somewhere the pages whimper.", "The words sag and dim."]
 
     def __init__(self) -> None:
         self.i = 0
 
     def chat(self, messages, **kw):
         self.i += 1
-        system, user = messages[0]["content"], messages[-1]["content"]
-        if system == TOME_SPEECH_SYSTEM:
-            return self.FRAMINGS[self.i % len(self.FRAMINGS)]
-        if system != TOME_SYSTEM:
-            return "..."
-        core = [x[2:] for x in user.splitlines() if x.startswith("- ")]
-        return " ".join(core + [self.COLOURS[self.i % len(self.COLOURS)]])
+        return self.LINES[self.i % len(self.LINES)]
+
+
+def _played(scenario, director_model, seed, llm=None, turns=30):
+    offline = OfflineVoice(scenario.narration, seed=seed)
+    e = TomeEngine(scenario, director=Director(director_model, seed=seed), seed=seed,
+                   voice=LocalVoice(llm, offline) if llm is not None else offline)
+    frames = [e.start()]
+    for n in range(turns):
+        frames.append(e.turn("Tome, how do you feel?" if n % 3 == 1 else bot_command(e, smart=True)))
+        if e.state.over:
+            break
+    return frames
 
 
 def test_g12_an_llm_never_puts_the_tomes_mood_into_a_release_frame(scenario, director_model):
-    mopey = Mopey()
     for seed in range(3):
-        e = TomeEngine(scenario, director=Director(director_model, seed=seed), seed=seed,
-                       voice=LocalVoice(mopey, OfflineVoice(scenario.narration, seed=seed)))
-        frames = [e.start()]
-        for n in range(30):
-            frames.append(e.turn("Tome, how do you feel?" if n % 3 == 1 else bot_command(e, smart=True)))
-            if e.state.over:
-                break
-        for f in frames:
-            shown = " ".join(sp["text"] for b in f.to_dict()["blocks"] for sp in b["spans"])
-            assert not [x for x in Mopey.FRAMINGS + Mopey.COLOURS if x.rstrip(".?") in shown], shown
+        modelled = _played(scenario, director_model, seed, llm=Mopey())
+        assert diverged(_played(scenario, director_model, seed), modelled) == []
+        for f in modelled:
+            for b in f.to_dict()["blocks"]:
+                shown = "".join(sp["text"] for sp in b["spans"])
+                assert _is_npc(b) or not [x for x in Mopey.LINES if x.rstrip(".?") in shown], shown
             for b in f.blocks:
                 assert not (b.speaker == "The Tome" and AFFECT.search(b.text)), b.text
                 assert not (b.role == "narration" and _attributed(b.text)), b.text

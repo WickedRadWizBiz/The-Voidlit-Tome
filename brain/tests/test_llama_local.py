@@ -1,4 +1,5 @@
-"""The language model must be a local file, used in-process, with no network pathway."""
+"""The language model must be a local file, used in-process, with no network pathway. It reads the player and speaks
+for the NPCs; the narration and the Tome's words are never its own."""
 
 import ast
 import asyncio
@@ -157,16 +158,23 @@ def test_local_llama_loads_once_and_speaks(tiny_model, scenario):
     assert isinstance(text, str) and text
 
 
+def _decision():
+    from voidlit.limbic.npc_brain import BrainDecision
+
+    return BrainDecision(dominant_plot=0, secondary_plot=1, tactic=0, branch_id=1, branch_origin="ally",
+                         branch_source_npc=0, branch_parent=0, plot_spikes=[0, 0, 0], tactic_spikes=[0, 0, 0, 0],
+                         momentum=[0.5, 0.3, 0.1])
+
+
 @pytest.mark.parametrize("template_name", ["GEMMA2_TEMPLATE", "STRICT_TEMPLATE"])
 def test_strict_chat_templates_still_reach_the_model(tmp_path, template_name, scenario, monkeypatch):
-    """Templates that reject a system role or a leading assistant turn must not push us onto the fallbacks."""
+    """Templates that reject a system role or a leading assistant turn must not push the senses or the NPCs' words
+    onto the fallbacks."""
     pytest.importorskip("llama_cpp", reason="llama-cpp-python not installed")
-    # a random tiny model writes noise (digits included); the guards are tested on their own below
+    # a random tiny model writes noise (digits included); the mechanics check is tested on its own below
     monkeypatch.setattr("voidlit.voice.llama_local.leaks_mechanics", lambda text, allow_digits=False: False)
-    monkeypatch.setattr("voidlit.voice.llama_local.colour_problems", lambda *a, **k: [])
     pytest.importorskip("gguf", reason="gguf not installed")
-    from voidlit.limbic.npc_brain import BrainDecision
-    from voidlit.voice import DialogueRequest, LocalLlama, NarrationRequest
+    from voidlit.voice import DialogueRequest, LocalLlama
 
     from . import tiny_gguf
 
@@ -176,27 +184,17 @@ def test_strict_chat_templates_still_reach_the_model(tmp_path, template_name, sc
     if template_name == "GEMMA2_TEMPLATE":
         assert llm.system_role is False
 
-    class Refuse:
-        def narration_parts(self, req):
-            return []
-
-        def join(self, parts):
-            raise AssertionError("narration fell back to the offline voice")
-
+    class Offline:
         def speak(self, req):
-            raise AssertionError("dialogue fell back to the offline voice")
+            return "(the authored line)"
 
     LocalTransducer(llm, NoFallback()).extract("I smash the door", {"elara": ["elara"]})
-    voice = LocalVoice(llm, Refuse())
+    voice = LocalVoice(llm, Offline())
     history = ["The iris grinds open.", "Frost creeps across a viewport."]
-    voice.narrate(NarrationRequest(player_text="look", intent="look", approach="none", chapter_title="T",
-                                   chapter_text="A room.", entering_chapter=False, facts=["x"], history=history))
-    spec = scenario.npcs["elara"]
-    decision = BrainDecision(dominant_plot=0, secondary_plot=1, tactic=0, branch_id=1, branch_origin="ally",
-                             branch_source_npc=0, branch_parent=0, plot_spikes=[0, 0, 0], tactic_spikes=[0, 0, 0, 0],
-                             momentum=[0.5, 0.3, 0.1])
-    voice.speak(DialogueRequest(npc=spec, decision=decision, system_prompt="You are Elara.", player_text="hi",
-                                player_name="Ash", history=history))
+    said = voice.speak(DialogueRequest(npc=scenario.npcs["elara"], decision=_decision(),
+                                       system_prompt="You are Elara.", player_text="hi", player_name="Ash",
+                                       history=history))
+    assert said != "(the authored line)", "dialogue fell back to the offline voice"
 
 
 @pytest.mark.skipif(not Path("/proc/self/maps").exists(), reason="needs Linux /proc")
@@ -219,8 +217,25 @@ def test_parse_rejects_truncated_output():
         parse_sensory_json('{"intent": "look", "approach": "none", "target": "none", "aggression": 0.')
 
 
-def test_voice_guard_sends_dice_talk_to_the_offline_voice(scenario):
-    from voidlit.voice import LocalVoice, NarrationRequest
+class Says:
+    """A fake model that says the same thing whatever it is asked."""
+
+    def __init__(self, text):
+        self.text = text
+        self.calls = 0
+
+    def chat(self, messages, **kw):
+        self.calls += 1
+        return self.text
+
+
+class Mute:
+    def chat(self, messages, **kw):
+        raise AssertionError("the model was asked for words that are authored")
+
+
+def test_npc_words_that_name_a_mechanic_fall_back_to_their_authored_line(scenario):
+    from voidlit.voice import DialogueRequest
     from voidlit.voice.guard import leaks_mechanics
 
     assert leaks_mechanics("You rolled a 17.") and leaks_mechanics("Make a DC 12 check.")
@@ -230,78 +245,71 @@ def test_voice_guard_sends_dice_talk_to_the_offline_voice(scenario):
     assert not leaks_mechanics("The air rolls out of the iris, stale and cold.")
     assert not leaks_mechanics("It waited 40 days.", allow_digits=True)
 
-    class Offline:
-        def narration_parts(self, req):
-            return []
-
-        def join(self, parts):
-            return "offline"
-
-    req = NarrationRequest(player_text="what did I roll?", intent="other", approach="none", chapter_title="T",
-                           chapter_text="A room.", entering_chapter=False, facts=[])
-    assert LocalVoice(Says("You rolled a natural 20."), Offline()).narrate(req) == "offline"
-    assert LocalVoice(Says("Somewhere, dice clatter on steel."), Offline()).narrate(req) == "offline"
-    assert LocalVoice(Says("Frost ticks along the walls."), Offline()).narrate(req) == "Frost ticks along the walls."
+    req = DialogueRequest(npc=scenario.npcs["elara"], decision=_decision(), system_prompt="You are Elara.",
+                          player_text="what did I roll?", player_name="Ash")
+    authored = OfflineVoice(scenario.narration, seed=0).speak(req)
+    voice = lambda text: LocalVoice(Says(text), OfflineVoice(scenario.narration, seed=0))  # noqa: E731
+    assert voice("You rolled a natural 20.").speak(req) == authored
+    assert voice("Somewhere, dice clatter on steel.").speak(req) == authored
+    assert voice("I waited 40 days for someone like you.").speak(req) == "I waited 40 days for someone like you."
 
 
-class Says:
-    def __init__(self, text):
-        self.text = text
+def test_npc_words_keep_the_authored_voice_in_step(scenario):
+    """The authored line is drawn whatever the model says, so every later narration and Tome line is the one the same
+    seed tells without a model."""
+    from voidlit.voice import DialogueRequest, NarrationRequest
 
-    def chat(self, messages, **kw):
-        return self.text
+    req = DialogueRequest(npc=scenario.npcs["elara"], decision=_decision(), system_prompt="You are Elara.",
+                          player_text="hi", player_name="Ash")
+    look = NarrationRequest(player_text="look", intent="look", approach="none", chapter_title="T",
+                            chapter_text="A room.", entering_chapter=False, facts=[], outcome="success")
+    with_model, without = LocalVoice(Says("Stay close."), OfflineVoice(scenario.narration, seed=3)), \
+        OfflineVoice(scenario.narration, seed=3)
+    for _ in range(20):
+        assert with_model.speak(req) == "Stay close."
+        without.speak(req)
+        assert with_model.narrate(look) == without.narrate(look)
 
 
 def _speech(scenario, register="cold"):
-    from voidlit.voice import OfflineVoice
     from voidlit.voice.requests import TomeSpeechRequest
     from voidlit.voice.style import CENTROIDS, style_for
 
     lines = ["Every lifeboat but one was launched empty.", "The last lifeboat is locked to the Conductor's voice."]
-    req = TomeSpeechRequest(lines=lines, style=style_for(*CENTROIDS[register]), player_text="Where is the lifeboat?",
-                            avoid=["lifeboat", "conductor", "elara", "drone", "lamp", "boat"])
-    return req, OfflineVoice(scenario.narration, seed=0).tome_say(req)
+    return TomeSpeechRequest(lines=lines, style=style_for(*CENTROIDS[register]),
+                             caution="The lifeboats are at the far end of the station.")
 
 
-def test_the_llm_only_frames_the_tomes_words(scenario):
-    """The Tome's speech acts are spliced in verbatim; the model's words may only be a command, an address or a short
-    question, and anything else (an inverted answer, a feeling, chance, an opinion, a name) is the offline voice."""
-    req, offline = _speech(scenario)
-    assert LocalVoice(Says("Listen, bearer.")).tome_say(req) == "Listen, bearer. " + " ".join(req.lines)
-    assert LocalVoice(Says("Do you hear it?")).tome_say(req) == "Do you hear it? " + " ".join(req.lines)
-    for framing in ("Every lifeboat was launched. The last lifeboat is not locked to the Conductor's voice.",
-                    "None of this is random.", "I'm frightened, bearer.", "Listen, I am starving.",
-                    "You are a fool, thief.", "This is your only way out.", "Listen: the lifeboats are all docked.",
-                    "Walk on, Elara lies.", "Your roll was poor; luck turned on you.", "Keep walking, fool.",
-                    "Listen, bearer. Walk on. Do you hear it?"):
-        assert LocalVoice(Says(framing)).tome_say(req) == offline, framing
-    warm, warm_offline = _speech(scenario, "warm")      # the useful detail first: the framing follows the acts
-    said = LocalVoice(Says("Mind your step, friend.")).tome_say(warm)
-    assert said == " ".join(warm.lines) + " Mind your step, friend."
+@pytest.mark.parametrize("register", ["cold", "warm", "hungry", "wounded"])
+def test_the_tomes_words_are_never_the_models(scenario, register):
+    """The Tome's words are its speech acts in its register's authored wrappers, exactly as the offline voice says
+    them: the model is never asked, whatever it would have said."""
+    req = _speech(scenario, register)
+    authored = OfflineVoice(scenario.narration, seed=0).tome_say(req)
+    assert all(x in authored for x in req.lines)
+    assert LocalVoice(Mute(), OfflineVoice(scenario.narration, seed=0)).tome_say(req) == authored
+    for framing in ("Listen, bearer.", "Every lifeboat was launched. The last lifeboat is not locked.",
+                    "None of this is random.", "Do you see me tremble?", "Go on, little rat."):
+        llm = Says(framing)
+        assert LocalVoice(llm, OfflineVoice(scenario.narration, seed=0)).tome_say(req) == authored
+        assert llm.calls == 0
 
 
-def test_the_llm_narration_says_what_the_rules_decided_verbatim(scenario):
-    """The core sentences (the outcome line, a defeat, a clue) are said word for word, as whole sentences; the rest
-    is pure colour. An inverted clue or outcome, a dropped one, or colour that reframes it is the offline voice."""
+def test_the_narration_is_never_the_models(scenario):
+    """The narration is the authored voice's, word for word: the outcome line, a clue and the beat's colour, with no
+    model asked to add or reword a thing."""
     from voidlit.cortex.features import Beat
-    from voidlit.voice import NarrationRequest, OfflineVoice
+    from voidlit.voice import NarrationRequest
 
     clue = "Scratches on the iris are fresh, made from this side. Someone tried to get out, not in."
     req = NarrationRequest(player_text="I smash the tome", intent="force", approach="grit", chapter_title="T",
                            chapter_text="A room.", entering_chapter=False, facts=[], variant="tome_struck",
-                           clue=clue, beat=Beat.CLUE, avoid=["iris", "door", "lamp", "lifeboat"])
-    offline = OfflineVoice(scenario.narration, seed=0).narrate(req)
-    struck = "Your blow lands. One of the Tome's lights cracks and goes out."
-    assert offline == f"{struck} {clue}"
-    voice = lambda text: LocalVoice(Says(text), OfflineVoice(scenario.narration, seed=0))  # noqa: E731
-    good = f"{struck} Frost ticks along the walls. {clue}"
-    assert voice(good).narrate(req) == good
-    typographic = good.replace("'", "’")                # case, quotes and final punctuation aside, word for word
-    assert voice(typographic).narrate(req) == typographic
-    for bad in (f"Your blow skids off the black glass. Nothing cracks; its light holds steady. {clue}",
-                f"{struck} Scratches on the iris are old, made from the other side. Someone tried to get in, not out.",
-                f"{struck} {clue} It was all a dream.", f"{struck} It only seemed that {clue[0].lower()}{clue[1:]}",
-                f"{struck} {clue} Then the iris slams shut again.", f"{struck} {clue} The book shivers, afraid.",
-                f"{struck} {clue} None of this is random.", f"{struck} {clue} This is your only way out.",
-                f"{struck}", f"{clue}"):
-        assert voice(bad).narrate(req) == offline, bad
+                           clue=clue, beat=Beat.CLUE)
+    authored = OfflineVoice(scenario.narration, seed=0).narrate(req)
+    assert authored == f"Your blow lands. One of the Tome's lights cracks and goes out. {clue}"
+    assert LocalVoice(Mute(), OfflineVoice(scenario.narration, seed=0)).narrate(req) == authored
+    for text in (f"Your blow lands. Frost ticks along the walls. {clue}", "Then everything mends, bright and whole.",
+                 "Dust sits thick on every mark, untouched for years.", "You rolled a natural 20."):
+        llm = Says(text)
+        assert LocalVoice(llm, OfflineVoice(scenario.narration, seed=0)).narrate(req) == authored
+        assert llm.calls == 0

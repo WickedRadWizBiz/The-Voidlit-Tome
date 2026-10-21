@@ -7,8 +7,10 @@ critical or ``none``), ``action.any.<outcome>``, ``beat.<beat>``, ``bite``,
 
 A narration is made of *core* parts, which say what the rules decided this
 turn (the scene on entering, the action's outcome line, a defeat, a clue, a
-beat's event, the ending), and *colour*. Any voice must say the core
-verbatim; a language model may only add colour around it (voice/guard.py).
+beat's event, the ending), and *colour*. This voice is the only one that
+narrates or speaks for the Tome, with or without a local model: every word
+of it is authored (voice/llama_local.py gives a model the NPCs' dialogue
+only). Each line must be true in every state it can be said in.
 """
 
 from __future__ import annotations
@@ -22,35 +24,37 @@ from .style import render
 
 DEFAULT_BANKS: dict[str, list[str]] = {
     "action.any.fail": ["It goes wrong at once.", "The dark does not cooperate.", "Nothing gives except your nerve."],
-    "action.any.mixed": ["It works, but the station takes its toll.", "Something gives, and something else breaks."],
-    "action.any.success": ["It works. For once, the station lets you have this.", "Clean. Quick. Done."],
+    # An outcome line is said whether or not the obstacle falls and whether or not it bites back (a defeat and a wound
+    # are told by their own lines), so none claims either.
+    "action.any.mixed": ["It works, but only just.", "Something gives, though not cleanly."],
+    "action.any.success": ["It works. For once, the station lets you have this.", "Clean. Quick."],
     "action.any.critical": ["Better than you dared. For a breath, you feel unkillable."],
     "action.any.none": ["The Tome's surface ripples, waiting.", "You hold still. The station breathes around you."],
     "action.fight.fail": ["You lunge for {obstacle} and meet only its answer.",
                           "Your strike glances off {obstacle}, which was waiting for exactly that."],
-    "action.fight.mixed": ["You hurt {obstacle}, and pay for it in kind.",
-                           "Steel finds {obstacle}, but not before {obstacle} finds you."],
+    "action.fight.mixed": ["You hurt {obstacle}, but it is a near thing.", "Steel finds {obstacle}, and only just."],
     "action.fight.success": ["You drive into {obstacle}, and something gives.", "{obstacle} reels under the blow."],
-    "action.fight.critical": ["You find the seam in {obstacle} and tear it wide open."],
+    "action.fight.critical": ["You find the seam in {obstacle} and drive into it, hard."],
     "action.force.fail": ["You strain against {obstacle}. Nothing moves, except something behind it."],
-    "action.force.mixed": ["{obstacle} groans and shifts, and the effort costs you."],
-    "action.force.success": ["{obstacle} gives way with a shriek of metal."],
-    "action.force.critical": ["{obstacle} comes apart in your hands like wet paper."],
+    "action.force.mixed": ["{obstacle} groans and shifts, grudgingly."],
+    "action.force.success": ["{obstacle} shifts with a shriek of metal."],
+    "action.force.critical": ["{obstacle} buckles in your hands like wet paper."],
     "action.sneak.fail": ["A boot scuffs. {obstacle} turns toward the sound."],
-    "action.sneak.mixed": ["You slip past {obstacle}, but not unnoticed."],
+    "action.sneak.mixed": ["You slip close to {obstacle}, but it is a near thing."],
     "action.sneak.success": ["You become a shadow. {obstacle} never knows."],
-    "action.sneak.critical": ["You move like the dark itself; {obstacle} is behind you before it can blink."],
+    "action.sneak.critical": ["You move like the dark itself; {obstacle} never sees you coming."],
     "action.search.fail": ["Panels, dust, dead screens. And the feeling of being watched."],
     "action.search.mixed": ["You find something, but it takes too long."],
     "action.search.success": ["Your fingers find what your eyes missed."],
-    "action.search.critical": ["It all clicks: the pattern, the purpose, the way through."],
+    "action.search.critical": ["It all clicks: the pattern, the purpose, the thing everyone missed."],
+    "action.search.empty": ["You turn the place over and come away with nothing new."],   # everything is found
     "action.search.none": ["You look, and the station looks back."],
-    "action.look.none": ["You take it in, slowly. The Tome's light trembles over every surface."],
+    "action.look.none": ["You take it in, slowly, one surface at a time."],
     "action.rest.none": ["You sit with your back to cold metal and let your heart slow."],
     "action.flee.fail": ["You run, and {obstacle} is faster."],
     "action.flee.mixed": ["You break away from {obstacle}, but it marks you as you go."],
     "action.flee.success": ["You put distance and darkness between you and {obstacle}."],
-    "action.advance.none": ["You move on. The corridor swallows the light behind you."],
+    "action.advance.none": ["You move on, and the dark folds in behind you."],
     "action.advance.fail": ["You dash past {obstacle}, and it catches you on the way through."],
     "action.advance.mixed": ["You make it past {obstacle}, heart hammering."],
     "action.advance.success": ["You slip past {obstacle} before it can touch you."],
@@ -61,22 +65,29 @@ DEFAULT_BANKS: dict[str, list[str]] = {
     "action.rest.denied": ["You try to rest, but {obstacle} won't let you close your eyes."],
     "action.rest.spent": ["You've taken what rest this place will give. The station won't allow more."],
     "action.use.light": ["Light hisses alive in your hand and you feed it to the Tome. The words burn brighter."],
+    "action.use.light_full": ["Light hisses alive in your hand and you feed it to the Tome, but it burns no brighter."],
     "action.use.heal": ["You patch what you can. It isn't pretty, but it holds."],
     "action.fight.npc_attack": ["{npc} twists away from you, eyes wide, and the dark takes them."],
     "action.fight.none": ["You lash out at shadows. Nothing here fights back, yet."],
     "action.force.none": ["You put your shoulder into the station. It doesn't notice."],
-    "action.sneak.none": ["You move quietly through the dark, though nothing here is watching. You think."],
+    "action.sneak.none": ["You move as quietly as you can, one careful step at a time."],
     "action.flee.none": ["You back away. Nothing follows. That's almost worse."],
     "action.talk.none": ["Your words hang in the stale air."],
     "action.talk.alone": ["You speak into the dark. The dark keeps its own counsel."],
-    "action.talk.tome": ["Light gathers under the black glass, and words rise to meet you.",
-                         "The Tome's surface stirs under your hand.", "The glass warms as it answers."],
+    "action.any.lost_turn": ["Panic holds you. The moment passes without you."],
+    # the Tome answers (it always does when this is said), or keeps silent (a lie it took in)
+    "action.any.tome": ["Words rise under the black glass to meet you.", "The Tome's surface stirs under your hand.",
+                        "The glass warms as it answers."],
+    "action.any.tome_silent": ["The black glass stays still. The Tome takes your words in silence."],
+    # what a blow or a hand over its glow came to; only a lit Tome has a glow to crack or to hide
     "action.any.tome_struck": ["Your blow lands. One of the Tome's lights cracks and goes out."],
+    "action.any.tome_struck_dark": ["Your blow lands on dark glass. Every one of its lights is already out."],
     "action.any.tome_unmoved": ["Your blow skids off the Tome's black face."],
     "action.any.tome_smothered": ["You smother the Tome's glow. For a moment you are hard to see."],
     "action.any.tome_smother_fail": ["You try to smother the Tome's glow, but it bleeds through your fingers."],
+    "action.any.tome_smother_dark": ["You cover the Tome, but there is no glow left in it to hide."],
     "action.talk.npc": ["{npc} studies you before answering.", "{npc} takes a moment with your words.",
-                        "{npc} glances at the Tome's light, then back to you."],
+                        "{npc} glances at the Tome, then back to you."],
     "action.talk.fail": ["Your words come out wrong, and {npc} hears every crack in them."],
     "action.talk.mixed": ["{npc} weighs what you said, unconvinced but listening."],
     "action.talk.success": ["Your words land exactly where you meant them to. {npc} goes still."],
@@ -85,7 +96,7 @@ DEFAULT_BANKS: dict[str, list[str]] = {
     "bite": ["Pain arrives a half-second late.", "It costs you. It always costs you."],
     "beat.calm": ["Somewhere far off, a pipe ticks as it cools.", "For a moment, only the hum of dying machines.",
                   "Frost creeps across a viewport, slow as breath."],
-    "beat.escalate": ["Deep in the hull, something answers the noise you made.",
+    "beat.escalate": ["Deep in the hull, something heavy shifts its weight.",
                       "The station shudders. A low choir of static rises and falls.",
                       "Far below, a bulkhead opens on its own."],
     "beat.clue": ["Something here wants to be understood."],
@@ -95,10 +106,10 @@ DEFAULT_BANKS: dict[str, list[str]] = {
                      "A pocket of warmth: a vent still pushing air. Rest, while you can."],
     "beat.twist": ["Then the floor changes its mind.", "Wrong. Something about this is wrong."],
     "beat.advance": ["The way onward stands open, and the dark behind you is growing patient.",
-                     "There's nothing more for you here. The Tome's light leans toward the exit."],
+                     "Nothing stands between you and the way on now."],
     "npc.rumor": ["Funny. I heard a different story about you.", "People talk, even down here."],
     "npc.regret": ["I wanted to trust you. You made that impossible.", "We could have walked out of here together."],
-    "ending.won": ["The airlock seals behind you. The Tome's light steadies, then dims to a sleeping glow. "
+    "ending.won": ["The airlock seals behind you, and the Tome settles against your chest like a sleeping thing. "
                    "You are out. Whatever is left in the Hollow Lantern will have to keep its own dark."],
     "ending.dead": ["Your light goes out before you do, but not by much. The Tome closes over your name, "
                     "and the station keeps you."],

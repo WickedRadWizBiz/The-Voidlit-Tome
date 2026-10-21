@@ -79,9 +79,10 @@ the Tome pushes escalation. The renderer dims the voxels with it, so you watch y
 
 ## The Tome acts too
 
-The Tome's moves are checks with its own modifiers (Grit, Guile, Insight, Resolve, each −2 to +6). Until its network
-supplies them, its Grit follows its light (`−2 + 8 × Lumen fraction`) and the rest sit at Guile +2, Insight +2,
-Resolve +3.
+The Tome's moves are checks with its own modifiers (Grit, Guile, Insight, Resolve, each −2 to +6). Its network sets
+them each turn: Grit from its energy and arousal, Guile from its confidence and dopamine, Insight from its prediction
+error, Resolve from its drive and serotonin. The classic Director engine (`--brain director`) uses fixed values
+instead: Grit follows the light (`−2 + 8 × Lumen fraction`), Guile +2, Insight +2, Resolve +3.
 
 | Move | Check | On a fail |
 |---|---|---|
@@ -92,6 +93,19 @@ Resolve +3.
 You can turn on the Tome as well: strike it (Grit vs 10 + its Grit; a hit costs it one light), smother its glow
 (Guile vs 10 + its Insight; +2 on your next Guile roll), lie to it, or threaten it. Each opposes the Tome directly,
 so the upper-hand d6 applies. Asking it a question is never rolled; it answers in the first person.
+
+**What the Tome tells you.** It lies only by omission:
+
+* Ask it something precise ("Tome, where is the lifeboat?") and it must tell you everything it knows on that topic,
+  truthfully, though it may frame it.
+* A vague question gets the least it can get away with. A question about its feelings, or about luck and chance,
+  gets an answer that says nothing.
+* Unasked, it may volunteer something true that suits it, make a self-serving suggestion (a prediction, an opinion
+  or a rhetorical question, never a false fact) or ask you a question. It speaks unbidden at most every other turn.
+* A suggestion is a check (its Guile vs 10 + your Insight mod); if it fails, the narration shows a tell.
+* It never says anything false about what has happened, never tells you how it feels or what it thinks of you, and
+  never claims "there is no other way" unless that is literally true.
+* Its mood shows only in how it words things.
 
 ## Clocks, rest and allies
 

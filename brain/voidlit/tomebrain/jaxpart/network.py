@@ -38,9 +38,11 @@ NEUROMOD_TAU = (200.0, 500.0, 1000.0, 300.0)
 ASTRO = dict(rC=6.0, rL=0.11, CT=2.0, c1=0.185, vER=2.0, KER=0.1, d1=0.13, d2=1.049, d3=0.9434, d5=0.08234,
              a2=0.2, v_beta=0.5, v_delta=0.02, kappa_delta=1.5, K_delta=0.1, v3K=2.0, KD=0.7, K3=1.0, r5P=0.04,
              glu_tau=50.0, glu_gain=0.1, gamma_tau=1000.0, gamma_jump=0.6, gamma_theta=0.5)
-# K_ATP g_max: 0.6 nS on cortical excitatory cells puts the cortex at about half its baseline at Lumen 0 (G3b: weak,
-# not comatose); 4 nS on the dopamine cells, whose firing fails first when energy runs out (Liss et al. 2005).
-ENERGY = dict(k_sup=1.0, k_rest=0.06, k_syn=0.01, k_spike=0.004, katp_gmax=0.6, katp_gmax_da=4.0, katp_half=0.55,
+# K_ATP g_max: 0.3 nS on cortical excitatory cells puts the cortex at about half its baseline at Lumen 0 (G3b: weak,
+# not comatose); 4 nS on the dopamine cells, whose firing fails first when energy runs out (Liss et al. 2005). (Refit
+# when the quiet interval gained its synaptic ATP cost: starving ATP fell from 0.55 to 0.27, and 0.6 nS left the
+# cortex at 22%.)
+ENERGY = dict(k_sup=1.0, k_rest=0.06, k_syn=0.01, k_spike=0.004, katp_gmax=0.3, katp_gmax_da=4.0, katp_half=0.55,
               nad_tau=60e3)
 
 
@@ -676,7 +678,12 @@ def make_quiet(net: Net):
     """The quiet interval Q (design §5.6): 20 s of slow-only brain time between turns (the player reading and
     typing). Fast state (membranes, conductances, STP, eligibility) is frozen; astrocytes, ATP, NAD and the
     Graupner-Brunel drift integrate in 20-ms steps against an activity profile that decays from the turn's rates to
-    the resting rates with tau 2 s. Returns a jitted ``quiet(state, glucose, rate_turn[N], rate_rest[N])``."""
+    the resting rates with tau 2 s. Returns a jitted ``quiet(state, glucose, rate_turn[N], rate_rest[N])``.
+
+    ATP is the window's full equation, synaptic cost included: each cell's excitatory (AMPA + NMDA) conductance starts
+    at its end-of-turn value and relaxes with the same profile to its resting value, the end-of-turn conductance
+    scaled by how much the cell's mean-field excitatory drive (sum of w tau_rec r_pre over its synapses) falls from
+    the turn's rates to the resting rates."""
     import jax
     import jax.numpy as jnp
     from jax import lax
@@ -689,16 +696,36 @@ def make_quiet(net: Net):
     dom_idx = jnp.maximum(astro_of, 0)
     E = ENERGY
     dt_s = QUIET_STEP_MS * 1e-3
+    owner = _slot_owner(net)
+    slot = net.tables["slot"]
+    exc = (slot < net.n_slot) & (slot % PR.N_REC <= PR.NMDA)            # AMPA and NMDA onto a real compartment
+    mf_w = jnp.asarray((net.tables["w"] * np.asarray(PR.TAU_REC, np.float32)[slot % PR.N_REC])[exc])
+    mf_pre = jnp.asarray(np.nonzero(exc)[0], jnp.int32)
+    mf_post = jnp.asarray(owner[slot[exc] // PR.N_REC], jnp.int32)
+    slot_owner = jnp.asarray(owner, jnp.int32)
+
+    def g_exc(G):
+        """Per-cell excitatory conductance (nS), as the window's ATP equation reads it."""
+        return jax.ops.segment_sum(G[:net.n_slot].reshape(-1, PR.N_REC)[:, :2].sum(1), slot_owner, net.n)
+
+    def drive(rate):
+        return jax.ops.segment_sum(mf_w * rate[mf_pre], mf_post, net.n)
 
     def quiet(st, glucose, rate_turn, rate_rest):
+        g_turn = g_exc(st["G"])
+        d_turn, d_rest = drive(rate_turn), drive(rate_rest)
+        g_rest = jnp.where(d_turn > 0, g_turn * d_rest / jnp.maximum(d_turn, 1e-9), g_turn)
+
         def body(k, carry):
             astro, atp, rho, nad = carry
-            r = rate_rest + (rate_turn - rate_rest) * jnp.exp(-k * QUIET_STEP_MS / POST_TAU_MS)   # Hz
+            relax = jnp.exp(-k * QUIET_STEP_MS / POST_TAU_MS)
+            r = rate_rest + (rate_turn - rate_rest) * relax                                       # Hz
+            g = g_rest + (g_turn - g_rest) * relax                                                # nS
             dom = jax.ops.segment_sum(r * 1e-3 * in_dom, dom_idx, net.n_astro)                     # spikes/ms
             astro = astro_step(astro, dom, QUIET_STEP_MS)
             Ca = astro[1]
             cbf = jnp.where(in_dom, 1.0 + 0.5 * Ca[dom_idx] / (Ca[dom_idx] + 0.5), 1.0)
-            atp = jnp.clip(atp + (E["k_sup"] * glucose * cbf * (1.05 - atp) - E["k_rest"]
+            atp = jnp.clip(atp + (E["k_sup"] * glucose * cbf * (1.05 - atp) - E["k_rest"] - E["k_syn"] * g
                                   - E["k_spike"] * r) * dt_s, 0.0, 1.05)
             rho = jnp.clip(rho + QUIET_STEP_MS * gb_drho(rho, 0.0, nad), 0.0, 1.0)    # calcium-free drift only
             nad = nad + (jnp.mean(atp) - nad) * QUIET_STEP_MS / E["nad_tau"]

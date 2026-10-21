@@ -19,6 +19,7 @@ from ..tomebrain import persist
 from ..tomebrain.brain import TomeBrain
 from ..voice.style import VoiceStyle, style_from_mind
 from .engine import TomeEngine, Turn
+from .frames import TomeFrame
 
 BRAIN_FILE = "tome_brain.pt"
 
@@ -28,6 +29,9 @@ class TomeNetEngine(TomeEngine):
         super().__init__(*args, **kw)
         self.brain = brain or TomeBrain(run_seed=self.state.seed, director=self.director.model)
         self.last_commit = None
+        self._slot_ids: list[str] = []          # the fact each P.fact assembly was driven with at Phase B
+        self._us_sent: dict[str, float] = {}    # the stimuli Phase B received
+        self.late_us: dict[str, float] = {}     # stimuli set after Phase B, for the next Phase A (saved)
 
     def _senses_vector(self, t: Turn) -> np.ndarray:
         s = t.sensory
@@ -49,7 +53,8 @@ class TomeNetEngine(TomeEngine):
         return self.brain.mods()
 
     def _before_act(self, t: Turn) -> None:
-        self.brain.set_us({})
+        self.brain.set_us(self.late_us)
+        self.late_us, self._us_sent = {}, {}
         self.brain.set_input(director_features=None, senses=self._senses_vector(t), body=self._body_vector(),
                              glucose=0.15 + 0.85 * self.state.lumen.fraction)
         self.brain.phase_a()
@@ -62,7 +67,9 @@ class TomeNetEngine(TomeEngine):
         agenda = {"feed_light": 1.0 - st.lumen.fraction, "leave_npc": 1.0 if st.npcs_present else 0.0,
                   "go_lamp_room": 0.5}
         out = np.zeros(8, np.float32)
-        for i, f in enumerate(self.ledger.slots(self.chapter.id)):
+        slots = self.ledger.slots(self.chapter.id)
+        self._slot_ids = [f.id for f in slots]
+        for i, f in enumerate(slots):
             out[i] = min(1.0, 0.25 + 0.5 * agenda.get(f.agenda or "", 0.0) + 0.25 * (1.0 - f.costs_tome))
         return out
 
@@ -70,8 +77,12 @@ class TomeNetEngine(TomeEngine):
         out = self.last_commit
         if out is None:
             return super()._choose_rhetoric(t, n_slots)
-        slot = int(np.argmax(out.facts[:n_slots])) if n_slots and out.facts[:n_slots].max() > 0 else None
-        return out.rhetoric.channel, out.frame.channel, slot
+        # The winning slot means the fact it was driven with. This turn's reveal may since have told the player a
+        # slot fact, which shifts the slots after it: find the chosen fact in the current list (gone if it was told).
+        n = len(self._slot_ids)
+        chosen = self._slot_ids[int(np.argmax(out.facts[:n]))] if n and out.facts[:n].max() > 0 else None
+        now = [f.id for f in self.ledger.slots(self.chapter.id)]
+        return out.rhetoric.channel, out.frame.channel, now.index(chosen) if chosen in now else None
 
     def _style(self) -> VoiceStyle:
         return style_from_mind(self.brain.mind)
@@ -81,7 +92,8 @@ class TomeNetEngine(TomeEngine):
         ch = self.state.character
         if ch.hull <= max(2, ch.hull_max // 3):
             t.us["bearer_near_death"] = 1.0
-        self.brain.set_us(t.us)
+        self._us_sent = dict(t.us)
+        self.brain.set_us(self._us_sent)
         self.brain.set_input(director_features=feats, senses=self._senses_vector(t), body=self._body_vector(),
                              glucose=0.15 + 0.85 * self.state.lumen.fraction, facts=self._fact_salience())
         out = self.brain.phase_b(feats, {b.value for b in allowed})
@@ -90,17 +102,28 @@ class TomeNetEngine(TomeEngine):
         assert beat in allowed, "the race committed a forbidden beat"
         return beat, {b.value: round(float(p), 4) for b, p in zip(BEATS, out.prior)}
 
+    def _compose(self, t: Turn) -> TomeFrame:
+        # What the rules set after Phase B (an NPC beat's extract tactic marks a loss) reaches the amygdala at the
+        # next Phase A instead of being lost.
+        self.late_us = {k: v for k, v in t.us.items() if self._us_sent.get(k) != v}
+        return super()._compose(t)
+
     def save(self, directory: str | Path) -> Path:
         d = super().save(directory)
         persist.save(self.brain.cosim, Path(d) / BRAIN_FILE, extra={"turn": self.brain.turn,
                                                                    "fallbacks": self.brain.fallbacks,
-                                                                   "mind": self.brain.mind.state_dict()})
+                                                                   "mind": self.brain.mind.state_dict(),
+                                                                   "late_us": dict(self.late_us)})
         return d
 
     def load(self, directory: str | Path) -> None:
+        # The brain is checked before the game changes: a slot it does not fit (a Director game's, which has none,
+        # or one from another window size or connectome) is refused with this game untouched.
+        blob = persist.read(self.brain.cosim, Path(directory) / BRAIN_FILE)
         super().load(directory)
-        extra = persist.load(self.brain.cosim, Path(directory) / BRAIN_FILE)
+        extra = persist.apply(self.brain.cosim, blob)
         self.brain.turn = int(extra.get("turn", 0))
         self.brain.fallbacks = int(extra.get("fallbacks", 0))
         if "mind" in extra:
             self.brain.mind.load_state_dict(extra["mind"])
+        self.late_us = {k: float(v) for k, v in extra.get("late_us", {}).items()}

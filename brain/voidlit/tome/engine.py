@@ -53,7 +53,7 @@ from .ledger import DICE_DEFLECTIONS, FRAMES, MOOD_DEFLECTIONS, DisclosurePlan, 
 from .frames import PALETTE, Block, Span, TomeFrame, text_block
 
 ENGAGING = {Intent.FIGHT, Intent.FORCE, Intent.SNEAK, Intent.SEARCH, Intent.USE}
-SAVE_VERSION = 2
+SAVE_VERSION = 3        # 3: the Tome's amygdala and ledger (M4, M5), the Director's generator
 TWIST_PIPS = ("grit", "grit", "guile", "guile", "insight", "insight")
 APPROACH_WORDS = {"grit": "force", "guile": "stealth or a trick", "insight": "careful study"}
 TOME_ALIASES = ("tome", "book", "monolith")
@@ -1255,6 +1255,7 @@ class TomeEngine:
             "ledger": self.ledger.state_dict(), "last_unprompted": self.last_unprompted,
             "speech_rng": [self.speech_rng.getstate()[0], list(self.speech_rng.getstate()[1]),
                            self.speech_rng.getstate()[2]],
+            "director_gen": bytes(self.director.gen.get_state().tolist()).hex(),   # its spiking encoder's noise
         }
         (d / "campaign.json").write_text(json.dumps(blob, indent=1))
         for nid, brain in self.brains.items():
@@ -1262,13 +1263,23 @@ class TomeEngine:
         return d
 
     def load(self, directory: str | Path) -> None:
+        """Every file is read and checked before anything changes, so a refused or damaged save leaves the game as
+        it was."""
+        import torch
+
         d = Path(directory)
         blob = json.loads((d / "campaign.json").read_text())
         if blob.get("version") != SAVE_VERSION or blob.get("scenario") != self.scenario.id:
             raise ValueError("save does not match this scenario or engine version")
+        state = GameState.from_dict(blob["state"])
+        npc_states = {nid: torch.load(d / "brains" / f"{nid}.pt", weights_only=False) for nid in self.brains}
+        director_gen = torch.tensor(list(bytes.fromhex(blob["director_gen"])), dtype=torch.uint8)
+        for nid, brain in self.brains.items():          # each checks that its state fits before taking it
+            brain.load_state_dict(npc_states[nid])
+        self.director.gen.set_state(director_gen)
         self.player_name = blob["player_name"]
         self.seq = blob["seq"]
-        self.state = GameState.from_dict(blob["state"])
+        self.state = state
         r = blob["rng"]
         self.rng.setstate((r[0], tuple(r[1]), r[2]))
         voice_rng = getattr(getattr(self.voice, "fallback", self.voice), "rng", None)
@@ -1280,5 +1291,3 @@ class TomeEngine:
         if blob.get("speech_rng"):
             v = blob["speech_rng"]
             self.speech_rng.setstate((v[0], tuple(v[1]), v[2]))
-        for nid, brain in self.brains.items():
-            brain.load(d / "brains" / f"{nid}.pt")

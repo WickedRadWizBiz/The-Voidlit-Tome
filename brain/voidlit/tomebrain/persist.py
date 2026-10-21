@@ -3,8 +3,8 @@
 The file is a ``torch.save`` of tensors and plain containers only, read back with ``weights_only=True``. Loading
 refuses a different format, version or connectome; a different software build only warns, because the state is
 still valid but bit-exact continuation is guaranteed only on the same build. ``read`` makes every check without
-changing the brain and ``apply`` then loads it, so a game can refuse a save before it changes anything else.
-``snapshot`` is a save held in memory: applying it takes the brain back to that moment (a failed load's undo).
+changing the brain and ``apply`` then loads it, all or nothing, so a game can refuse a save before it changes anything
+else. ``snapshot`` is a save held in memory: applying it takes the brain back to that moment (a failed load's undo).
 """
 
 from __future__ import annotations
@@ -121,14 +121,25 @@ def read(cosim, path: str | Path) -> dict:
     return blob
 
 
-def apply(cosim, blob: dict) -> dict:
-    """Load a save that ``read`` accepted, or a ``snapshot``. Returns its ``extra``."""
+def _apply(cosim, blob: dict) -> None:
     for p in cosim.partitions:
         p.load_state_dict(blob["partitions"][p.name])
     cosim.bus.load_state_dict(blob["bus"])
     cosim.clock.load_state_dict(blob["clock"])
+
+
+def apply(cosim, blob: dict) -> dict:
+    """Load a save that ``read`` accepted, or a ``snapshot``, all or nothing: should a part still fail to take it, the
+    brain takes back what it held and the error is raised. Returns its ``extra``."""
+    held = snapshot(cosim)
+    try:
+        _apply(cosim, blob)
+    except Exception:
+        _apply(cosim, held)         # (should even this fail, its error is raised: the brain is then broken)
+        raise
     return blob["extra"]
 
 
 def load(cosim, path: str | Path) -> dict:
+    """Read, check and load a brain save, all or nothing. Returns its ``extra``."""
     return apply(cosim, read(cosim, path))

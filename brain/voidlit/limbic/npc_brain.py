@@ -37,6 +37,7 @@ from bindsnet.network.monitors import Monitor
 from bindsnet.network.nodes import Input, LIFNodes
 from bindsnet.network.topology import Connection
 
+from ..saves import check_types
 from ..senses.state import NPC_CHANNELS, SensoryState
 from .dendrites import BranchMeta, DendriticBranchNodes, poisson_spikes, soft_bound
 
@@ -137,6 +138,16 @@ class BrainDecision:
     @classmethod
     def from_dict(cls, d: dict) -> "BrainDecision":
         return cls(**copy.deepcopy(d))
+
+
+# A saved brain state, as ``saves.check_types`` reads it (the tensors' shapes and dtypes are checked apart)
+STATE_TYPES = {
+    "version": int, "npc_id": str, "B": int, "P": int, "T": int, "w_spines": torch.Tensor,
+    "w_tactics": torch.Tensor, "w_route": torch.Tensor, "spine_mask": torch.Tensor, "e_spines": torch.Tensor | None,
+    "e_tactics": torch.Tensor | None, "calcium": torch.Tensor, "momentum": torch.Tensor,
+    "meta": list[BranchMeta | None], "next_branch_id": int, "reward_baseline": float, "turn": int,
+    "last_trauma_turn": int, "gen_state": torch.Tensor, "last_decision": BrainDecision | None,
+}
 
 
 class NPCBrain:
@@ -410,10 +421,9 @@ class NPCBrain:
         save from before the brain's first step."""
         if not isinstance(d, dict) or d.get("version") != STATE_VERSION or d.get("npc_id") != self.spec.id:
             raise ValueError(f"not a v{STATE_VERSION} brain state for {self.spec.id!r}")
-        if set(d) != set(self.state_dict()):
-            raise ValueError(f"{self.spec.id}'s brain state has other keys than {sorted(self.state_dict())}")
+        check_types(f"{self.spec.id}'s brain state", d, STATE_TYPES)
         C, B, P, T = self.C, self.B, self.P, self.T
-        if (d["B"], d["P"], d["T"]) != (B, P, T) or not isinstance(d["meta"], list) or len(d["meta"]) != B:
+        if (d["B"], d["P"], d["T"]) != (B, P, T) or len(d["meta"]) != B:
             raise ValueError("brain state shape does not match this NPC's spec")
         shapes = {"w_spines": (C, B), "w_tactics": (P, T), "w_route": (B, P), "spine_mask": (C, B),
                   "e_spines": (1, C, B), "e_tactics": (1, P, T), "calcium": (B,), "momentum": (P,),
@@ -423,21 +433,17 @@ class NPCBrain:
             v, dtype = d[key], dtypes.get(key)
             if v is None and key.startswith("e_"):
                 continue
-            if not (isinstance(v, torch.Tensor) and v.shape == shape
-                    and (v.dtype == dtype if dtype else v.is_floating_point())):
+            if v.shape != shape or not (v.dtype == dtype if dtype else v.is_floating_point()):
                 raise ValueError(f"{self.spec.id}'s brain state {key} is not a {dtype or 'float'} tensor of {shape}")
-        counts = [d[k] for k in ("next_branch_id", "turn", "last_trauma_turn")]
-        if not all(isinstance(c, int) for c in counts) or not isinstance(d["reward_baseline"], (int, float)):
-            raise ValueError(f"{self.spec.id}'s brain state holds a count or baseline that is not a number")
         try:
-            plots = [BranchMeta.from_dict(m).target_plot for m in d["meta"] if m is not None]
-            last = None if d["last_decision"] is None else BrainDecision.from_dict(d["last_decision"])
-            if last is not None:
-                plots += [last.dominant_plot, last.secondary_plot]
-            fits = all(0 <= p < P for p in plots) and (last is None or 0 <= last.tactic < T)
-        except TypeError as e:
-            raise ValueError(f"{self.spec.id}'s brain state: {e}") from None
-        if not fits:
+            torch.Generator().set_state(d["gen_state"])     # a state a generator takes
+        except RuntimeError as e:
+            raise ValueError(f"{self.spec.id}'s brain state gen_state: {e}") from None
+        plots = [m["target_plot"] for m in d["meta"] if m is not None]
+        last = d["last_decision"]
+        if last is not None:
+            plots += [last["dominant_plot"], last["secondary_plot"]]
+        if not all(0 <= p < P for p in plots) or (last is not None and not 0 <= last["tactic"] < T):
             raise ValueError(f"{self.spec.id}'s brain state names a plot or tactic this NPC does not have")
 
     def load_state_dict(self, d: dict) -> None:

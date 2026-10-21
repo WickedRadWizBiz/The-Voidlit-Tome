@@ -95,7 +95,12 @@ def cmd_play(args: argparse.Namespace) -> int:
         if text in (":q", "quit", "exit"):
             return 0
         if text.startswith(":save"):
-            print(f"saved to {engine.save(text.split(maxsplit=1)[1] if ' ' in text else 'saves/quicksave')}")
+            try:                        # a save is all or nothing: one that fails leaves the slot as it was
+                path = engine.save(text.split(maxsplit=1)[1] if " " in text else "saves/quicksave")
+            except SaveError as e:
+                print(f"save failed: {e}")
+                continue
+            print(f"saved to {path}")
             continue
         if text.startswith(":load"):
             try:                        # a load is all or nothing: a save it refuses leaves the game as it was

@@ -15,15 +15,32 @@ from pathlib import Path
 import numpy as np
 
 from ..cortex.features import BEATS, Beat
+from ..saves import check_stamp, check_types
 from ..tomebrain import persist
 from ..tomebrain.brain import TomeBrain
-from ..tomebrain.partition import check_shapes
 from ..tomebrain.readout import Mind
 from ..voice.style import VoiceStyle, style_from_mind
 from .engine import TomeEngine, Turn
 from .frames import TomeFrame
 
 BRAIN_FILE = "tome_brain.pt"
+
+
+def _mind_types() -> dict:
+    """The type of every value a Mind holds, from a new one. Exactly its keys: a save missing one is refused, not
+    filled in with a default (only saves older than this version lacked any)."""
+    def kind(v) -> type:
+        return int if isinstance(v, int) else float     # (the check modifiers are ints, every readout a float)
+
+    out = {k: {n: kind(x) for n, x in v.items()} if isinstance(v, dict) else kind(v)
+           for k, v in Mind().state_dict().items()}
+    out["stats"] = dict[str, tuple[float, float, int]]      # each signal's running mean, variance and count
+    return out
+
+
+# What the brain file holds beside the network itself: ``_brain_extra``, and the save id
+BRAIN_EXTRA_TYPES = {"turn": int, "fallbacks": int, "mind": _mind_types(), "late_us": dict[str, float],
+                     "save_id": str}
 
 
 class TomeNetEngine(TomeEngine):
@@ -115,10 +132,9 @@ class TomeNetEngine(TomeEngine):
         return {"turn": self.brain.turn, "fallbacks": self.brain.fallbacks, "mind": self.brain.mind.state_dict(),
                 "late_us": dict(self.late_us)}
 
-    def save(self, directory: str | Path) -> Path:
-        d = super().save(directory)
-        persist.save(self.brain.cosim, Path(d) / BRAIN_FILE, extra=self._brain_extra())
-        return d
+    def _write_save(self, d: Path, save_id: str) -> None:
+        super()._write_save(d, save_id)
+        persist.save(self.brain.cosim, d / BRAIN_FILE, extra={**self._brain_extra(), "save_id": save_id})
 
     def _snapshot(self) -> dict:
         return {**super()._snapshot(), "brain": persist.snapshot(self.brain.cosim, self._brain_extra())}
@@ -128,13 +144,8 @@ class TomeNetEngine(TomeEngine):
         # connectome) is refused here, with nothing changed
         saved = super()._read_save(d)
         saved["brain"] = blob = persist.read(self.brain.cosim, d / BRAIN_FILE)
-        extra = blob["extra"]
-        check_shapes("brain extra", extra, {"turn": (), "fallbacks": (), "mind": None, "late_us": None})
-        mind, fresh = Mind(), Mind()
-        mind.load_state_dict(extra["mind"])         # its own reader (which takes older saves' readouts too)
-        if any(set(getattr(mind, k)) != set(getattr(fresh, k)) for k in ("needs", "pad", "affect", "mods")):
-            raise ValueError("the Tome's mind in this save does not fit this build")
-        check_shapes("late stimuli", extra["late_us"], {k: () for k in extra["late_us"]})
+        check_types("brain extra", blob["extra"], BRAIN_EXTRA_TYPES)
+        check_stamp(BRAIN_FILE, blob["extra"]["save_id"], saved["save_id"])
         return saved
 
     def _take_save(self, saved: dict) -> None:

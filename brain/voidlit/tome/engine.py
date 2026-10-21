@@ -44,6 +44,7 @@ from ..rules.lumen import LUMEN_MAX, Lumen
 from ..rules.obstacles import Obstacle, resolve_exchange
 from ..rules.panic import panic_check
 from ..rules.sector import Chapter, SectorDeck
+from ..saves import check_stamp, check_types, write_slot
 from ..senses.heuristic import HeuristicTransducer
 from ..senses.state import Intent, SensoryState
 from ..voice.narrator import OfflineVoice
@@ -58,7 +59,9 @@ from .frames import PALETTE, Block, Span, TomeFrame, text_block
 log = logging.getLogger(__name__)
 
 ENGAGING = {Intent.FIGHT, Intent.FORCE, Intent.SNEAK, Intent.SEARCH, Intent.USE}
-SAVE_VERSION = 4        # 3: the Tome's amygdala and ledger (M4, M5), the Director's generator; 4: NPCs' last decisions
+# 3: the Tome's amygdala and ledger (M4, M5), the Director's generator; 4: NPCs' last decisions; 5: one save id
+# stamped into every file of a slot
+SAVE_VERSION = 5
 TWIST_PIPS = ("grit", "grit", "guile", "guile", "insight", "insight")
 APPROACH_WORDS = {"grit": "force", "guile": "stealth or a trick", "insight": "careful study"}
 TOME_ALIASES = ("tome", "book", "monolith")
@@ -112,8 +115,9 @@ def smothers(text: str) -> bool:
 
 
 class SaveError(ValueError):
-    """A save this game cannot load: missing, unreadable, damaged, or another game's or build's. The game that tried
-    to load it is exactly as it was."""
+    """A save this game cannot write, or cannot load: missing, unreadable, damaged, torn, or another game's or build's.
+    The slot, or the game that tried to load it, is exactly as it was. (Should even undoing a load that failed
+    halfway fail, the run is closed instead, and the message says so.)"""
 
 
 def _rng_state(rng: random.Random) -> list:
@@ -176,6 +180,15 @@ class GameState:
         d["clocks"] = [Clock.from_dict(c) for c in d["clocks"]]
         d["obstacles"] = [Obstacle.from_dict(o) for o in d["obstacles"]]
         return cls(**d)
+
+
+# What campaign.json holds, as ``saves.check_types`` reads it: the game state by GameState's own fields (and theirs)
+RNG_STATE = tuple[int, list[int], float | None]         # random.Random.getstate()
+CAMPAIGN_TYPES = {
+    "version": int, "scenario": str, "player_name": str, "seq": int, "state": GameState, "rng": RNG_STATE,
+    "voice_rng": RNG_STATE | None, "ledger": {"disclosed": list[str], "asked": list[str]}, "last_unprompted": int,
+    "speech_rng": RNG_STATE, "director_gen": str,
+}
 
 
 @dataclass
@@ -264,8 +277,9 @@ class TomeEngine:
 
     def turn(self, text: str) -> TomeFrame:
         st = self.state
-        if st.over:
-            return self._frame([text_block("system", "The Tome is closed. Begin a new run.")], Turn(text=text))
+        if st.over:         # (its debug lists this turn's checks, none, as every frame does: not the whole run's)
+            return self._frame([text_block("system", "The Tome is closed. Begin a new run.")],
+                               Turn(text=text, checks_from=len(self.checks.records)))
         t = Turn(text=text, checks_from=len(self.checks.records))
         t.sensory = self.transducer.extract(text, self._targets(), self.ledger.topic_words)
         self._before_act(t)
@@ -1296,12 +1310,13 @@ class TomeEngine:
 
     # ================================================================ persistence
     # A save is a directory: campaign.json (the game), brains/<npc>.pt (each NPC's brain) and, in the network
-    # engine, the Tome's own brain. ``_snapshot`` holds the same in memory; ``load`` takes a save all or nothing.
+    # engine, the Tome's own brain, every file stamped with the same save id. ``save`` writes it all or nothing,
+    # ``_snapshot`` holds the same in memory, and ``load`` takes a save all or nothing.
     def _voice_rng(self) -> random.Random | None:
         return getattr(getattr(self.voice, "fallback", self.voice), "rng", None)
 
     def _campaign(self) -> dict:
-        """The game's own state, as campaign.json holds it."""
+        """The game's own state, as campaign.json holds it (beside its save id)."""
         voice_rng = self._voice_rng()
         return {
             "version": SAVE_VERSION, "scenario": self.scenario.id, "player_name": self.player_name,
@@ -1313,16 +1328,28 @@ class TomeEngine:
         }
 
     def save(self, directory: str | Path) -> Path:
+        """Write a save, all or nothing: the whole slot is written beside the old one and only then takes its place.
+        Raises SaveError, with the slot exactly as it was."""
         d = Path(directory)
-        (d / "brains").mkdir(parents=True, exist_ok=True)
-        (d / "campaign.json").write_text(json.dumps(self._campaign(), indent=1))
-        for nid, brain in self.brains.items():
-            brain.save(d / "brains" / f"{nid}.pt")
+        try:
+            write_slot(d, self._write_save)
+        except Exception as e:
+            raise SaveError(f"{d.name}: could not save: {e} (the slot is as it was)") from e
         return d
+
+    def _write_save(self, d: Path, save_id: str) -> None:
+        """Write every file of a save into the new directory ``d``, each stamped with ``save_id``."""
+        import torch
+
+        (d / "campaign.json").write_text(json.dumps({**self._campaign(), "save_id": save_id}, indent=1))
+        (d / "brains").mkdir()
+        for nid, brain in self.brains.items():
+            torch.save({"save_id": save_id, "brain": brain.state_dict()}, d / "brains" / f"{nid}.pt")
 
     def load(self, directory: str | Path) -> None:
         """Load a save, all or nothing. Every file is read and checked before anything changes, and should taking it
-        in still fail, the game takes back what it held. Raises SaveError, with the game exactly as it was."""
+        in still fail, the game takes back what it held. Raises SaveError, with the game exactly as it was; should
+        even that fail, the run is closed."""
         d = Path(directory)
         try:
             saved = self._read_save(d)
@@ -1332,7 +1359,12 @@ class TomeEngine:
         try:
             self._take_save(saved)
         except Exception as e:
-            self._take_save(held)
+            try:
+                self._take_save(held)
+            except Exception as undo:   # a bug, not a bad save: neither game can go on safely
+                self.state.over = True
+                raise SaveError(f"{d.name}: {e}; the game could not be restored either ({undo}), so this run is "
+                                "closed") from undo
             raise SaveError(f"{d.name}: {e} (nothing was loaded)") from e
 
     def _snapshot(self) -> dict:
@@ -1341,12 +1373,22 @@ class TomeEngine:
                 "npcs": {nid: brain.state_dict() for nid, brain in self.brains.items()}}
 
     def _read_save(self, d: Path) -> dict:
-        """Read a save and check that all of it fits this game, changing nothing."""
+        """Read a save and check that its files belong together and that all of it fits this game, changing
+        nothing."""
         import torch
 
-        saved = {"campaign": json.loads((d / "campaign.json").read_text()),
-                 # tensors and plain containers only: a save file cannot run code
-                 "npcs": {nid: torch.load(d / "brains" / f"{nid}.pt", weights_only=True) for nid in self.brains}}
+        campaign = json.loads((d / "campaign.json").read_text())
+        if (not isinstance(campaign, dict) or campaign.get("version") != SAVE_VERSION
+                or campaign.get("scenario") != self.scenario.id):
+            raise ValueError("save does not match this scenario or engine version")
+        saved = {"save_id": campaign.pop("save_id", None), "campaign": campaign, "npcs": {}}
+        check_types("save id", saved["save_id"], str)
+        for nid in self.brains:
+            # tensors and plain containers only: a save file cannot run code
+            blob = torch.load(d / "brains" / f"{nid}.pt", weights_only=True)
+            check_types(f"brains/{nid}.pt", blob, {"save_id": str, "brain": dict})
+            check_stamp(f"brains/{nid}.pt", blob["save_id"], saved["save_id"])
+            saved["npcs"][nid] = blob["brain"]
         self._check_save(saved)
         return saved
 
@@ -1354,22 +1396,18 @@ class TomeEngine:
         import torch
 
         blob, sc = saved["campaign"], self.scenario
-        if not isinstance(blob, dict) or blob.get("version") != SAVE_VERSION or blob.get("scenario") != sc.id:
-            raise ValueError("save does not match this scenario or engine version")
-        if set(blob) != set(self._campaign()) or set(blob["state"]) != set(self.state.to_dict()):
-            raise ValueError("the campaign is incomplete")
+        check_types("campaign", blob, CAMPAIGN_TYPES)
         state = GameState.from_dict(blob["state"])
-        if (not set(state.deck.order) <= set(sc.chapters) or state.deck.current not in sc.chapters
-                or not set(state.npcs_present) | set(state.npcs_met) <= set(sc.npcs)):
+        deck = state.deck
+        if (not set(deck.order) <= set(sc.chapters) or not 0 <= deck.index < len(deck.order)
+                or not set(state.npcs_present) | set(state.npcs_met) <= set(sc.npcs)
+                or not set(blob["ledger"]["disclosed"]) <= set(self.ledger.facts)):
             raise ValueError("the campaign's game does not fit this scenario")
+        if (blob["voice_rng"] is None) != (self._voice_rng() is None):
+            raise ValueError("the campaign's voice does not fit this game's")
         for s in (blob["rng"], blob["speech_rng"]) + ((blob["voice_rng"],) if blob["voice_rng"] is not None else ()):
             _set_rng(random.Random(), s)            # each a state a generator takes
         torch.Generator().set_state(torch.tensor(list(bytes.fromhex(blob["director_gen"])), dtype=torch.uint8))
-        led = blob["ledger"]
-        if not (isinstance(blob["player_name"], str) and isinstance(blob["seq"], int)
-                and isinstance(blob["last_unprompted"], int) and isinstance(led, dict)
-                and set(led) == {"disclosed", "asked"} and all(isinstance(x, str) for v in led.values() for x in v)):
-            raise ValueError("the campaign is damaged")
         for nid, brain in self.brains.items():
             brain.check_state_dict(saved["npcs"][nid])
 
@@ -1385,7 +1423,7 @@ class TomeEngine:
         self.state = GameState.from_dict(blob["state"])
         _set_rng(self.rng, blob["rng"])
         voice_rng = self._voice_rng()
-        if voice_rng is not None and blob["voice_rng"] is not None:
+        if voice_rng is not None:
             _set_rng(voice_rng, blob["voice_rng"])
         self.ledger.load_state_dict(blob["ledger"])
         self.last_unprompted = blob["last_unprompted"]

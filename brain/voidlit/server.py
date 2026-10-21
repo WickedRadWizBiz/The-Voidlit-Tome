@@ -94,7 +94,11 @@ class TomeSession:
         if name == "new":
             await self.new_game(args)
         elif name == "save":
-            path = await asyncio.to_thread(self.engine.save, self.save_root / slot)
+            try:                        # a save is all or nothing: one that fails leaves the slot as it was
+                path = await asyncio.to_thread(self.engine.save, self.save_root / slot)
+            except SaveError as e:
+                await self.send({"type": "error", "message": f"save failed: {e}"})
+                return
             await self.send({"type": "saved", "slot": slot, "path": str(path)})
         elif name == "load":
             try:                        # a load is all or nothing: a save it refuses leaves the game as it was

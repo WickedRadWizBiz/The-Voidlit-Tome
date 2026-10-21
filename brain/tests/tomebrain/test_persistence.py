@@ -1,4 +1,4 @@
-"""Saves reload and continue bit-exactly, and a refused save changes nothing.
+"""Saves reload and continue bit-exactly, a save is written all or nothing, and a refused save changes nothing.
 
 Also: the network's choices reach the game as it made them. The fact it volunteers is the one whose P slot won,
 and a stimulus the rules set after the race reaches the amygdala at the next Phase A.
@@ -6,7 +6,9 @@ and a stimulus the rules set after the race reaches the amygdala at the next Pha
 
 import asyncio
 import json
+import os
 import shutil
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -22,6 +24,7 @@ from voidlit.senses import SensoryState  # noqa: E402
 from voidlit.server import TomeSession  # noqa: E402
 from voidlit.tome.engine import SaveError, TomeEngine, Turn  # noqa: E402
 from voidlit.tome.net_engine import BRAIN_FILE, TomeNetEngine  # noqa: E402
+from voidlit.tomebrain import persist  # noqa: E402
 from voidlit.tomebrain.brain import Commit, PhaseBOut  # noqa: E402
 
 WARM = SensoryState(rapport=0.8, leverage=0.3)
@@ -40,15 +43,24 @@ def _flat(obj, key: str = "") -> dict:
 
 
 def _held(e: TomeEngine, path) -> dict:
-    """Everything a load replaces, as a save writes it: the campaign, every NPC brain, and the Tome's brain (all
-    partitions, the bus and the clock, with its turn and mind)."""
+    """Everything a load replaces, as a save writes it (but the save id each save stamps anew): the campaign, every
+    NPC brain, and the Tome's brain (all partitions, the bus and the clock, with its turn and mind)."""
     e.save(path)
-    out = {"campaign": (path / "campaign.json").read_text()}
+    campaign = json.loads((path / "campaign.json").read_text())
+    campaign.pop("save_id")
+    out = {"campaign": campaign}
     for nid in e.brains:
-        out.update(_flat(torch.load(path / "brains" / f"{nid}.pt", weights_only=False), f"npc.{nid}"))
+        out.update(_flat(torch.load(path / "brains" / f"{nid}.pt", weights_only=True)["brain"], f"npc.{nid}"))
     if (path / BRAIN_FILE).exists():
-        out.update(_flat(torch.load(path / BRAIN_FILE, weights_only=True), "brain"))
+        blob = torch.load(path / BRAIN_FILE, weights_only=True)
+        blob["extra"].pop("save_id")
+        out.update(_flat(blob, "brain"))
     return out
+
+
+def _files(d: Path) -> dict[str, bytes]:
+    """Every file under ``d``, byte for byte."""
+    return {str(p.relative_to(d)): p.read_bytes() for p in sorted(d.rglob("*")) if p.is_file()}
 
 
 def _assert_same(now: dict, before: dict, what: str = "") -> None:
@@ -71,8 +83,9 @@ def _edit(*path, value=DROP):
     return fn
 
 
-def _variant(root, name: str, *, campaign=None, brain=None, npc=None, npc_bytes=None) -> str:
-    """A copy of the slot ``root/net`` with its campaign, its brain file or the last NPC's brain file changed."""
+def _variant(root, name: str, *, campaign=None, brain=None, npc=None, npc_bytes=None, mixed=None) -> str:
+    """A copy of the slot ``root/net`` with its campaign, its brain file or Elara's brain state changed, or with the
+    file ``mixed`` taken from the slot ``root/later`` (the same game, saved a turn on)."""
     d = root / name
     shutil.copytree(root / "net", d)
     if campaign is not None:
@@ -83,13 +96,15 @@ def _variant(root, name: str, *, campaign=None, brain=None, npc=None, npc_bytes=
         blob = torch.load(d / BRAIN_FILE, weights_only=True)
         brain(blob)
         torch.save(blob, d / BRAIN_FILE)
-    last = max((d / "brains").iterdir())
+    elara = d / "brains" / "elara.pt"
     if npc is not None:
-        state = torch.load(last, weights_only=False)
-        npc(state)
-        torch.save(state, last)
+        blob = torch.load(elara, weights_only=True)
+        npc(blob["brain"])
+        torch.save(blob, elara)
     if npc_bytes is not None:
-        last.write_bytes(npc_bytes)
+        elara.write_bytes(npc_bytes)
+    if mixed is not None:
+        shutil.copy(root / "later" / mixed, d / mixed)
     return name
 
 
@@ -114,8 +129,9 @@ def test_a_save_from_before_the_first_step_loads_into_a_used_amygdala_as_into_a_
 
 
 def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
-    """A slot that does not fit or is damaged anywhere (its campaign, an NPC's brain, any partition of the Tome's
-    brain, its bus, clock or mind) is refused with SaveError before anything changes."""
+    """A slot that does not fit, is damaged anywhere (its campaign, an NPC's brain, any partition of the Tome's
+    brain, its bus, clock or mind), holds a value of the wrong type, or is put together from files of different
+    saves, is refused with SaveError before anything changes."""
     d = TomeEngine(scenario, seed=3)
     d.start()
     d.turn("I search the room")
@@ -123,7 +139,11 @@ def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
     a = TomeNetEngine(scenario, seed=4)
     a.start()
     a.turn(bot_command(a))
+    elara = a.brains["elara"]
+    assert elara.last_decision is not None and elara.meta[0] is not None      # (the variants below edit them)
     a.save(tmp_path / "net")
+    a.turn(bot_command(a))                    # play on, so a half-done load would show
+    a.save(tmp_path / "later")
     shutil.copytree(tmp_path / "net", tmp_path / "torn")
     (tmp_path / "torn" / "brains" / "elara.pt").unlink()
     shutil.copytree(tmp_path / "net", tmp_path / "garbled")
@@ -133,9 +153,29 @@ def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
              _variant(tmp_path, "old", campaign=_edit("version", value=2)),   # an older slot holds another brain
              _variant(tmp_path, "unnamed", campaign=_edit("player_name")),
              _variant(tmp_path, "stateless", campaign=_edit("state", "lumen")),
+             # GameState fields with defaults: only the key-set check refuses a campaign without them
+             _variant(tmp_path, "historyless", campaign=_edit("state", "history")),
+             _variant(tmp_path, "untwisted", campaign=_edit("state", "twisted")),
              _variant(tmp_path, "dice", campaign=_edit("rng", value=[3, [1, 2], None])),
+             # values of the wrong type, each of which a turn would crash on or silently misread
+             _variant(tmp_path, "turn_text", campaign=_edit("state", "turn", value="21")),
+             _variant(tmp_path, "history_null", campaign=_edit("state", "history", value=None)),
+             _variant(tmp_path, "tension_text", campaign=_edit("state", "tension", value="high")),
+             _variant(tmp_path, "clues_null", campaign=_edit("state", "clues_revealed", value=None)),
+             _variant(tmp_path, "pips_text", campaign=_edit("state", "obstacle_pips0", value="abc")),
+             _variant(tmp_path, "lose_turn_text", campaign=_edit("state", "lose_turn", value="yes")),
+             _variant(tmp_path, "outcome_number", campaign=_edit("state", "last_outcome", value=7)),
+             _variant(tmp_path, "item_uses_text", campaign=_edit("state", "character", "inventory", 0, "uses",
+                                                                 value="two")),
+             _variant(tmp_path, "deck_behind", campaign=_edit("state", "deck", "index", value=-1)),
+             _variant(tmp_path, "voiceless", campaign=_edit("voice_rng", value=None)),
+             _variant(tmp_path, "unknown_fact", campaign=_edit("ledger", "disclosed", value=["no.such.fact"])),
              _variant(tmp_path, "npc_shape", npc=_edit("w_spines", value=torch.zeros(3, 3))),
              _variant(tmp_path, "npc_choice", npc=_edit("last_decision", value={"tactic": 99})),
+             _variant(tmp_path, "npc_volume", npc=_edit("meta", 0, "volume", value="big")),
+             _variant(tmp_path, "npc_plot_float", npc=_edit("meta", 0, "target_plot", value=1.5)),
+             _variant(tmp_path, "npc_events", npc=_edit("last_decision", "events", value=None)),
+             _variant(tmp_path, "npc_baseline_bool", npc=_edit("reward_baseline", value=True)),
              _variant(tmp_path, "npc_junk", npc_bytes=b"not a brain"),
              _variant(tmp_path, "w1", brain=_edit("W", value=1)),
              _variant(tmp_path, "jax_shape", brain=_edit(*cortex, value=torch.zeros(3))),
@@ -144,6 +184,7 @@ def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
              _variant(tmp_path, "bn_cells", brain=_edit(*bn, "tensors", "layer.bla.v", value=torch.zeros(1, 5))),
              _variant(tmp_path, "bn_torn_rule", brain=_edit(*bn, "tensors", "rule.ctx.bla.p_plus")),
              _variant(tmp_path, "bn_scalars", brain=_edit(*bn, "scalars")),
+             _variant(tmp_path, "bn_seed_float", brain=_edit(*bn, "streams", "seed", value=4.7)),
              _variant(tmp_path, "sj_shape", brain=_edit(*sj, "W", "ctx_d1", value=torch.zeros(4, 4))),
              _variant(tmp_path, "sj_keys", brain=_edit(*sj, "elig")),
              _variant(tmp_path, "habit_shape", brain=_edit(*sj, "habit", "v", value=torch.zeros(5))),
@@ -151,11 +192,50 @@ def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
              _variant(tmp_path, "bus", brain=_edit("bus", "buf", "B.cea")),
              _variant(tmp_path, "bus_ahead", brain=_edit("clock", "t_ms", value=10**6)),
              _variant(tmp_path, "mindless", brain=_edit("extra", "mind", "stats")),
-             _variant(tmp_path, "late_us", brain=_edit("extra", "late_us", value={"loss": "much"}))]
-    a.turn(bot_command(a))                    # play on, so a half-done load would show
+             # mind keys only older saves lacked: this version has no defaults for them
+             _variant(tmp_path, "mind_affect", brain=_edit("extra", "mind", "affect")),
+             _variant(tmp_path, "mind_vs_ema", brain=_edit("extra", "mind", "vs_ema")),
+             _variant(tmp_path, "mind_need_text", brain=_edit("extra", "mind", "needs", "survival", value="0.5")),
+             _variant(tmp_path, "late_us", brain=_edit("extra", "late_us", value={"loss": "much"})),
+             # torn or mixed: every file valid on its own, but not all from one save
+             _variant(tmp_path, "unstamped", campaign=_edit("save_id")),
+             _variant(tmp_path, "mixed_npc", mixed="brains/marcus.pt"),
+             _variant(tmp_path, "mixed_brain", mixed=BRAIN_FILE),
+             _variant(tmp_path, "mixed_campaign", mixed="campaign.json")]
+    # each is refused for its own reason, so no check can hide behind another
+    reasons = {
+        "director": BRAIN_FILE, "torn": "elara.pt", "garbled": "Expecting property name", "old": "engine version",
+        "unnamed": r"campaign: keys differ: \['player_name'\]", "stateless": r"state: keys differ: \['lumen'\]",
+        "historyless": r"state: keys differ: \['history'\]", "untwisted": r"state: keys differ: \['twisted'\]",
+        "dice": "state vector", "turn_text": r"state\.turn: str, not int",
+        "history_null": r"state\.history: NoneType, not a list", "tension_text": r"state\.tension: str, not float",
+        "clues_null": r"state\.clues_revealed: NoneType, not a list",
+        "pips_text": r"state\.obstacle_pips0: str, not a dict", "lose_turn_text": r"state\.lose_turn: str, not bool",
+        "outcome_number": r"state\.last_outcome: int, not str",
+        "item_uses_text": r"inventory\[0\]\.uses: str, not int", "deck_behind": "game does not fit this scenario",
+        "voiceless": "voice does not fit", "unknown_fact": "game does not fit this scenario",
+        "npc_shape": "w_spines is not a float tensor", "npc_choice": "last_decision: keys differ",
+        "npc_volume": r"meta\[0\]\.volume: str, not float", "npc_plot_float": r"meta\[0\]\.target_plot: float, not int",
+        "npc_events": r"last_decision\.events: NoneType, not a list",
+        "npc_baseline_bool": "reward_baseline: bool, not float", "npc_junk": "",     # (in torch's own words)
+        "w1": "1-ms window", "jax_shape": r"of shape \(3,\), not numbers",
+        "bn_ghost": r"amygdala\.tensors: keys differ: \['layer\.ghost\.v'\]",
+        "bn_shape": r"conn\.ctx\.bla\.w: float32 of shape \(64, 48\)",
+        "bn_cells": r"layer\.bla\.v: float32 of shape \(1, 5\)", "bn_torn_rule": "learning traces are missing",
+        "bn_scalars": r"amygdala: keys differ: \['scalars'\]", "bn_seed_float": "noise streams",
+        "sj_shape": r"W\.ctx_d1: float32 of shape \(4, 4\)", "sj_keys": r"basal ganglia: keys differ: \['elig'\]",
+        "habit_shape": r"habit\.v: float32 of shape \(5,\)", "clock": r"clock: keys differ: \['phase'\]",
+        "bus": r"bus\.buf: keys differ: \['B\.cea'\]", "bus_ahead": "the bus and the clock disagree",
+        "mindless": r"mind: keys differ: \['stats'\]", "mind_affect": r"mind: keys differ: \['affect'\]",
+        "mind_vs_ema": r"mind: keys differ: \['vs_ema'\]", "mind_need_text": r"needs\.survival: str, not float",
+        "late_us": r"late_us\.loss: str, not float", "unstamped": "save id: NoneType",
+        "mixed_npc": "marcus.pt belongs to another save", "mixed_brain": f"{BRAIN_FILE} belongs to another save",
+        "mixed_campaign": "belongs to another save than campaign.json",
+    }
+    assert reasons.keys() == set(slots)
     before = _held(a, tmp_path / "before")
     for slot in slots:
-        with pytest.raises(SaveError):
+        with pytest.raises(SaveError, match=reasons[slot]):
             a.load(tmp_path / slot)
         _assert_same(_held(a, tmp_path / f"after_{slot}"), before, slot)
     a.load(tmp_path / "net")                  # the intact slot still loads
@@ -185,7 +265,7 @@ def test_a_load_that_fails_while_the_game_takes_it_in_is_undone(scenario, tmp_pa
     monkeypatch.setattr(a.brain.sj, "load_state_dict", flaky)
     with pytest.raises(SaveError):
         a.load(tmp_path / "slot")
-    assert len(calls) == 2                    # the save's state, then the game's own back
+    assert len(calls) == 3                    # the save's state, then the brain's own back, then the game's
     _assert_same(_held(a, tmp_path / "after"), before)
     b = TomeNetEngine(scenario, seed=9)       # and it plays on as the game it held
     b.load(tmp_path / "before")
@@ -194,14 +274,118 @@ def test_a_load_that_fails_while_the_game_takes_it_in_is_undone(scenario, tmp_pa
     assert a.brain.digest() == b.brain.digest()
 
 
-def test_the_server_and_the_terminal_report_a_damaged_save_and_play_on(scenario, tmp_path, monkeypatch, capsys):
-    """Whatever is wrong with a slot (here an NPC's brain file is not a brain at all), the player is told the load
-    failed and the game goes on; nothing crashes."""
+def test_a_load_whose_undo_fails_too_is_a_save_error_and_closes_the_run(scenario, tmp_path, monkeypatch):
+    """Should even taking back what the game held fail (a bug, not a bad save), the player is still told the load
+    failed, and the run, which can no longer go on safely, is closed."""
+    a = TomeNetEngine(scenario, seed=4)
+    a.start()
+    a.turn(bot_command(a))
+    a.save(tmp_path / "slot")
+
+    def broken(d):
+        raise RuntimeError("the basal ganglia are broken")
+
+    monkeypatch.setattr(a.brain.sj, "load_state_dict", broken)
+    with pytest.raises(SaveError, match="could not be restored"):
+        a.load(tmp_path / "slot")
+    frame = a.turn("I press on")
+    assert frame.over and frame.text == "The Tome is closed. Begin a new run."
+
+
+def test_a_brain_load_that_fails_halfway_is_undone(scenario, tmp_path, monkeypatch):
+    """``persist.load``, which the G7 and G24 gates call on the brain alone, is all or nothing too: should the
+    amygdala fail to take a save after the cortex and the basal ganglia took theirs, the brain takes back what it
+    held, and the error is raised."""
+    a = TomeNetEngine(scenario, seed=4)
+    a.start()
+    a.turn(bot_command(a))
+    persist.save(a.brain.cosim, tmp_path / "brain.pt")
+    a.turn(bot_command(a))
+    digest = a.brain.digest()
+    load, calls = a.brain.bn.load_state_dict, []
+
+    def flaky(d):
+        calls.append(d)
+        if len(calls) == 1:
+            raise RuntimeError("the disk hiccuped")
+        load(d)
+
+    monkeypatch.setattr(a.brain.bn, "load_state_dict", flaky)
+    with pytest.raises(RuntimeError, match="hiccuped"):
+        persist.load(a.brain.cosim, tmp_path / "brain.pt")
+    assert len(calls) == 2 and a.brain.digest() == digest       # the save's state, then the brain's own back
+
+
+def test_a_save_that_fails_leaves_the_slot_as_it_was(scenario, tmp_path, monkeypatch):
+    """A save is written whole beside the old slot and only then takes its place. One that fails (the disk fills up
+    while the Tome's brain is written, after the campaign and the NPCs; or the last rename fails) raises SaveError and
+    leaves the old slot exactly as it was, and nothing else behind. It still loads, as the game it was."""
+    a = TomeNetEngine(scenario, seed=4)
+    a.start()
+    a.turn(bot_command(a))
+    a.save(tmp_path / "slot")
+    kept = _files(tmp_path / "slot")
+    b = TomeNetEngine(scenario, seed=9)
+    b.load(tmp_path / "slot")
+    a.turn(bot_command(a))
+
+    def disk_full(*args, **kw):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(persist, "save", disk_full)
+    with pytest.raises(SaveError, match="No space left"):
+        a.save(tmp_path / "slot")
+    monkeypatch.undo()
+    assert _files(tmp_path / "slot") == kept and os.listdir(tmp_path) == ["slot"]
+
+    replace, into_slot = os.replace, []
+
+    def flaky(src, dst):                    # the new slot cannot take the old one's place; putting it back can
+        if Path(dst).name == "slot":
+            into_slot.append(src)
+            if len(into_slot) == 1:
+                raise OSError("the disk hiccuped")
+        replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", flaky)
+    with pytest.raises(SaveError, match="hiccuped"):
+        a.save(tmp_path / "slot")
+    monkeypatch.undo()
+    assert _files(tmp_path / "slot") == kept and os.listdir(tmp_path) == ["slot"]
+
+    c = TomeNetEngine(scenario, seed=7)
+    c.load(tmp_path / "slot")
+    cmd = bot_command(b)
+    assert b.turn(cmd).to_dict(include_debug=True) == c.turn(cmd).to_dict(include_debug=True)
+
+
+def test_a_save_never_replaces_a_directory_that_is_not_a_slot(scenario, tmp_path):
+    """Saving replaces a whole slot, so it refuses to replace a directory that holds anything a slot does not."""
+    e = TomeEngine(scenario, seed=3)
+    e.start()
+    (tmp_path / "letters").mkdir()
+    (tmp_path / "letters" / "dear.txt").write_text("keep me")
+    with pytest.raises(SaveError, match="not a save slot"):
+        e.save(tmp_path / "letters")
+    assert _files(tmp_path / "letters") == {"dear.txt": b"keep me"}
+    e.save(tmp_path / "letters" / "slot")         # a slot inside it is fine, and so is saving over that slot
+    e.save(tmp_path / "letters" / "slot")
+    assert sorted(os.listdir(tmp_path / "letters")) == ["dear.txt", "slot"]
+    # made as any folder is, not private
+    assert (tmp_path / "letters" / "slot").stat().st_mode == (tmp_path / "letters").stat().st_mode
+
+
+def test_the_server_and_the_terminal_report_a_failed_load_or_save_and_play_on(scenario, tmp_path, monkeypatch,
+                                                                              capsys):
+    """Whatever is wrong with a slot (here an NPC's brain file is not a brain at all), or whatever stops a save (here
+    a file where the save folder should be), the player is told the load or the save failed and the game goes on;
+    nothing crashes."""
     e = TomeEngine(scenario, seed=3)
     e.start()
     e.turn("I search the room")
     e.save(tmp_path / "junk")
     (tmp_path / "junk" / "brains" / "marcus.pt").write_bytes(b"not a brain")
+    (tmp_path / "blocked").write_text("a file, not a folder")
     sent = []
     session = TomeSession(None, None, None, tmp_path, debug=False, brain="director")
     session.engine = e
@@ -214,13 +398,19 @@ def test_the_server_and_the_terminal_report_a_damaged_save_and_play_on(scenario,
     assert sent[-1]["type"] == "error" and sent[-1]["message"].startswith("load failed")
     asyncio.run(session.handle({"type": "input", "text": "I press on"}))
     assert sent[-1]["type"] == "frame"
+    session.save_root = tmp_path / "blocked"
+    asyncio.run(session.command("save", {"slot": "quicksave"}))
+    assert sent[-1]["type"] == "error" and sent[-1]["message"].startswith("save failed")
+    asyncio.run(session.handle({"type": "input", "text": "I press on"}))
+    assert sent[-1]["type"] == "frame"
 
-    lines = iter([f":load {tmp_path / 'junk'}", "I press on", ":q"])
+    lines = iter([f":load {tmp_path / 'junk'}", "I press on", f":save {tmp_path / 'blocked' / 'slot'}", "I press on",
+                  ":q"])
     monkeypatch.setattr("builtins.input", lambda _="": next(lines))
     monkeypatch.setattr("voidlit.app.build_engine", lambda *a, **k: (TomeEngine(scenario, seed=3), False))
     assert cli.main(["play", "--brain", "director"]) == 0
     out = capsys.readouterr().out
-    assert "load failed" in out and "Traceback" not in out
+    assert "load failed" in out and "save failed" in out and "Traceback" not in out
 
 
 def test_an_npc_save_from_before_its_first_step_loads_into_a_used_brain_as_into_a_fresh_one(spec, tmp_path):
@@ -259,6 +449,24 @@ def test_an_npc_brain_keeps_its_last_decision_across_a_save(spec, tmp_path):
     with pytest.raises(ValueError):
         b.load_state_dict(state)
     assert b.last_decision is None and b.turn == 0
+
+
+def test_an_npc_brain_state_is_checked_whole_before_any_of_it_loads(spec):
+    """The check refuses what loading would only trip over later, or not at all: a generator state no generator
+    takes, and branch or decision fields of the wrong type (which crash a later turn or silently misread)."""
+    a = NPCBrain(spec, seed=6)
+    a.perceive(WARM)
+    edits = (lambda s: s.update(gen_state=torch.zeros_like(s["gen_state"])),
+             lambda s: s["meta"][0].update(volume="big"),
+             lambda s: s["meta"][0].update(trauma=1),
+             lambda s: s["last_decision"].update(momentum="high"),
+             lambda s: s["last_decision"].update(reward="0.5"))
+    for edit in edits:
+        state = a.state_dict()
+        a.check_state_dict(state)
+        edit(state)
+        with pytest.raises(ValueError):
+            a.check_state_dict(state)
 
 
 def test_the_director_engine_continues_after_a_load_into_another_seed(scenario, tmp_path):

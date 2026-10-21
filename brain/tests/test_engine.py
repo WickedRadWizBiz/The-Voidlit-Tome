@@ -7,7 +7,8 @@ from voidlit.app import build_engine
 from voidlit.playtest import bot_command
 from voidlit.cortex.director import Director
 from voidlit.senses import HeuristicTransducer
-from voidlit.tome.engine import TOME_LINES, TomeEngine, Turn
+from voidlit.saves import check_types
+from voidlit.tome.engine import CAMPAIGN_TYPES, TOME_LINES, TomeEngine, Turn
 from voidlit.voice import LocalTransducer, LocalVoice, OfflineVoice
 
 def make(scenario, director_model, seed=0, **kw):
@@ -82,6 +83,43 @@ def test_a_loaded_npc_speaks_from_the_decision_it_had(scenario, director_model, 
     ma, mb = a.brains["marcus"], b.brains["marcus"]
     assert ma.turn == mb.turn and torch.equal(ma.gen.get_state(), mb.gen.get_state())
     assert torch.equal(ma.c_spines.w, mb.c_spines.w) and torch.equal(ma.c_tactics.w, mb.c_tactics.w)
+
+
+def test_a_closed_run_lists_no_checks_and_loads_as_it_was(scenario, director_model, tmp_path):
+    """Once a run is over, each frame says the Tome is closed. Its debug lists that turn's checks (none), as every
+    frame does, not the whole run's log, which a save does not hold: a game loaded after the end answers the same."""
+    a = make(scenario, director_model, seed=0, background="marine")
+    a.start()
+    while not a.state.over:
+        a.turn(bot_command(a))
+    a.save(tmp_path / "slot")
+    b = make(scenario, director_model, seed=100)
+    b.load(tmp_path / "slot")
+    for _ in range(2):
+        fa, fb = a.turn("I press on"), b.turn("I press on")
+        assert fa.over and fa.debug["checks"] == []
+        assert fa.to_dict(include_debug=True) == fb.to_dict(include_debug=True)
+
+
+def test_every_campaign_and_npc_brain_a_run_saves_fits_the_types_a_load_holds_it_to(scenario, director_model):
+    """A load refuses a value of the wrong type, so every value a game writes must have its declared type: from a
+    new engine to the end of a run, with the Tome asked about mood, chance and the way out."""
+    e = make(scenario, director_model, seed=1, background="engineer")
+    talk = ["Tome, how do you feel?", "Tome, will I make it? What are my odds?", "Tome, where is the way out?"]
+
+    def fits():
+        check_types("campaign", e._campaign(), CAMPAIGN_TYPES)
+        for brain in e.brains.values():
+            brain.check_state_dict(brain.state_dict())
+
+    fits()
+    e.start()
+    for k in range(150):
+        fits()
+        if e.state.over:
+            break
+        e.turn(talk[k // 4 % 3] if k % 4 == 3 else bot_command(e))
+    assert e.state.over
 
 
 def test_talking_reaches_the_npc_brain(scenario, director_model):

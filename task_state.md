@@ -168,7 +168,7 @@ fed only by a rules-side opposition code, on a Phase-A-local clock, so G20's bit
 ## Next immediate action
 Round 2 (fix2/*) merged at 7a7e05b: authored-only narration with a strong oracle (frames identical to the offline
 voice whatever the model says), atomic loads, dips that teach, z-score floors; fast suite 315 passed. Full slow suite
-running (scratchpad slow3.log). Round 3 workflow `fix-round3` (run wf_dbb9c345-28d) fixes the residuals on branches
+on 7a7e05b: 37/37 slow + balance gates pass (35 min, incl. G10c and G11's 200 games). Round 3 workflow `fix-round3` (latest run wf_03e376ad-086; earlier runs cut by a container restart and a session limit; WIP kept on fix3/truth, fix3/persist) fixes the residuals on branches
 fix3/truth, fix3/persist, fix3/network (base 7a7e05b). Safety-net check-in scheduled (resumes after a session limit).
 When done: merge, fast + slow suites incl. G10c, update design §11/§20 from the agents' "Design log notes"
 (scratchpad followup/f2_*_report.md and round3 reports), push. Then M6 per `m6_design.json`.

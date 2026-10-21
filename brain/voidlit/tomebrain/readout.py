@@ -34,6 +34,19 @@ NEEDS = ("survival", "affiliation", "certainty", "competence")
 # reading as a falling value for 20 turns.
 VS_TREND = 0.1
 VS_SD_FLOOR = 0.5
+# The drive's first changes are not outcomes: the needs switch on one by one (smoothing from the second turn, the
+# value trend from the third) while the cold first turn still weighs on the running means, which paid up to -0.08 on
+# the third turn of an eventless brain (a pause long enough to teach). No reward is paid before the fifth turn.
+REWARD_FROM_TURN = 5
+# A z-score divides by the signal's running spread, but never by less than its floor: what the network does from turn
+# to turn with nothing happening is not an event. Against their own small-sample variances alone, eventless turns
+# z-scored their noise to unit size and swung P from -0.98 to +0.98, so the voice's register followed the noise. Each
+# floor is 16x the signal's eventless turn-to-turn SD (2 seeds x 115 turns: LC and orexin 0.58 Hz, DA 0.10, 5-HT 0.094,
+# ACh 0.057, P/I ATP 0.0038), so noise moves a z by about 0.06; the amygdala's outputs, silent at rest, get 10 Hz.
+# Real events stay large against them: a harm drives the CeA to 14 Hz (z 1.4), a gift the bond assembly to 62 Hz
+# (z 6), a dying light the orexin cells from 1 to 7-20 Hz (z 0.7-2) and P/I ATP down 0.05-0.3 (z 0.8-5).
+Z_FLOOR = {"LC": 9.0, "ORX": 9.0, "DA": 1.6, "5HT": 1.5, "ACh": 0.9, "CeA": 10.0, "F": 60.0, "ATP": 0.06, "VS": 20.0,
+           "contempt": 10.0, "bond": 10.0}
 
 
 def drive(h: dict[str, float]) -> float:
@@ -70,8 +83,8 @@ class Running:
         self.mean += k * d
         self.var = (1.0 - k) * (self.var + k * d * d)
 
-    def z(self, x: float) -> float:
-        return (x - self.mean) / math.sqrt(max(self.var, 1e-6)) if self.n > 2 else 0.0
+    def z(self, x: float, floor: float = 1e-3) -> float:
+        return (x - self.mean) / max(math.sqrt(self.var), floor) if self.n > 2 else 0.0
 
 
 @dataclass
@@ -89,7 +102,7 @@ class Mind:
 
     def _z(self, key: str, x: float) -> float:
         r = self.stats.setdefault(key, Running())
-        z = r.z(x)
+        z = r.z(x, Z_FLOOR[key])
         r.update(x)
         return z
 
@@ -117,7 +130,7 @@ class Mind:
         if self.stats["F"].n > 1:
             h = {k: self.needs[k] + NEED_SMOOTH * (h[k] - self.needs[k]) for k in NEEDS}
         d = drive(h)
-        self.reward = self.drive - d if self.stats["F"].n > 1 else 0.0
+        self.reward = self.drive - d if self.stats["F"].n >= REWARD_FROM_TURN else 0.0
         self.needs, self.drive = h, d
         self.desperation = desperation(d)
         self.contempt = 0.5 + 0.5 * math.tanh(z["contempt"])

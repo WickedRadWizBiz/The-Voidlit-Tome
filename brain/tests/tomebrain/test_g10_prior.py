@@ -89,14 +89,19 @@ def test_g10b_pacing_matches_the_teacher():
 
 def test_the_real_brain_is_window_size_invariant():
     """G6b on the real brain, with the amygdala's stimuli and the P fact slots driven: the network and the mind read
-    from it (needs, drive, reward, the Tome's modifiers) agree bitwise every turn."""
+    from it (needs, drive, reward, the Tome's modifiers) agree bitwise every turn. The Mind pays no reward before its
+    fifth turn, so the last two turns receive one by hand: a burst, then a pause that outlasts Phase A (and the
+    pacemakers' return over the quiet)."""
     X = sample_states(4, torch.Generator().manual_seed(5)).numpy()
     us = [{"gift": 1.0}, {"harm": 1.0, "lie": 0.5}, {}, {"loss": 1.0, "bearer_near_death": 0.6}]
+    rewards = [None, None, 0.12, -0.09]
     a, b = TomeBrain(3, W=4), TomeBrain(3, W=1)
     for i, x in enumerate(X):
         facts = np.roll(np.linspace(0.2, 0.9, 8, dtype=np.float32), i)
         outs = []
         for brain in (a, b):
+            if rewards[i] is not None:
+                brain.mind.reward = rewards[i]
             brain.set_us(us[i])
             brain.set_input(director_features=x, senses=np.full(8, 0.3, np.float32),
                             body=np.array([0.7, 0.9, 0.2], np.float32), facts=facts)

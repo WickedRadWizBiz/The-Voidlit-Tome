@@ -2,7 +2,8 @@
 
 A burst potentiates the tagged D1 and VS-critic synapses and depresses the tagged D2 ones; a dip does the reverse
 (Shen 2008), so a reward that was predicted and then omitted (the VTA pauses where it was due) unlearns what
-predicted it. The sparse VTA's shot noise at tonic teaches nothing, and untagged synapses never move.
+predicted it. A burst is read from the slow dopamine, a dip from the concentration, which a pause halves within a
+short turn. The sparse VTA's shot noise at tonic teaches nothing, and untagged synapses never move.
 """
 
 import math
@@ -29,17 +30,21 @@ TONIC_DA = DA_PER_SPIKE * VTA_N * TONIC_HZ * 1e-3 / (1.0 - DECAY)       # the co
 
 def dopamine(event_hz: np.ndarray, seed: int = 0) -> np.ndarray:
     """DA concentration per ms: pacemaking VTA cells (4.5 Hz, ISIs jittered by 10%), then ``event_hz`` (Poisson,
-    one rate per ms: 0 is a pause, 40 Hz a burst), then pacemaking again."""
+    one rate per ms: 0 is a pause, 40 Hz a burst), then pacemaking again. A pause holds every cell below threshold:
+    released, each fires again 15-30 ms later (as the brain's VTA does) and paces on from there."""
     rng = np.random.default_rng(seed)
     n = WARM_MS + len(event_hz) + TAIL_MS
+    lo, hi = WARM_MS, WARM_MS + len(event_hz)
     spikes = np.zeros(n)
     period = 1000.0 / TONIC_HZ
     for _ in range(VTA_N):
         t = rng.uniform(0.0, period)
         while t < n:
+            if lo <= t < hi and not np.any(event_hz):
+                t = hi + rng.uniform(15.0, 30.0)
             spikes[int(t)] += 1
             t += period * (1.0 + 0.1 * rng.standard_normal())
-    spikes[WARM_MS:WARM_MS + len(event_hz)] = rng.poisson(VTA_N * np.asarray(event_hz) * 1e-3)
+    spikes[lo:hi] = rng.poisson(VTA_N * np.asarray(event_hz) * 1e-3)
     nm = TONIC_DA
     out = np.empty(n, np.float32)
     for t in range(n):
@@ -67,16 +72,22 @@ def run(sj: BG.SJPartition, event_hz: np.ndarray) -> tuple[dict, dict]:
     bus = SpikeBus({"J.ctx": BG.N_CTX, "J.pvt": BG.N_PVT, "J.nm": 4, "B.bla": BG.N_LIM}, W)
     silent = {src: np.zeros((W, n), np.float32) for src, n in (("J.ctx", BG.N_CTX), ("J.pvt", BG.N_PVT),
                                                                ("B.bla", BG.N_LIM))}
-    before = None
-    for t in range(0, len(da) - len(da) % W, W):
-        if t == WARM_MS:
-            before = {k: v.clone() for k, v in sj.W.items()}
-        sj.step(bus, t, W)
+
+    def publish(t):
         nm = np.zeros((W, 4), np.float32)
         nm[:, 0], nm[:, 2] = da[t:t + W], 1.0
         for src, rows in silent.items():
             bus.write(src, t, rows)
         bus.write("J.nm", t, nm)
+
+    before = None
+    for t in range(0, 2 * W, W):            # the striatum has seen tonic dopamine before it first reads the bus
+        publish(t)
+    for t in range(2 * W, len(da) - len(da) % W, W):
+        if t == WARM_MS:
+            before = {k: v.clone() for k, v in sj.W.items()}
+        sj.step(bus, t, W)
+        publish(t)
     return before, {k: v.clone() for k, v in sj.W.items()}
 
 
@@ -120,9 +131,24 @@ def test_g2e_an_omitted_reward_dips_and_unlearns_what_predicted_it():
         assert untagged == 0.0, k
 
 
-def test_g2e_mutant_a_threshold_dips_cannot_reach_teaches_nothing_on_omission(monkeypatch):
-    """The old gate (a 50% excursion of the slow dopamine) is out of a dip's reach: the same omission changes no
-    weight, so the test above detects it."""
-    monkeypatch.setattr(BG, "PHASIC", 0.5)
-    before, after = run(tagged_partition(), np.zeros(250))
+def test_g2e_a_pause_within_a_short_turn_unlearns():
+    """Phase B often commits at 124 ms, so a turn may last 184 ms. A 150-ms pause from the start of Phase A cannot
+    take the slow dopamine (200 ms) 30% below tonic, even left to run on (it reaches about -0.27), but the
+    concentration halves after 139 ms, and that is where a dip is read."""
+    before, after = run(tagged_partition(), np.zeros(150))
+    for k, (tagged, untagged) in change(before, after).items():
+        assert -SIGN[k] * tagged > 1e-5, (k, tagged)
+        assert untagged == 0.0, k
+
+
+def test_g2e_a_pause_of_eventless_size_teaches_nothing():
+    """A 90-ms pause (r = -0.035, twice the SD of the eventless reward noise): the concentration falls about 40%."""
+    before, after = run(tagged_partition(), np.zeros(90))
+    assert all(torch.equal(before[k], after[k]) for k in before)
+
+
+def test_g2e_mutant_a_dip_needing_an_empty_synapse_misses_the_short_pause(monkeypatch):
+    """Read where a turn-length pause cannot reach, the dip teaches nothing: the test above detects the gate."""
+    monkeypatch.setattr(BG, "PAUSE", 1.0)
+    before, after = run(tagged_partition(), np.zeros(150))
     assert all(torch.equal(before[k], after[k]) for k in before)

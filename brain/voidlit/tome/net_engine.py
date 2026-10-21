@@ -17,6 +17,8 @@ import numpy as np
 from ..cortex.features import BEATS, Beat
 from ..tomebrain import persist
 from ..tomebrain.brain import TomeBrain
+from ..tomebrain.partition import check_shapes
+from ..tomebrain.readout import Mind
 from ..voice.style import VoiceStyle, style_from_mind
 from .engine import TomeEngine, Turn
 from .frames import TomeFrame
@@ -108,22 +110,36 @@ class TomeNetEngine(TomeEngine):
         self.late_us = {k: v for k, v in t.us.items() if self._us_sent.get(k) != v}
         return super()._compose(t)
 
+    # ------------------------------------------------------------------ persistence
+    def _brain_extra(self) -> dict:
+        return {"turn": self.brain.turn, "fallbacks": self.brain.fallbacks, "mind": self.brain.mind.state_dict(),
+                "late_us": dict(self.late_us)}
+
     def save(self, directory: str | Path) -> Path:
         d = super().save(directory)
-        persist.save(self.brain.cosim, Path(d) / BRAIN_FILE, extra={"turn": self.brain.turn,
-                                                                   "fallbacks": self.brain.fallbacks,
-                                                                   "mind": self.brain.mind.state_dict(),
-                                                                   "late_us": dict(self.late_us)})
+        persist.save(self.brain.cosim, Path(d) / BRAIN_FILE, extra=self._brain_extra())
         return d
 
-    def load(self, directory: str | Path) -> None:
-        # The brain is checked before the game changes: a slot it does not fit (a Director game's, which has none,
-        # or one from another window size or connectome) is refused with this game untouched.
-        blob = persist.read(self.brain.cosim, Path(directory) / BRAIN_FILE)
-        super().load(directory)
-        extra = persist.apply(self.brain.cosim, blob)
-        self.brain.turn = int(extra.get("turn", 0))
-        self.brain.fallbacks = int(extra.get("fallbacks", 0))
-        if "mind" in extra:
-            self.brain.mind.load_state_dict(extra["mind"])
-        self.late_us = {k: float(v) for k, v in extra.get("late_us", {}).items()}
+    def _snapshot(self) -> dict:
+        return {**super()._snapshot(), "brain": persist.snapshot(self.brain.cosim, self._brain_extra())}
+
+    def _read_save(self, d: Path) -> dict:
+        # a slot this brain does not fit (a Director game's, which has none, or one from another window size or
+        # connectome) is refused here, with nothing changed
+        saved = super()._read_save(d)
+        saved["brain"] = blob = persist.read(self.brain.cosim, d / BRAIN_FILE)
+        extra = blob["extra"]
+        check_shapes("brain extra", extra, {"turn": (), "fallbacks": (), "mind": None, "late_us": None})
+        mind, fresh = Mind(), Mind()
+        mind.load_state_dict(extra["mind"])         # its own reader (which takes older saves' readouts too)
+        if any(set(getattr(mind, k)) != set(getattr(fresh, k)) for k in ("needs", "pad", "affect", "mods")):
+            raise ValueError("the Tome's mind in this save does not fit this build")
+        check_shapes("late stimuli", extra["late_us"], {k: () for k in extra["late_us"]})
+        return saved
+
+    def _take_save(self, saved: dict) -> None:
+        super()._take_save(saved)
+        extra = persist.apply(self.brain.cosim, saved["brain"])
+        self.brain.turn, self.brain.fallbacks = int(extra["turn"]), int(extra["fallbacks"])
+        self.brain.mind.load_state_dict(extra["mind"])
+        self.late_us = {str(k): float(v) for k, v in extra["late_us"].items()}

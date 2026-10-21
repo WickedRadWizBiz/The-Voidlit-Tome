@@ -27,7 +27,8 @@ Causal turn order (the reward for turn N-1's tactic only arrives on turn N):
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import copy
+from dataclasses import asdict, dataclass, field
 
 import torch
 from bindsnet.learning import MSTDPET
@@ -54,6 +55,8 @@ PRUNE_VOLUME = 0.15
 SPLIT_CALCIUM = 0.85
 TRAUMA_SHOCK = 0.85
 TRAUMA_COOLDOWN = 3
+STATE_VERSION = 2          # 2: the last decision
+RULE_STATE = ("p_plus", "p_minus", "eligibility", "eligibility_trace")   # MSTDPET's traces, made at its first step
 
 CH = {name: i for i, name in enumerate(NPC_CHANNELS)}
 
@@ -130,6 +133,10 @@ class BrainDecision:
 
     def to_dict(self) -> dict:
         return dict(self.__dict__)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "BrainDecision":
+        return cls(**copy.deepcopy(d))
 
 
 class NPCBrain:
@@ -385,7 +392,7 @@ class NPCBrain:
             return rule.eligibility_trace.clone() if hasattr(rule, "eligibility_trace") else None
 
         return {
-            "version": 1, "npc_id": self.spec.id, "B": self.B, "P": self.P, "T": self.T,
+            "version": STATE_VERSION, "npc_id": self.spec.id, "B": self.B, "P": self.P, "T": self.T,
             "w_spines": self.c_spines.w.detach().clone(), "w_tactics": self.c_tactics.w.detach().clone(),
             "w_route": self.c_route.w.detach().clone(), "spine_mask": self.spine_mask.clone(),
             "e_spines": trace(self.c_spines), "e_tactics": trace(self.c_tactics),
@@ -394,21 +401,63 @@ class NPCBrain:
             "next_branch_id": self.next_branch_id, "reward_baseline": self.reward_baseline,
             "turn": self.turn, "last_trauma_turn": self.last_trauma_turn,
             "gen_state": self.gen.get_state(),
+            # an NPC beat for an NPC out of the scene speaks from it (tome/engine.py ``_speak``)
+            "last_decision": None if self.last_decision is None else asdict(self.last_decision),
         }
 
-    def load_state_dict(self, d: dict) -> None:
-        if d.get("version") != 1 or d.get("npc_id") != self.spec.id:
-            raise ValueError(f"brain state for {d.get('npc_id')!r} v{d.get('version')} does not fit {self.spec.id!r}")
-        if (d["B"], d["P"], d["T"]) != (self.B, self.P, self.T):
+    def check_state_dict(self, d: dict) -> None:
+        """Raise ValueError unless ``d`` fits this NPC, changing nothing. The learning rules' traces are None in a
+        save from before the brain's first step."""
+        if not isinstance(d, dict) or d.get("version") != STATE_VERSION or d.get("npc_id") != self.spec.id:
+            raise ValueError(f"not a v{STATE_VERSION} brain state for {self.spec.id!r}")
+        if set(d) != set(self.state_dict()):
+            raise ValueError(f"{self.spec.id}'s brain state has other keys than {sorted(self.state_dict())}")
+        C, B, P, T = self.C, self.B, self.P, self.T
+        if (d["B"], d["P"], d["T"]) != (B, P, T) or not isinstance(d["meta"], list) or len(d["meta"]) != B:
             raise ValueError("brain state shape does not match this NPC's spec")
+        shapes = {"w_spines": (C, B), "w_tactics": (P, T), "w_route": (B, P), "spine_mask": (C, B),
+                  "e_spines": (1, C, B), "e_tactics": (1, P, T), "calcium": (B,), "momentum": (P,),
+                  "gen_state": tuple(self.gen.get_state().shape)}
+        dtypes = {"spine_mask": torch.bool, "gen_state": torch.uint8}          # the rest are floats
+        for key, shape in shapes.items():
+            v, dtype = d[key], dtypes.get(key)
+            if v is None and key.startswith("e_"):
+                continue
+            if not (isinstance(v, torch.Tensor) and v.shape == shape
+                    and (v.dtype == dtype if dtype else v.is_floating_point())):
+                raise ValueError(f"{self.spec.id}'s brain state {key} is not a {dtype or 'float'} tensor of {shape}")
+        counts = [d[k] for k in ("next_branch_id", "turn", "last_trauma_turn")]
+        if not all(isinstance(c, int) for c in counts) or not isinstance(d["reward_baseline"], (int, float)):
+            raise ValueError(f"{self.spec.id}'s brain state holds a count or baseline that is not a number")
+        try:
+            plots = [BranchMeta.from_dict(m).target_plot for m in d["meta"] if m is not None]
+            last = None if d["last_decision"] is None else BrainDecision.from_dict(d["last_decision"])
+            if last is not None:
+                plots += [last.dominant_plot, last.secondary_plot]
+            fits = all(0 <= p < P for p in plots) and (last is None or 0 <= last.tactic < T)
+        except TypeError as e:
+            raise ValueError(f"{self.spec.id}'s brain state: {e}") from None
+        if not fits:
+            raise ValueError(f"{self.spec.id}'s brain state names a plot or tactic this NPC does not have")
+
+    def load_state_dict(self, d: dict) -> None:
+        self.check_state_dict(d)
         with torch.no_grad():
             self.c_spines.w.copy_(d["w_spines"])
             self.c_tactics.w.copy_(d["w_tactics"])
             self.c_route.w.copy_(d["w_route"])
         self.spine_mask = d["spine_mask"].clone()
         for conn, key in ((self.c_spines, "e_spines"), (self.c_tactics, "e_tactics")):
+            # MSTDPET makes its traces at its first step, and only the eligibility trace outlives a turn (``simulate``
+            # zeroes the rest). Drop this brain's and take the saved one, so the rule goes on exactly as in a new brain
+            # loaded with the save; one from before the first step has none, and must not pay out an abandoned
+            # timeline's trace at the next reward.
+            rule = conn.update_rule
+            for attr in RULE_STATE:
+                if hasattr(rule, attr):
+                    delattr(rule, attr)
             if d[key] is not None:
-                conn.update_rule.eligibility_trace = d[key].clone()
+                rule.eligibility_trace = d[key].clone()
         self.branches.calcium.copy_(d["calcium"])
         self.momentum = d["momentum"].clone()
         self.meta = [BranchMeta.from_dict(m) if m else None for m in d["meta"]]
@@ -418,9 +467,10 @@ class NPCBrain:
         self.turn = d["turn"]
         self.last_trauma_turn = d["last_trauma_turn"]
         self.gen.set_state(d["gen_state"])
+        self.last_decision = None if d["last_decision"] is None else BrainDecision.from_dict(d["last_decision"])
 
     def save(self, path) -> None:
         torch.save(self.state_dict(), path)
 
     def load(self, path) -> None:
-        self.load_state_dict(torch.load(path, weights_only=False))
+        self.load_state_dict(torch.load(path, weights_only=True))     # plain tensors and containers only

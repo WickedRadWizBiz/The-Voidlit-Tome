@@ -23,7 +23,7 @@ from bindsnet.network.monitors import Monitor
 from bindsnet.network.nodes import Input, LIFNodes
 from bindsnet.network.topology import Connection
 
-from ..partition import Partition
+from ..partition import Partition, check_shapes, check_streams, shapes_of
 from ..rng import Streams
 
 US_NAMES = ("harm", "defiance", "gift", "loss", "bearer_near_death", "lie")
@@ -153,7 +153,36 @@ class BNPartition(Partition):
                 "reward": self._reward.numpy().copy(),
                 "scalars": np.array([self.da_tonic, self.nm_ticks], np.float64)}
 
+    def _rule_shapes(self) -> dict[str, tuple[int, ...]]:
+        """The shape of every learning-rule trace this network has or will make at its first step."""
+        out = {}
+        for (a, b), conn in self.net.connections.items():
+            if isinstance(conn.update_rule, MSTDPET):
+                n = self.net.batch_size
+                shape = {"p_plus": (n, conn.source.n), "p_minus": (n, conn.target.n),
+                         "eligibility": (n, *conn.w.shape), "eligibility_trace": (n, *conn.w.shape)}
+                out.update({f"rule.{a}.{b}.{attr}": shape[attr] for attr in RULE_STATE})
+        return out
+
+    def check_state_dict(self, d: dict) -> None:
+        """Every array this network holds, at its shape. A learning rule's traces may be absent (a save from before
+        its first step), but only all together."""
+        rules = self._rule_shapes()
+        want = shapes_of(self.state_dict())
+        want["tensors"] = {k: s for k, s in want["tensors"].items() if k not in rules}
+        saved = d.get("tensors") if isinstance(d, dict) else None
+        saved = saved if isinstance(saved, dict) else {}        # (check_shapes refuses a missing one)
+        for rule in dict.fromkeys(k.rsplit(".", 1)[0] for k in rules):
+            there = [f"{rule}.{attr}" in saved for attr in RULE_STATE]
+            if any(there) and not all(there):
+                raise ValueError(f"amygdala {rule}: some of its learning traces are missing")
+            if all(there):
+                want["tensors"].update({f"{rule}.{attr}": rules[f"{rule}.{attr}"] for attr in RULE_STATE})
+        check_shapes("amygdala", d, want)
+        check_streams("amygdala", d["streams"], "bn")
+
     def load_state_dict(self, d: dict) -> None:
+        self.check_state_dict(d)
         self.streams = Streams.from_state(d["streams"])
         self.us = np.array(d["us"], np.float32)
         self._reward = torch.from_numpy(np.array(d["reward"], np.float32))

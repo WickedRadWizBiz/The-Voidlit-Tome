@@ -71,6 +71,7 @@ def _load_models(args: argparse.Namespace):
 
 def cmd_play(args: argparse.Namespace) -> int:
     from .app import build_engine
+    from .tome.engine import SaveError
 
     if args.debug and not _dev_ok():
         return 2
@@ -97,9 +98,9 @@ def cmd_play(args: argparse.Namespace) -> int:
             print(f"saved to {engine.save(text.split(maxsplit=1)[1] if ' ' in text else 'saves/quicksave')}")
             continue
         if text.startswith(":load"):
-            try:                        # a refused save leaves the game as it was: report it and play on
+            try:                        # a load is all or nothing: a save it refuses leaves the game as it was
                 engine.load(text.split(maxsplit=1)[1] if " " in text else "saves/quicksave")
-            except (OSError, ValueError, KeyError) as e:
+            except SaveError as e:
                 print(f"load failed: {e}")
                 continue
             print("loaded.")

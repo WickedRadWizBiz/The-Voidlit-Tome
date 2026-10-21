@@ -66,7 +66,7 @@ def played(scenario, director_model):
     e = TomeEngine(scenario, director=Director(director_model, seed=99), seed=99)
     frames = [(None, e.start(), 0)]
     e.state.obstacles.clear()
-    for text in ("I run away", "press on"):
+    for text in ("I search the room", "I run away", "press on"):
         mark = len(e.checks.records)
         frames.append((text, e.turn(text), mark))
     return runs + [(e, frames)]

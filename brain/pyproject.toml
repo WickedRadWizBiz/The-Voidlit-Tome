@@ -5,13 +5,16 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "voidlit"
 version = "0.1.0"
-description = "The Voidlit Tome: a spiking-neural Dungeon Master (SpikingJelly + BindsNET + llama.cpp)."
+description = "The Voidlit Tome: a spiking-neural Dungeon Master (JAX + SpikingJelly + BindsNET + llama.cpp)."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
     "torch>=2.4",
     "spikingjelly>=0.0.0.0.14",
     "bindsnet>=0.3.4",
+    # The Tome's network (cortex, thalamus, hippocampus, nuclei, glia). Pinned: the brain is bit-exact per build.
+    "jax==0.12.0",
+    "jaxlib==0.12.0",
     "websockets>=13",
 ]
 
@@ -28,8 +31,13 @@ voidlit = "voidlit.cli:main"
 include = ["voidlit*"]
 
 [tool.setuptools.package-data]
-voidlit = ["content/*.toml", "cortex/director.pt"]
+voidlit = ["content/*.toml", "cortex/director.pt", "tomebrain/connectome_calibrated.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: network gates that simulate seconds of brain time (run with -m slow)",
+    "balance: long seeded balance runs (run with -m balance)",
+]
+addopts = "-m 'not slow and not balance'"
 filterwarnings = ["ignore::DeprecationWarning", "ignore::UserWarning", "ignore::FutureWarning"]

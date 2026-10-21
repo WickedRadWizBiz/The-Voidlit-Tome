@@ -121,13 +121,19 @@ committed.
       `access_mult` 1.0 with the setting available; Elara serves via offering/misdirect, Marcus via escort/orders;
       Rune +4 vs seals, hidden cost 1 Hull -> 1 Lumen per use and +30 exposure, found in the Chapel of Static;
       attribute scores shown only on the `welcome` sheet; no NPC seize mechanic; NPC corruption cap (itself >= 60%).
-- [ ] **M2 rules (in progress):** `rules/attributes.py`, `rules/checks.py` (d20 degrees m>=10 crit, >=0 success,
+- [x] **M2 rules (done, pushed):** `rules/attributes.py`, `rules/checks.py` (d20 degrees m>=10 crit, >=0 success,
       >=-5 mixed; nat 20/1 shift one step; adapter to pool hits), `rules/relevance.py` (action table + no-check
       list), Resolve on backgrounds (2,2,1,2,1,2), NPC attributes (Elara 1/3/2/2, Marcus 3/1/2/3), panic
       d6+Resolve+3>Stress, Last Light d6+Grit>=5+overflow, DC_ob = 12+2*act (+1 dark), Tome beat checks with
       provisional mods (Grit_T from Lumen) until the network supplies them, frames v2, protocol 2.
-- [ ] M0/M1 network core (JAX partition + calibration G5/G4, clock/bus/persist G6/G7), then M3-M7 per design §16.
+- [x] **M0 JAX partition (done):** `brain/voidlit/tomebrain/jaxpart/` + `calib/calib_rates.py` +
+      `connectome_calibrated.toml`. Gates G1a-c, G2a-c, G3a, G4a-b, G5 pass with mutants
+      (`brain/tests/tomebrain/`; slow ones run with `-m slow`, CI job `network-gates`). Departures logged in design
+      §20 (CV2, fitted background SD, v_ER 2.0, Vogels eta 0.01, stable chaos, chunked delivery).
+- [ ] M1 clock/bus/Philox/persist (G6a-e, G7), then M3 SJ habit + fused BG + race (G10), M4 nuclei/energy/BN
+      amygdala/needs/RPE (G3b, G23, G24), M5 ledger/truth guard/VoiceStyle (G11, G12), M6 cerebellum/upper hand
+      (G20), M7 ToM/Witness/counters (G18, G19, G15).
 - [ ] M8 corruption (NPC + player tiers, Rune, `resist` message, Unreal tap + CLI Enter).
 
 ## Next immediate action
-Finish M2 (engine wiring, frames v2, tests G13/G21, balance re-measure), commit, push. Then M0.
+M1: `tomebrain/clock.py`, `bus.py`, `rng.py`, `persist.py`; gates G6a-e and G7.

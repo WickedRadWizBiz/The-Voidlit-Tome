@@ -1803,3 +1803,55 @@ These are not covered by earlier answers. Each has a default so implementation i
 7. **Late-game possession intensity.** The design caps NPC corruption so each NPC is itself at least 60% of turns
    even at maximum desperation ("at times"). Confirm that this cap, rather than late-game near-total possession, is
    intended.
+
+---
+
+## 20. Implementation log (what was built, and where it departs from this design, with evidence)
+
+### M0: the JAX partition and rate calibration (done)
+
+Built as `brain/voidlit/tomebrain/jaxpart/` (`params.py`: populations, cell kinds, connectome; `network.py`:
+build, state, the jitted window) with the calibration tool `tomebrain/calib/calib_rates.py` and its output
+`tomebrain/connectome_calibrated.toml`. 2,152 cells (480 three-compartment L2/3, 208 two-compartment L5 ET/CA1,
+1,464 point cells), 16,600 receptor slots, about 80,000 synapses; 2 s of brain time take about 2.2 s of wall
+time on one CPU core.
+
+Gates (`brain/tests/tomebrain/`), each with a mutant that must fail:
+
+| Gate | Result |
+|---|---|
+| G1a integrator | finite at dt 0.025-1.0 ms; soma reset on detection; dCaAP tuft peak in [−30, +10] mV. Mutant: the submitted spec's cell under its forward Euler diverges at dt 0.05. |
+| G1b dt convergence | spike count within 15% and first spike within max(1 ms, 5%) of dt 0.025 at 400-800 pA. The 0.5-ms first-spike bound is not resolvable on the 1-ms clock. The HH/Hines f-I comparison is not built. |
+| G1c XOR | (0, >0, >0, 0) at dt 0.25 and 0.025, single pathway 0.8-1.2 u_th, with the design's starting dCaAP values (no refit needed). Mutants h ≡ 1 and g_d = 0 fail. |
+| G2a Graupner-Brunel | post-pre at 1 Hz depresses, at 40 Hz potentiates; pre-post potentiates; bistable drift away from ρ*. Mutant θ_p = 1.6 turns pre-post pairing into depression. |
+| G2b Vogels | a spiking L2/3 cell settles at ρ₀ = 2 Hz ± 30% from weak and from strong inhibition in 180 s. Mutant η = 0 stays far. |
+| G2c Tsodyks-Markram | 20-Hz release sequence matches the analytic recursion to 1e-5 for both classes. |
+| G3a astrocytes | no events without glutamate; events and Γ under sustained activity; event frequency rises with drive. |
+| G4a stability | a +60% drive pulse for 200 ms settles to within 25% of baseline 500 ms later. Mutant without inhibition runs above 3× baseline. |
+| G4b chaos | see the departure below. Mutant frozen and quiescent: nothing spreads. |
+| G5 rates | every population in its band at rest and under busy thalamic drive; E:I 1:2.6; L2/3 CV2 0.84; no spike dropped over 50 busy turns; delivery exact for volleys larger than one chunk. |
+
+Departures, each with its evidence:
+
+1. **Irregularity is measured with CV2** (Holt et al. 1996), not the global ISI CV. In a 2.5-s window the global CV
+   of a true Poisson train at 1 Hz is 0.69 (measured), so the 0.8-1.2 band cannot be met by honest Poisson
+   firing. CV2 is 1.0 ± 0.03 for Poisson at 0.5-5 Hz in 2.5 or 8 s, and 0.55 for a gamma(4) train.
+2. **The background fluctuation amplitude is fitted** (`background_sd_scale`, 2.07, so SD 72 pA for E cells and
+   52 pA for I cells). At the design's 35/25 pA, L2/3 fired too regularly (CV2 0.69): a 2,000-cell network lacks
+   the synaptic bombardment of a whole cortex. Tonic currents and the inhibitory gain onto L2/3 are fitted
+   as designed (the inhibitory gain onto L2/3 settled at 4.13× the §7.2 weights).
+3. **Astrocyte ER pump v_ER = 2.0 µM/s** instead of the AM set's 0.9. With 0.9, event frequency fell as drive rose
+   (11, 9, then 2 events per 120 s at 0.02, 0.04 and 0.08 spikes/ms). With 2.0 it rises (0, 4, 8, 10 per 90 s
+   from 0.01 to 0.08), which is what G3a and the counter-adaptation clustering need.
+4. **Vogels η = 0.01 on the efficacy multiplier** (about 0.03 nS per event at the 3-nS PV weight), between the
+   spec's 0.005 and bio's 0.02 nS, so recovery from strong inhibition fits in 180 s.
+5. **G4b is stated as stable chaos** (Zillmer, Livi, Politi & Torcini 2006). A 0.1-mV kick to one PC decays
+   without moving any spike on the 1-ms clock (measured: |ΔV| 0.03 → 0.002 mV over 190 ms). A single extra spike
+   spreads through the raster (to 120-500 cells within 300 ms in most trials) while population rates stay within
+   10%. The gate asserts both, which is the honest reading of "macroscopic stability with microscopic chaos" on a
+   1-ms spike clock.
+6. **Spike delivery is chunked.** When every thalamic channel switches in the same ms, synchronous volleys reach
+   about 200 spikes per ms (p99 24, mean 13). Instead of a 4×-peak buffer (a 5× cost), spiking cells are compacted
+   in chunks of 96 inside a `fori_loop`, so no spike can be dropped and an ordinary ms costs one chunk.
+7. Hippocampal interneuron wiring (CA3/CA1 PV, OLM), L5/L6 interneuron inputs and DG feed-forward inhibition are
+   not in §7.2-7.3. They were added with the template's weights so that no population is orphaned.

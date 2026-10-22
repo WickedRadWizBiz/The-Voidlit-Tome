@@ -53,6 +53,27 @@ def check_shapes(what: str, d, want: dict) -> None:
                 raise ValueError(f"{what}.{k}: not finite")
 
 
+def check_scalars(what: str, d: dict, want: dict) -> None:
+    """Raise ValueError unless each named scalar of ``d`` is of the kind of ``want``'s, a count a whole number and a
+    flag a bool (``check_shapes`` has checked the names and shapes): a count saved as 4.7 would be read back as 4."""
+    for k, v in want.items():
+        a, b = np.asarray(d[k]), np.asarray(v)
+        if a.dtype.kind != b.dtype.kind:
+            raise ValueError(f"{what}.{k}: {a.dtype}, not {b.dtype}")
+
+
+def state_arrays(d: dict) -> list[np.ndarray]:
+    """Every value of a nested state dict as an array, in key order (a string as its UTF-8 bytes)."""
+    out = []
+    for k in sorted(d):
+        v = d[k]
+        if isinstance(v, dict):
+            out += state_arrays(v)
+        else:
+            out.append(np.frombuffer(v.encode(), np.uint8) if isinstance(v, str) else np.asarray(v))
+    return out
+
+
 def check_streams(what: str, d, partition: str) -> None:
     """Raise ValueError unless ``d`` is the state of the ``partition`` partition's noise streams (an integer seed:
     ``Streams`` would round any other number into another seed's noise)."""
@@ -104,7 +125,9 @@ class Partition:
         check_shapes(self.name, d, shapes_of(self.state_dict()))
 
     def digest_arrays(self) -> list[np.ndarray]:
-        return []
+        """What ``Cosim.digest`` hashes. By default every value ``state_dict`` holds, so the digest covers whatever a
+        save does."""
+        return state_arrays(self.state_dict())
 
 
 class JaxPartition(Partition):

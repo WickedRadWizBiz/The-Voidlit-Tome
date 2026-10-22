@@ -17,7 +17,8 @@ import numpy as np
 
 from .partition import check_shapes, shapes_of
 
-FORMAT, VERSION = "voidlit.tomebrain", 1
+# 2: the basal ganglia's and the amygdala's scalars by name, every loop's fallbacks (M6)
+FORMAT, VERSION = "voidlit.tomebrain", 2
 
 
 def build_info() -> dict:
@@ -84,7 +85,13 @@ def save(cosim, path: str | Path, extra: dict | None = None) -> Path:
 def check(cosim, blob: dict) -> None:
     """Raise ValueError unless ``blob`` fits this brain whole (format, version, connectome, window, every partition,
     the bus and the clock), changing nothing."""
-    if not isinstance(blob, dict) or blob.get("format") != FORMAT or blob.get("version") != VERSION:
+    if not isinstance(blob, dict) or blob.get("format") != FORMAT:
+        raise ValueError("not a Tome brain save")
+    version = blob.get("version")
+    if isinstance(version, int) and 0 < version < VERSION:
+        raise ValueError(f"this brain was saved by an earlier version of the Tome (brain save version {version}; this "
+                         f"build reads version {VERSION} and does not convert older ones)")
+    if version != VERSION:
         raise ValueError("not a Tome brain save of this version")
     try:
         if blob["connectome_sha256"] != cosim.jax.net.digest:

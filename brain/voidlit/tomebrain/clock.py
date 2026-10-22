@@ -8,6 +8,7 @@ partitions run inside a window, whether JAX runs asynchronously, and the window 
 from __future__ import annotations
 
 import hashlib
+import time
 from dataclasses import dataclass
 
 import numpy as np
@@ -42,6 +43,13 @@ class Cosim:
         self.bus = SpikeBus(sizes, W)
         self.clock = MasterClock()
         self.order = [p.name for p in self.others]
+        # wall seconds spent in each part since the caller last cleared it: developer telemetry, never saved or digested
+        self.perf: dict[str, float] = {}
+
+    def _lap(self, part: str, since: float) -> float:
+        now = time.perf_counter()
+        self.perf[part] = self.perf.get(part, 0.0) + now - since
+        return now
 
     @property
     def partitions(self) -> list[Partition]:
@@ -56,16 +64,24 @@ class Cosim:
         by_name = {p.name: p for p in self.others}
         for _ in range(ms // self.W):
             t0 = self.clock.t_ms
+            lap = time.perf_counter()
             pending = self.jax.dispatch(self.bus, t0, self.W)          # XLA computes while torch runs
-            out: dict[str, np.ndarray] = {} if async_jax else self.jax.finish(pending)
+            lap = self._lap("jax_dispatch", lap)
+            out: dict[str, np.ndarray] = {}
+            if not async_jax:
+                out = self.jax.finish(pending)
+                lap = self._lap("jax_join", lap)
             for name in self.order:
                 out.update(by_name[name].step(self.bus, t0, self.W))
+                lap = self._lap(name, lap)
             if async_jax:
                 out.update(self.jax.finish(pending))
+                lap = self._lap("jax_join", lap)
             for src, rows in out.items():
                 self.bus.write(src, t0, np.asarray(rows, np.float32))
                 if src in rec:
                     rec[src].append(np.asarray(rows))
+            self._lap("bus", lap)
             self.clock.t_ms += self.W
         return {k: np.concatenate(v) if v else np.zeros((0, 0)) for k, v in rec.items()}
 

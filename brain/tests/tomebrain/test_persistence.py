@@ -218,6 +218,10 @@ def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
              _variant(tmp_path, "bn_seed_float", brain=_edit(*bn, "streams", "seed", value=4.7)),
              _variant(tmp_path, "sj_shape", brain=_edit(*sj, "W", "ctx_d1", value=torch.zeros(4, 4))),
              _variant(tmp_path, "sj_keys", brain=_edit(*sj, "elig")),
+             _variant(tmp_path, "sj_scalar", brain=_edit(*sj, "scalars", "kappa_h")),
+             _variant(tmp_path, "sj_ticks_float", brain=_edit(*sj, "scalars", "nm_ticks", value=torch.tensor(4.5))),
+             _variant(tmp_path, "sj_phase_int", brain=_edit(*sj, "scalars", "in_phase_b", value=torch.tensor(1))),
+             _variant(tmp_path, "brain_v1", brain=_edit("version", value=1)),       # an earlier milestone's brain
              _variant(tmp_path, "habit_shape", brain=_edit(*sj, "habit", "v", value=torch.zeros(5))),
              _variant(tmp_path, "clock", brain=_edit("clock", "phase")),
              _variant(tmp_path, "bus", brain=_edit("bus", "buf", "B.cea")),
@@ -228,6 +232,8 @@ def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
              _variant(tmp_path, "mind_vs_ema", brain=_edit("extra", "mind", "vs_ema")),
              _variant(tmp_path, "mind_need_text", brain=_edit("extra", "mind", "needs", "survival", value="0.5")),
              _variant(tmp_path, "late_us", brain=_edit("extra", "late_us", value={"loss": "much"})),
+             _variant(tmp_path, "fallbacks_int", brain=_edit("extra", "fallbacks", value=3)),   # (one count, as before)
+             _variant(tmp_path, "fallbacks_loop", brain=_edit("extra", "fallbacks", "FRAME")),
              _variant(tmp_path, "mind_need_nan", brain=_edit("extra", "mind", "needs", "survival", value=NAN)),
              _variant(tmp_path, "mind_vs_ema_inf", brain=_edit("extra", "mind", "vs_ema", value=INF)),
              _variant(tmp_path, "mind_stats_nan", brain=lambda b: next(iter(b["extra"]["mind"]["stats"].values()))
@@ -271,11 +277,14 @@ def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
         "bn_cells": r"layer\.bla\.v: float32 of shape \(1, 5\)", "bn_torn_rule": "learning traces are missing",
         "bn_scalars": r"amygdala: keys differ: \['scalars'\]", "bn_seed_float": "noise streams",
         "sj_shape": r"W\.ctx_d1: float32 of shape \(4, 4\)", "sj_keys": r"basal ganglia: keys differ: \['elig'\]",
+        "sj_scalar": r"scalars: keys differ: \['kappa_h'\]", "sj_ticks_float": r"scalars\.nm_ticks: float32, not int64",
+        "sj_phase_int": r"scalars\.in_phase_b: int64, not bool", "brain_v1": "saved by an earlier version of the Tome",
         "habit_shape": r"habit\.v: float32 of shape \(5,\)", "clock": r"clock: keys differ: \['phase'\]",
         "bus": r"bus\.buf: keys differ: \['B\.cea'\]", "bus_ahead": "the bus and the clock disagree",
         "mindless": r"mind: keys differ: \['stats'\]", "mind_affect": r"mind: keys differ: \['affect'\]",
         "mind_vs_ema": r"mind: keys differ: \['vs_ema'\]", "mind_need_text": r"needs\.survival: str, not float",
         "late_us": r"late_us\.loss: str, not float", "unstamped": "save id: NoneType",
+        "fallbacks_int": r"fallbacks: int, not a record", "fallbacks_loop": r"fallbacks: keys differ: \['FRAME'\]",
         "mixed_npc": "marcus.pt belongs to another save", "mixed_brain": f"{BRAIN_FILE} belongs to another save",
         "mixed_campaign": "belongs to another save than campaign.json",
     }

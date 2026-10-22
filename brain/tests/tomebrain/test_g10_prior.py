@@ -8,6 +8,8 @@ Also: the real brain is window-size invariant (W = 4 equals W = 1 bitwise, the m
 TomeNetEngine plays and reloads.
 """
 
+import re
+
 import numpy as np
 import pytest
 
@@ -131,3 +133,46 @@ def test_net_engine_plays_saves_and_resumes(tmp_path):
         cmd = bot_command(a)
         fa, fb = a.turn(cmd), b.turn(cmd)
         assert fa.to_dict(include_debug=True) == fb.to_dict(include_debug=True)
+
+
+def test_net_engine_counts_every_loops_fallbacks_and_saves_them(tmp_path):
+    """Each loop's fallbacks are counted (RHETORIC's keep Phase B running to its cap), reported to developers with
+    each loop's commit time, and saved with the brain. Wall times reach the debug frame only when asked for, so the
+    same game still gives the same frames."""
+    from voidlit.playtest import bot_command
+    from voidlit.tome.net_engine import TomeNetEngine
+    from voidlit.tomebrain.brain import CAP_MS
+
+    a = TomeNetEngine(seed=4)
+    a.start()
+    fell = dict.fromkeys(BG.LOOPS, 0)
+    for _ in range(4):
+        f = a.turn(bot_command(a))
+        at = f.debug["commit_ms"]
+        assert set(at) == set(BG.LOOPS) and "timing" not in f.debug
+        for loop in BG.LOOPS:
+            fell[loop] += at[loop] is None
+        assert f.debug["fallbacks"] == fell
+        if at["PACE"] is None or at["RHETORIC"] is None:
+            assert f.debug["phase_b_ms"] == CAP_MS
+    assert sum(fell.values()) > 0                   # (FRAME, which Phase B does not wait for, falls back often)
+    a.save(tmp_path / "slot")
+    b = TomeNetEngine(seed=77, timing=True)
+    b.load(tmp_path / "slot")
+    assert b.brain.fallbacks == a.brain.fallbacks == fell
+    cmd = bot_command(a)
+    fa, fb = a.turn(cmd), b.turn(cmd)
+    timing = fb.debug.pop("timing")
+    assert {"phase_a", "phase_b", "quiet", "jax_dispatch", "jax_join", "sj", "bn", "brain_ms"} <= set(timing)
+    assert timing["brain_ms"] == 60 + fb.debug["phase_b_ms"]
+    assert fa.to_dict(include_debug=True) == fb.to_dict(include_debug=True)
+
+
+def test_the_latency_probe_reports_a_short_run(capsys):
+    from voidlit.tomebrain.calib import latency_probe
+
+    latency_probe.main(["--seeds", "1", "--turns", "4"])
+    out = capsys.readouterr().out
+    assert "3 turns over 1 games" in out and "p95" in out and "Phase B ms: " in out
+    assert all(f"{loop:9s} fallback" in out for loop in BG.LOOPS)
+    assert re.search(r"per brain-ms .*sj \d+\.\d{3}", out) and "cold start" in out

@@ -5,13 +5,14 @@ state to the thalamus, and reads the Tome's choices from its VA/VL thalamus with
 
     each loop commits to the first channel whose 4 VA/VL cells fire K = 6 spikes within any 20-ms window,
     counted from 120 ms after Phase B starts; Phase B ends when PACE and RHETORIC have committed, or at 240 ms,
-    when the channel with the most VA/VL spikes wins and the fallback counter goes up.
+    when the channel with the most VA/VL spikes wins and that loop's fallback counter goes up.
 
 Rules-forbidden channels get a hard NOGO in GPi and are never counted, so a forbidden commit cannot happen.
 """
 
 from __future__ import annotations
 
+import time
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -123,7 +124,8 @@ class TomeBrain:
         self.jax = jax_part
         self.net = jax_part.net
         self.turn = 0
-        self.fallbacks = 0
+        self.fallbacks = {loop: 0 for loop in BG.LOOPS}     # races the fallback rule decided, per loop (saved)
+        self.timing: dict[str, float] = {}     # the last turn's wall ms by part (developer telemetry; never saved)
         mu = np.asarray(jax_part.state["mu"]).copy()
         mu[self.net.idx("P.MTX")] += VAVL_DRIVE_PA
         import jax.numpy as jnp
@@ -220,7 +222,9 @@ class TomeBrain:
         """60 ms before the rules resolve the player's action: the network perceives the new input. Last turn's
         intrinsic reward (drive reduction) reaches the VTA as a lateral-hypothalamic current: a positive one for the
         first 50 ms, a negative one as a pause that may last into Phase B."""
+        wall = time.perf_counter()
         self.cosim.clock.phase = "A"
+        self.cosim.perf.clear()
         self.jax.reset_counts()
         self._reward_until = self.cosim.clock.t_ms + self.reward_ms(self.mind.reward)
         # the pacemakers' state before a pause, which they return to over the quiet (see _end_turn)
@@ -229,8 +233,10 @@ class TomeBrain:
         rec = self.cosim.run(PHASE_A_MS, record=("J.vta", "S.vs"))
         self.vta_phase_a = rec["J.vta"]          # [60 ms, 24]: the dopamine response to last turn's outcome
         self._vs_spikes = float(rec["S.vs"].sum())
+        self.timing = {"phase_a": (time.perf_counter() - wall) * 1000.0}
 
     def phase_b(self, director_features: np.ndarray, allowed: set[str] | None = None) -> PhaseBOut:
+        wall = time.perf_counter()
         clock = self.cosim.clock
         clock.phase = "B"
         prior = self.sj.begin_phase_b(director_features, clock.t_ms, self.turn, allowed)
@@ -256,12 +262,17 @@ class TomeBrain:
         self.sj.end_phase_b()
         self.sj.end_turn(clock.t_ms - start + PHASE_A_MS)
         facts = np.array([self.jax.counts[self.net.idx(f"P.fact{i}")].sum() for i in range(8)])
+        quiet = time.perf_counter()
         self._end_turn()
         self.turn += 1
         clock.turn = self.turn
         clock.phase = "idle"
-        if final["PACE"].fallback:
-            self.fallbacks += 1
+        for loop, commit in final.items():
+            self.fallbacks[loop] += int(commit.fallback)
+        end = time.perf_counter()
+        self.timing.update({"phase_b": (quiet - wall) * 1000.0, "quiet": (end - quiet) * 1000.0,
+                            **{k: v * 1000.0 for k, v in self.cosim.perf.items()},
+                            "brain_ms": float(PHASE_A_MS + clock.t_ms - start)})
         return PhaseBOut(final["PACE"], final["RHETORIC"], final["FRAME"], prior, clock.t_ms - start, facts)
 
     def _race(self, raster: np.ndarray, allowed: set[str] | None, final: bool,

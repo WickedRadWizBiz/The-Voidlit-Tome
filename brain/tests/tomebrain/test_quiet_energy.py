@@ -110,3 +110,47 @@ def test_a_starving_brain_rests_starving():
     at = lambda glucose: TomeBrain.rest_rates(SimpleNamespace(rest_table=table), glucose)  # noqa: E731
     assert at(1.0) == pytest.approx(table[6]) and at(0.15) == pytest.approx(table[0])
     assert at(0.15 + 0.85 * 2.5 / 6) == pytest.approx((table[2] + table[3]) / 2, rel=1e-5)
+
+
+def test_the_brain_rests_at_its_current_lumen():
+    """The brain's quiet relaxes toward its table's resting rates at the current Lumen, and the striatum's tonic
+    dopamine follows the level the VTA's resting rate sustains. (A brain that passed the fed row at every Lumen passed
+    every other test, G3b and G23 included, while it rested a starving network fed.)"""
+    import numpy as np
+
+    from voidlit.tomebrain.brain import TomeBrain
+
+    brain = TomeBrain(0)
+    seen, quiet = [], brain.quiet
+
+    def spy(st, glucose, rate_turn, rate_rest):
+        seen.append(np.asarray(rate_rest))
+        return quiet(st, glucose, rate_turn, rate_rest)
+    brain.quiet = spy
+    for lumen in (6, 0, 3):
+        brain.set_input(glucose=0.15 + 0.85 * lumen / 6)
+        brain._end_turn()
+        assert np.array_equal(seen[-1], brain.rest_table[lumen]), lumen
+        assert brain.sj.da_tonic == pytest.approx(NW.nm_level(brain.net, brain.rest_table[lumen])[0], rel=0.15), lumen
+
+
+def test_recalibration_keeps_the_resting_rates_by_lumen(tmp_path):
+    """A new G5 calibration replaces the file's rates and keeps its resting rates by Lumen (it dropped them, and the
+    brain fell back to resting fed at every Lumen without a word)."""
+    import tomllib
+
+    from voidlit.tomebrain.calib import calib_rates as CR
+
+    path = tmp_path / "calibrated.toml"
+    path.write_text(NW.CALIBRATION_FILE.read_text())
+    with open(path, "rb") as fh:
+        before = tomllib.load(fh)
+    rates = {p: 2.0 for p in before["rates_rest"]}
+    result = {"score": 0, "inh_gain": 1.0, "sd_scale": 1.0, "mu": before["mu"],
+              "rest": {"rates": rates, "ei": 3.0, "cv": 1.0}, "busy": {"rates": rates, "peak": 10, "overflow": 0}}
+    for _ in range(2):
+        CR.write(result, path)
+        with open(path, "rb") as fh:
+            after = tomllib.load(fh)
+        assert after["rates_rest"] == rates and after[CR.REST_BY_LUMEN] == before[CR.REST_BY_LUMEN]
+        assert path.read_text().count(CR.NOTE_BY_LUMEN) == 1

@@ -43,8 +43,14 @@ N_CTX = 328                              # cortical, hippocampal and thalamostri
 N_PVT = 8
 N_LIM = 48                               # amygdala BLA lines (bus B.bla)
 TAU = dict(d1=20.0, d2=20.0, fsi=5.0, gpe=10.0, stn=6.0, gpi=10.0, vs=20.0)
+# The D2 MSNs' tonic drive is the up-state the network's sparse cortex cannot hold them in. Their only input was the
+# cortical lines, about a twentieth of threshold, so they never fired, carried no tags and no dip could strengthen them
+# (the design's 0.3 x 5-HT became 0.03 x its excursion from tonic, which is zero on average). At 0.04 they fire on the
+# cortex's fluctuations at 0-1.5 Hz a turn (bot games: 0.3-0.6 Hz median, 0.4-1.0 Hz mean), all channels alike, which
+# leaves GPe and the race as they were (gate G10a: 0.947 hits, 0 fallbacks), and a dip strengthens their synapses.
 TONIC = dict(gpe=0.12, stn=0.15, gpi=0.13,   # GPe ~77 Hz, STN ~33 Hz, GPi ~67 Hz at rest (with noise)
-             vs=0.04)                         # the critic idles at a few Hz, so it can learn what predicts reward
+             vs=0.04,                         # the critic idles at a few Hz, so it can learn what predicts reward
+             d2=0.04)
 W_HABIT = 0.012          # habit trace -> D1, per unit of filtered habit spikes (20-ms trace)
 # One unit of log-probability moves a D1 cell's input by W_HABIT x 4 cells x 20 ms x RATE_MAX / SCALE = 0.024, so
 # the Gumbel excitability uses the same gain: the race then samples argmax(log p + Gumbel), i.e. from p.
@@ -59,16 +65,21 @@ ETA, K_TAG, ANCHOR = 2e-4, 0.05, 0.002
 TAG_TAU_MS = 60_000.0
 QUIET_MS = 20_000.0
 _K20 = math.exp(-1 / 20.0)
-TONIC_TAU_MS = 6_000.0   # tonic DA / 5-HT: running mean over about 20 turns of brain time
+TONIC_TAU_MS = 6_000.0   # tonic DA / 5-HT: running mean of the concentration (the DA's over the quiet interval too)
+# The striatum reads dopamine against its tonic level, but never finer than DA_FLOOR (concentration units; the fed VTA
+# sustains about 1.0). A starving VTA paces at under 1 Hz: its 24 cells' spikes arrive about 50 ms apart and each one
+# moves the concentration by a quarter of its tonic level, so read against that level alone their shot noise was a
+# stream of pauses and bursts. Against the floor, eventless starving turns read neither; fed, the floor is never met.
+DA_FLOOR = 0.5
 PHASIC = 0.3             # a dopamine burst: the slow dopamine at least 30% above tonic. Below that is the sparse VTA's
                          # shot noise and wobble, which must teach nothing: with no event it stays within -0.19..+0.23
                          # (200 turns, 2 seeds), while a gift reaches 0.44-0.57
-PAUSE = 0.5              # a dopamine dip: the concentration itself at half its tonic level or less. The slow dopamine
-                         # needs 220 ms of silence to fall 30%, longer than most turns (Phase B often commits at
-                         # 124 ms), but the concentration halves after 139 ms. The VTA's pacemakers never all fall
-                         # silent by chance (with no pause the concentration never went below -0.38 in 300 eventless
-                         # turns), and an eventless reward pauses them too briefly to halve it (-0.46 at most in 200).
-                         # Its upper tail is shot noise (up to +0.84), so a burst is still read from the slow dopamine.
+PAUSE = 0.5              # a dopamine dip: the concentration itself half its tonic level below it (da_signal). The
+                         # slow dopamine needs 220 ms of silence to fall 30%, longer than most turns (Phase B often
+                         # commits at 124 ms), but the concentration halves after 139 ms. The VTA's pacemakers never
+                         # all fall silent by chance (with no pause the concentration never went below -0.38 in 300
+                         # eventless turns), and an eventless reward pauses them too briefly to halve it (-0.47 at most
+                         # in 300). Its upper tail is shot noise (up to +0.84), so a burst is read from the slow DA.
 WARMUP_MS = 500
 # Dopamine acts twice: the fast phasic signal gates plasticity (below), while its modulation of MSN excitability runs
 # through second messengers (cAMP/PKA) and follows it only slowly (the shot noise of a sparse VTA is SD ~0.45 of tonic
@@ -136,9 +147,9 @@ class SJPartition(Partition):
         put("stn", "gpi", same_loop * 0.06)            # diffuse hyperdirect, within the loop
         self.RT = R.T.contiguous().to_sparse_csr()
         self.tonic = torch.zeros(self.n)
-        for k in ("gpe", "stn", "gpi", "vs"):
+        for k, v in TONIC.items():
             a, b = self.off[k]
-            self.tonic[a:b] = TONIC[k]
+            self.tonic[a:b] = v
         self.noise_scale = torch.full((self.n,), NOISE)
         self.noise_scale[: 2 * N_CH * M] = NOISE_MSN
         self.nogo = torch.zeros(N_CH * I)
@@ -190,10 +201,30 @@ class SJPartition(Partition):
         self.nogo_d1 = torch.zeros(N_CH * M)
         self.in_phase_b = False
 
+    def da_signal(self, conc: float) -> float:
+        """The phasic dopamine signal of a concentration: its excursion from tonic, in units of tonic (DA_FLOOR at
+        least). -1 is no dopamine at all at a fed tonic level."""
+        return (conc - self.da_tonic) / max(self.da_tonic, DA_FLOOR)
+
+    def rest(self, da_turn: float, da_rest: float, ht: float, tau_post_ms: float) -> None:
+        """The quiet interval for the tonic running means (design §5.6), integrated exactly over its 20 s. The dopamine
+        concentration follows the VTA from the level its turn rate sustains back to the level its resting rate
+        sustains, da_rest + (da_turn - da_rest) exp(-t / tau_post); the resting rate is the network's at the current
+        Lumen, so the tonic level follows the slow change of a starving VTA (integrated over turn ticks alone, about
+        20 turns to adapt, a dying light read as a pause on every turn). Serotonin is held at ``ht``, as the quiet
+        holds it (over turn ticks alone, the tonic level lagged the concentration's climb over the first ten turns,
+        and the D2 cells fired at 40 Hz on the difference)."""
+        a = (da_turn - da_rest) * tau_post_ms / (tau_post_ms - TONIC_TAU_MS)
+        keep = math.exp(-QUIET_MS / TONIC_TAU_MS)
+        self.da_tonic = da_rest + a * math.exp(-QUIET_MS / tau_post_ms) + (self.da_tonic - da_rest - a) * keep
+        self.ht_tonic = ht + (self.ht_tonic - ht) * keep
+        self.nm_ticks += int(QUIET_MS)
+
     def end_turn(self, elapsed_ms: float) -> None:
         """Capture eligibility into tags; tags decay over the quiet interval; weights drift toward the anchor. The
-        slow dopamine relaxes to tonic over the quiet's 20 s (the brain returns the concentration to tonic too), so a
-        burst or dip that the turn's end cut short never pays the tags captured here."""
+        slow dopamine relaxes to tonic over the quiet's 20 s (the brain returns the concentration to its resting level,
+        which ``rest`` takes the tonic level to), so a burst or dip that the turn's end cut short never pays the tags
+        captured here."""
         decay = math.exp(-elapsed_ms / TAG_TAU_MS)
         for k in self.W:
             self.tags[k] = self.tags[k] * decay + self.elig[k]
@@ -225,9 +256,8 @@ class SJPartition(Partition):
                 self.da_tonic += (float(nm[i, 0]) - self.da_tonic) * k
                 self.ht_tonic += (float(nm[i, 2]) - self.ht_tonic) * k
                 warm = self.nm_ticks >= WARMUP_MS               # no learning until the tonic level is known
-                da = float(nm[i, 0]) / max(self.da_tonic, 1e-3) - 1.0 if warm else 0.0
+                da = min(1.0, self.da_signal(float(nm[i, 0]))) if warm else 0.0      # (>= -1: no dopamine at all)
                 ht = float(nm[i, 2]) / max(self.ht_tonic, 1e-3) - 1.0 if warm else 0.0
-                da = min(1.0, da)                       # (>= -1 by construction: a dip ends at no dopamine at all)
                 self.da_mod += (da - self.da_mod) / DA_MOD_TAU_MS
                 active = torch.nonzero(ctx[i]).flatten()
                 sparse = lambda w: w[active].sum(0)        # noqa: E731

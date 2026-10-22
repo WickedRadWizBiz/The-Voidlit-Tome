@@ -68,14 +68,22 @@ def tagged_partition() -> BG.SJPartition:
 def run(sj: BG.SJPartition, event_hz: np.ndarray) -> tuple[dict, dict]:
     """A second of tonic dopamine, then ``event_hz`` and 600 ms of tonic after it, with a silent cortex (so only
     what is already tagged can be paid). Returns the weights before and after the event."""
-    da = dopamine(event_hz)
+    return play(sj, dopamine(event_hz), WARM_MS)
+
+
+def play(sj: BG.SJPartition, da: np.ndarray, from_ms: int = 2 * W, ctx_hz: float = 0.0) -> tuple[dict, dict]:
+    """The partition reads the dopamine concentration ``da`` (per ms) with a silent cortex, or one whose lines fire
+    Poisson spikes at ``ctx_hz``. Returns the weights at ``from_ms`` and at the end."""
     bus = SpikeBus({"J.ctx": BG.N_CTX, "J.pvt": BG.N_PVT, "J.nm": 4, "B.bla": BG.N_LIM}, W)
     silent = {src: np.zeros((W, n), np.float32) for src, n in (("J.ctx", BG.N_CTX), ("J.pvt", BG.N_PVT),
                                                                ("B.bla", BG.N_LIM))}
+    rng = np.random.default_rng(0)
 
     def publish(t):
         nm = np.zeros((W, 4), np.float32)
         nm[:, 0], nm[:, 2] = da[t:t + W], 1.0
+        if ctx_hz:
+            silent["J.ctx"] = (rng.random((W, BG.N_CTX)) < ctx_hz * 1e-3).astype(np.float32)
         for src, rows in silent.items():
             bus.write(src, t, rows)
         bus.write("J.nm", t, nm)
@@ -84,7 +92,7 @@ def run(sj: BG.SJPartition, event_hz: np.ndarray) -> tuple[dict, dict]:
     for t in range(0, 2 * W, W):            # the striatum has seen tonic dopamine before it first reads the bus
         publish(t)
     for t in range(2 * W, len(da) - len(da) % W, W):
-        if t == WARM_MS:
+        if t == from_ms:
             before = {k: v.clone() for k, v in sj.W.items()}
         sj.step(bus, t, W)
         publish(t)
@@ -152,3 +160,82 @@ def test_g2e_mutant_a_dip_needing_an_empty_synapse_misses_the_short_pause(monkey
     monkeypatch.setattr(BG, "PAUSE", 1.0)
     before, after = run(tagged_partition(), np.zeros(150))
     assert all(torch.equal(before[k], after[k]) for k in before)
+
+
+def test_g2e_the_d2_msns_fire_at_a_low_rate():
+    """With no drive but the sparse cortical lines (about a twentieth of threshold) the D2 MSNs never fired in the
+    brain, so their synapses carried no tags and no dip could strengthen them. Their tonic drive (the up-state the
+    small network's cortex cannot sustain) has them fire at a low rate on the brain's cortical input (its 328 lines
+    at about 4 Hz)."""
+    sj, spikes = tagged_partition(), []
+    fire = sj.pop.forward
+
+    def counted(x):
+        s = fire(x)
+        spikes.append(float(s[slice(*sj.off["d2"])].sum()))
+        return s
+    sj.pop.forward = counted
+    play(sj, dopamine(np.zeros(0)), ctx_hz=4.0)
+    hz = sum(spikes) / (BG.N_CH * BG.M) / len(spikes) * 1000.0
+    assert 0.1 < hz < 5.0, hz
+
+
+STARVING_HZ = 0.6       # a starving brain's VTA: 0.85 Hz at rest at Lumen 0, 0-1.4 Hz in its turns
+
+
+def level(hz: float) -> float:
+    """The DA concentration a VTA pacing at ``hz`` sustains."""
+    return DA_PER_SPIKE * VTA_N * hz * 1e-3 / (1.0 - DECAY)
+
+
+def starving_dopamine(ms: int, seed: int = 0) -> np.ndarray:
+    """DA concentration per ms from a VTA whose cells fire few, irregular (Poisson) spikes at STARVING_HZ."""
+    spikes = np.random.default_rng(seed).poisson(VTA_N * STARVING_HZ * 1e-3, ms)
+    nm, out = level(STARVING_HZ), np.empty(ms, np.float32)
+    for t in range(ms):
+        nm = nm * DECAY + DA_PER_SPIKE * spikes[t]
+        out[t] = nm
+    return out
+
+
+def test_g2e_the_tonic_dopamine_integrates_the_quiet():
+    """Over the quiet's 20 s the dopamine follows the VTA from its turn rate back to its resting rate (with the quiet's
+    tau_post of 2 s) and the tonic level integrates it: the closed form agrees with the running mean stepped through
+    every ms, and a fed tonic level goes nine tenths of the way to a starving VTA's resting level in one quiet."""
+    sj = tagged_partition()
+    da_turn, da_rest, tau_post = 1.3 * TONIC_DA, level(STARVING_HZ), NW.POST_TAU_MS
+    tonic = sj.da_tonic
+    for t in range(int(BG.QUIET_MS)):
+        tonic += (da_rest + (da_turn - da_rest) * math.exp(-t / tau_post) - tonic) / BG.TONIC_TAU_MS
+    sj.rest(da_turn, da_rest, 1.0, tau_post)
+    assert sj.da_tonic == pytest.approx(tonic, rel=1e-3)
+    assert sj.da_tonic - da_rest < 0.1 * (TONIC_DA - da_rest), (sj.da_tonic, da_rest)
+
+
+@pytest.mark.parametrize("seed", range(2))
+def test_g2e_a_starving_vta_teaches_nothing(seed):
+    """At Lumen 0 the VTA paces at under 1 Hz. Once the tonic level has followed it over the quiet, its few, irregular
+    spikes read as neither pauses nor bursts (each moves the concentration by a quarter of that level, so the
+    striatum reads them against DA_FLOOR), and 3 s of them pay none of the tagged synapses."""
+    sj = tagged_partition()
+    sj.rest(TONIC_DA, level(STARVING_HZ), 1.0, NW.POST_TAU_MS)
+    before, after = play(sj, starving_dopamine(3000, seed))
+    assert all(torch.equal(before[k], after[k]) for k in before)
+
+
+def test_g2e_mutant_a_tonic_level_left_fed_reads_starvation_as_a_dip():
+    """Integrated over turn ticks alone, the tonic level stays near where the fed brain left it for about 20 turns:
+    the starving VTA reads as one long pause and unlearns every tagged synapse (in the brain, dips on 19 of 30 eventless
+    starving turns). The test above detects a tonic level that does not follow the VTA's resting rate."""
+    before, after = play(tagged_partition(), starving_dopamine(3000))
+    for k, (tagged, _) in change(before, after).items():
+        assert -SIGN[k] * tagged > 1e-5, (k, tagged)
+
+
+def test_g2e_mutant_read_against_the_starving_tonic_alone_its_shot_noise_teaches(monkeypatch):
+    """Without DA_FLOOR, the starving VTA's gaps between spikes read as pauses: the test above detects the floor."""
+    monkeypatch.setattr(BG, "DA_FLOOR", 1e-3)
+    sj = tagged_partition()
+    sj.rest(TONIC_DA, level(STARVING_HZ), 1.0, NW.POST_TAU_MS)
+    before, after = play(sj, starving_dopamine(3000))
+    assert not all(torch.equal(before[k], after[k]) for k in before)

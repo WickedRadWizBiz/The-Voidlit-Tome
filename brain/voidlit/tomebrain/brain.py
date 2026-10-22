@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from .bnpart import amygdala as AM
+from .calib import calib_rates as CR
+from .calib.calib_rates import NOTE_BY_LUMEN, REST_BY_LUMEN
 from .clock import Cosim
 from .jaxpart import network as NW
 from .jaxpart import params as PR
@@ -49,9 +51,17 @@ REWARD_MS = 50
 PAUSE_PA = 100.0
 PAUSE_MS_PER_UNIT = 2600.0
 PAUSE_MAX_MS = 250
+# What the amygdala tells the neuromodulatory nuclei. At the design's 1.2 nS the CeA -> LC edge left LC inside its shot
+# noise (SD 0.6 Hz) when a harm, a gift or a loss drove the CeA to 20-30 Hz, and nothing but the cortex drove the NBM
+# and the DRN (their designed event inputs, the IO error and the S mismatch, come with the cerebellum), so no event
+# moved arousal, acetylcholine or serotonin. At 8 nS a harm, a gift or a loss lifts LC by 3-6 Hz; the CeA's projection
+# to the basal forebrain's cholinergic cells (attention to salient events, Holland & Gallagher 1999) lifts ACh by 4-12
+# SDs on any stimulus; the bond assembly onto the DRN (serotonin cells answer reward, Li et al. 2016) lifts 5-HT by
+# about 7 SDs on a gift. At rest the amygdala is silent, and these edges with it.
+CEA_LC_NS = 8.0
+CEA_NBM_NS = 10.0
+BOND_DRN_NS = 4.0
 FACT_PA = 60.0          # pA onto a P fact slot at salience 1 (topographic input): a 0.75 lead wins 15/16 commits
-REST_BY_LUMEN = "rates_rest_by_lumen"   # calibration table: the settled network's resting rates at Lumen 0..6
-NOTE_BY_LUMEN = "# Resting rates at Lumen 0..6 (voidlit.tomebrain.brain.measure_rest_by_lumen). Regenerate; keep last."
 
 
 @dataclass
@@ -81,9 +91,13 @@ def bus_edges() -> list[BusEdge]:
     # the critic's value excites the RMTg (abstracting the pallidal-habenular route), which inhibits the VTA: predicted
     # reward is subtracted from the dopamine response (temporal-difference error)
     edges.append(BusEdge("S.vs", BG.N_VS, "RMTg", 4, (PR.AMPA,), PR.SOMA, 1.0, 6))
-    # amygdala: fear and rage to arousal, stress and the dopamine brake; valence back onto the T and P tufts
-    for dst in ("LC", "PVN", "RMTg"):
-        edges.append(BusEdge("B.cea", AM.N_CEA, dst, 4, (PR.AMPA,), PR.SOMA, 1.2, 5))
+    # amygdala: fear and rage to arousal, attention, stress and the dopamine brake; the bond assembly to serotonin;
+    # valence back onto the T and P tufts
+    for dst, w in (("LC", CEA_LC_NS), ("PVN", 1.2), ("RMTg", 1.2), ("NBM", CEA_NBM_NS)):
+        edges.append(BusEdge("B.cea", AM.N_CEA, dst, 4, (PR.AMPA,), PR.SOMA, w, 5))
+    bond = AM.ASSEMBLY.index("bond") * AM.PER_ASM
+    edges.append(BusEdge("B.bla", AM.N_BLA, "DRN", 4, (PR.AMPA,), PR.SOMA, BOND_DRN_NS, 6,
+                         src_range=(bond, bond + AM.PER_ASM)))
     for dst in ("T.L23", "P.L23"):
         edges.append(BusEdge("B.bla", AM.N_BLA, dst, 4, (PR.AMPA,), PR.APICAL, 0.6, 6))
     return edges
@@ -112,6 +126,10 @@ class TomeBrain:
         mu[self.net.idx("P.MTX")] += VAVL_DRIVE_PA
         import jax.numpy as jnp
         jax_part.state["mu"] = jnp.asarray(mu)
+        # The Tome was alive before the game began: its neuromodulators start where its nuclei hold them at rest. From
+        # nothing, serotonin (tau 1 s, held over each quiet) took 10-20 turns to climb there, and the mood read the
+        # climb as contentment.
+        jax_part.state["nm"] = jnp.asarray(NW.nm_level(self.net, self.rest_table[6]), jnp.float32)
         self._drive = self._rest_drive()
         self._vta = self.net.idx("VTA")
         jax_part.ext_fn = self._ext
@@ -288,14 +306,17 @@ class TomeBrain:
         self.mind.update(sig)
         self.last_signals = sig
         rate_turn = (J.counts * 1000.0 / ms).astype(np.float32)
+        rate_rest = self.rest_rates(J.glucose)
         J.state = self.quiet(J.state, jnp.asarray(J.glucose, jnp.float32), jnp.asarray(rate_turn),
-                             jnp.asarray(self.rest_rates(J.glucose)))
-        # 20 s of quiet end every phasic transient: the dopamine concentration, and what of it is still in flight to
-        # the striatum, is back at the tonic level the striatum has adapted to (BG.end_turn relaxed its slow
-        # dopamine), so a burst or a pause that the turn's end cut short cannot resume at the next Phase A and pay
-        # that turn's tags
-        J.state = dict(J.state, nm=J.state["nm"].at[0].set(self.sj.da_tonic))
-        self.cosim.bus.buf["J.nm"][:, 0] = self.sj.da_tonic
+                             jnp.asarray(rate_rest))
+        # The striatum's tonic dopamine integrates the quiet's dopamine, which follows the VTA back to its resting rate
+        # at this Lumen. 20 s of quiet end every phasic transient: the concentration, and what of it is still in
+        # flight to the striatum, is back at that resting level (BG.end_turn relaxed the slow dopamine), so a burst or
+        # a pause that the turn's end cut short cannot resume at the next Phase A and pay that turn's tags.
+        da_rest = float(NW.nm_level(self.net, rate_rest)[0])
+        self.sj.rest(float(NW.nm_level(self.net, rate_turn)[0]), da_rest, float(J.state["nm"][2]), NW.POST_TAU_MS)
+        J.state = dict(J.state, nm=J.state["nm"].at[0].set(da_rest))
+        self.cosim.bus.buf["J.nm"][:, 0] = da_rest
         # A pause leaves no trace in the VTA pacemakers either: over 20 s their adaptation (tau_w 300 ms) recovers,
         # so they start the next turn in the cycle the pause interrupted. Frozen, the adaptation a pause had drained
         # released a synchronous rebound at the next Phase A that paid D1 and the critic for the punishment.
@@ -319,8 +340,6 @@ def measure_rest_by_lumen(seeds: tuple[int, ...] = (0, 1), ms: int = 3000) -> di
     ``seeds``. About 20 s per level and seed."""
     import jax
     import jax.numpy as jnp
-
-    from .calib import calib_rates as CR
 
     net = NW.build()
     window, quiet = NW.make_window(net), NW.make_quiet(net)

@@ -1406,8 +1406,9 @@ Hard rules (the rules layer enforces them; the network cannot break them):
 
 1. Never contradict a fact, withheld or not (the verifier checks `contradicts` patterns).
 2. A precise question about a fact's topic forces a truthful answer this turn (the Tome may still frame it).
-3. Questions about the Tome's mood or opinion get a **deflection**, never a report. Direction 4 outranks disclosure:
-   these are not ledger facts.
+3. Questions about the Tome's mood or opinion get a **deflection**, never a report: these are not ledger facts. A
+   question that is both (a mood or chance word in a precise topic question) is answered in full **and** deflected;
+   rule 2 is never dropped.
 4. Questions about dice or chance get a deflection that **asserts nothing** ("What happened, happened."). "There are
    no dice", "nothing is random" and similar are falsehoods; the verifier rejects them.
 5. "No other way / only way / no choice" is allowed literally only when a fact with `no_alternative` is true.
@@ -1459,17 +1460,19 @@ mapping is designed, not learned, and labelled so.
 | gloating | P+, D+, contempt+ | 8-14 words, "thief" |
 | wary | A+, fear+ | 6-12 words, fragments, hedges |
 
-- **LLM path:** one line of craft instructions only, e.g. "Use short sentences. Put the useful detail last. Two
-  sentences maximum. Call them bearer." The voice never receives an emotion word.
-- **Offline path:** bank keys `key@register` (e.g. `beat.calm@cold`, `answer@hungry`), falling back to `key`.
-- **Guard** (`voice/guard.py`), with fallback to offline on any hit:
-  - affect self-reports ("I feel", "I am afraid", "I hate", "I'm angry");
-  - opinion statements about the player ("you disgust me");
-  - dice, number or mechanics vocabulary;
-  - withheld key terms before disclosure;
-  - `contradicts` patterns;
-  - literal "no other way" without a license;
-  - repetition of puppet claims.
+- **Authored only (user decision, 2026-10-21).** Narration and the Tome's own words always come from the rules'
+  authored text: the ledger's acts spliced verbatim, the register's assertion-free wrappers, and the narration banks
+  (`key@register` first, falling back to `key`). The local model (llama.cpp, local only) is used only for perception
+  (the sensory pass) and for the NPCs' own dialogue. Adversarial tests showed that model prose contradicts resolved
+  outcomes even under strict shape filters ("Then everything mends, bright and whole" after a light cracked).
+- The register therefore shows only through address, detail position, wrapper frequency (intensity) and the warm
+  Tome's unasked true caution. `VoiceStyle` keeps `register`, `intensity`, `address`, `detail_position` and
+  `unasked_caution`.
+- **Backstop** (`TruthVerifier`, run by the engine over every narration and Tome line, logging any hit): contradiction
+  patterns, withheld key terms before disclosure, any talk of chance, first-person or Tome-attributed affect and
+  need, opinions of the player, and a necessity claim not covered by a licensing fact (each claim needs its own
+  licence). NPC replies from the model are folded and checked separately (speaker labels, stage directions,
+  confusable characters, dice and number talk); anything suspicious falls back to the NPC's authored line.
 
 ### 11.7 Frames and protocol v2 (what the player can see)
 
@@ -1932,16 +1935,17 @@ unconditioned stimuli (harm, defiance, gift, loss, bearer near death, lie) to th
 
 | Gate | Result |
 |---|---|
-| G3b | Lumen 6 → 0: P/I ATP 0.95 → 0.55, orexin 2.1 → 27 Hz (×13), VTA 3.7 → 2.2 Hz, cortex at 51% of its fed rate. Mutant without metabolism: the cortex stays above 65% (it never reaches the 40-60% band). |
+| G3b | Lumen 6 → 0: P/I ATP 0.92 → 0.27, orexin 1.4 → 24 Hz (×17), VTA 3.8 → 0.5 Hz, cortex at 48% of its fed rate (after the review rounds; first measured 0.95 → 0.55, ×13, 51%). Mutant without metabolism: the cortex stays above 65% (it never reaches the 40-60% band). |
 | G23 | puppeteer and bend bursts rise monotonically as the Lumen falls (0.069 → 0.292 per cell per second, Lumen 6 → 1); an orexin → PVT lesion removes most of the rise |
-| G24 | an unpredicted gift bursts the VTA (≥ base + 5 Hz) and its fading is a dip |
+| G24 | a gift bursts the VTA ≥ 20 Hz above a same-seed no-gift control; eventless turns stay below 20 Hz and teach nothing; a negative reward is a real pause that teaches (D1/VS down, D2 up). **Deferred:** Schultz transfer and the VS → RMTg-cut mutant (the critic learns the cue, but the VS → RMTg path is too weak to subtract the prediction; needs recalibration). |
 | G10a (rechecked) | 0.88 and 0.87 (two seeds, 150 races each), chosen log p within 0.10 of exact sampling, no fallbacks |
 | G10c (rechecked) | the network Tome and the Director, same smart bot, 40 seeds: escape rates within 10 points and every beat's share within 0.04 (it failed before the race fixes: twist +0.055) |
 | full slow suite | 29 slow and balance gates pass (28.7 min) |
 
 Departures and fixes, each found by measurement:
 
-1. **K_ATP on cortical excitatory cells (0.6 nS) and the VTA (4 nS) only.** With K_ATP on interneurons as well, a
+1. **K_ATP on cortical excitatory cells (0.6 nS, refit to 0.3 nS once the quiet interval charged the synaptic ATP
+   cost) and the VTA (4 nS) only.** With K_ATP on interneurons as well, a
    starving cortex lost its inhibition first and ran hot.
 2. **Recalibrated after the energy model**: inhibitory gain onto L2/3 ×4.80, background noise ×2.49. Irregularity is
    measured as CV2 (Holt 1996): the plain CV is biased upward in short windows.
@@ -1956,7 +1960,8 @@ Departures and fixes, each found by measurement:
    - dopamine is a gain on the D1 cells' whole drive, Gumbel excitability included, so it sets the race's vigour and
      never its temperature;
    - the excitability effect follows a 200-ms dopamine (second messengers);
-   - plasticity reads that slow dopamine and needs a 50% excursion;
+   - plasticity reads that slow dopamine and needs a 50% excursion (later: bursts ≥ 0.3 on the slow dopamine,
+     dips ≤ 0.5 of tonic on the concentration; see the review rounds below);
    - cortico- and amygdalo-striatal weights start channel-balanced, so cortical activity cannot tilt an untrained
      race.
 6. **The quiet interval** is 1000 slow-only steps of 20 ms (20 s of brain time) between turns.
@@ -1990,8 +1995,8 @@ Departures and decisions:
 1. **A question to no one in particular goes to the Tome** (no target, no action cue), because the narrator is the
    Tome. "Where am I?" stays a look.
 2. **Narration is held to the Tome's own rules** (affect, opinion, necessity), for the same reason.
-3. **A coverage guard.** An LLM line must keep at least half the content words of each forced answer, clue and
-   defeat text, or the offline voice speaks. Dropping a forced answer is a lie the pattern guard cannot see.
+3. **Superseded: the coverage guard.** It let a negated forced answer through; the review rounds replaced the whole
+   LLM path with "authored only" (§11.6).
 4. **The schemer's eight slots hold the cheapest withheld facts.** The costliest drop out when there are more.
    Fact salience is a designed input, 0.25 + 0.5·(live agenda) + 0.25·(1 − cost). A 0.75 salience lead wins 15 of
    16 commits; small leads stay noisy, and that is the network's choice.
@@ -2008,3 +2013,48 @@ Departures and decisions:
 9. **G21 counts the Tome's beat check** (one per turn) **apart from its speech acts** (each at most once a turn).
 10. **Deferred to M8:** the G11 clause on puppet claims (attributed, never echoed), because puppets arrive with
     corruption.
+
+
+### Review rounds after M5 (2026-10-21/22)
+
+An adversarial review of the M4 + M5 diff confirmed 33 defects (4 refuted). Four rounds of isolated fixes followed,
+each verified by an agent that tried to refute the fix and hunted for regressions. Every fix carries a test that fails
+without it.
+
+**Truth and voice**
+- "Authored only" (§11.6), with a strong oracle: with a model that lies on every call, every narration and Tome block
+  must be identical to the same seed played with the offline voice (G11, G12, G13). Only NPC lines may differ.
+- Question routing: a deflection no longer replaces forced answers; acts on the Tome need the Tome as their object;
+  routing is decided per sentence against one regression corpus (317+ cases), favouring the least consequential
+  reading when uncertain (round 5 in progress).
+- Authored lines that assumed a lit Tome, invented events or claimed unresolved costs were rewritten, with a
+  presupposition table that checks every bank line against the states it can be said in.
+
+**Saves**
+- `SAVE_VERSION` 5. Loads are all or nothing (snapshot and roll back, 1 ms / 4 ms), saves are atomic (a temporary
+  slot renamed into place, crash between renames recovered), and every file of a slot carries one save id.
+- Every value is type-checked (finite numbers only), the Mind's key set must match exactly, obstacles, clocks and
+  items are rebuilt from the scenario's authored records (saved text never reaches the narration), and NPC brains
+  save their last decision and reset lazily created learning traces.
+- The probe is accumulated per row in float64, so W = 4 and W = 1 stay identical over hundreds of turns.
+
+**Network**
+- The critic's value is a whole-turn VS count with a robust trend (a 1.5-Hz prior over 10 turns); no reward before the
+  fifth turn. Eventless turns no longer produce reward-sized bursts.
+- A negative reward is a VTA pause (−100 pA, 2.6 s per unit, at most 250 ms). Dips are read from the concentration at
+  ≤ 0.5 of tonic (`DA_FLOOR` 0.5: a silent VTA at Lumen 0 cannot signal punishment; the amygdala carries it), bursts
+  from the slow dopamine at ≥ 0.3. D2 MSNs have a 0.04 tonic drive and learn from dips.
+- The striatum's tonic dopamine integrates the quiet interval toward the rest-by-Lumen table, so a dying light alone
+  is not a stream of negative errors; the brain is born at its fed resting neuromodulator levels.
+- Z-scores use per-signal noise floors with a 0.5 dead zone for PAD and the register axes (the modifiers keep the raw
+  z). P = tanh(1.2·da′ + 0.6 f(5HT) − 0.8 f(CeA) − 0.4 f(ORX)), where a dopamine fall counts only beyond twice the
+  felt hunger, so a starving Tome speaks "hungry" (119 of 130 turns at Lumen 0), not "wounded".
+- The quiet interval charges the synaptic ATP cost with a capped, population-driven resting conductance and rests by
+  Lumen (`[rates_rest_by_lumen]`, preserved by `calib_rates`). K_ATP refit to 0.3 nS.
+- Bus: CeA → LC 8 nS, CeA → NBM 10 nS, bond → DRN 4 nS.
+- Gates after the rounds: G3b, G23, G24, G10a 0.947, G10b KL 0.02, G4-G7, and the full slow suite (37/37, including
+  G10c and G11's 200 games) pass.
+
+Open (accepted for now): at Lumen 1 a sudden drop still teaches 3-5 dip turns through the drive's own reward; a loss
+reads wary, not wounded; G24's Schultz transfer is deferred.
+

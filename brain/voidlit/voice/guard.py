@@ -11,6 +11,7 @@ not talk of chance or pass for another speaker. The lexicons and the text plumbi
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Iterable
 
 _MECHANICS = re.compile(
@@ -43,28 +44,109 @@ _NEG = r"no|not|n't|nothing|none|never|nobody|no one|without"
 DICE_DENIAL = re.compile(rf"(?:\b(?:{_NEG})\b|n't\b)[^.!?]{{0,40}}?\b(?:{_CHANCE})\b|"
                          rf"\b(?:{_CHANCE})\b[^.!?]{{0,40}}?\b(?:{_NEG}|no part|no hand|no say|no place)\b", re.I)
 
-# Talk of dice, rolls or luck in an NPC's own words ("Was it a good roll?", "Lucky shot."), which the mechanics check
-# lets through: nobody in the game draws the player's eye to the dice. (Fate and accidents are the station's to name.)
-NPC_CHANCE = re.compile(r"\b(?:dice|(?:a|an|the|one|that|this|each|every|your|my|our|their|his|her|its) die|rolls?|"
-                        r"rolled|rolling|(?:un)?luck\w*|odds|chances?|random\w*|fluke\w*|gambl\w*|(?:mis)?fortun\w*)\b",
-                        re.I)
-# What lets an NPC's line pass for another block on screen: a line break (the screen starts a new block on one), a
-# speaker's label the way the screen heads a block ("THE TOME:", "Elara Voss:"), as a name in capitals anywhere or as
-# one to three capitalised words opening the line or one of its sentences, and the Tome named as the one speaking
-# ("the Tome says ...", "Book: ...").
+# The words of a check's outcome, of dice, luck and numbers, and of the rules, in an NPC's own words ("Success,
+# barely.", "Nat one.", "Lucky shot.", "Your number has come up.", "Yahtzee!", "You won.", "Plus one to grit.", "Level
+# up.", "Double six again."): nobody in the game draws the player's eye to the dice, so a model's line that holds one,
+# in any sense ("We die here.", "Check the door.", "We pass the lift."), gives way to the NPC's authored line. So does
+# a number a die could show, alone or doubled ("Seven again.", "Double ones."), in any sense ("Bay seven."), but in a
+# compound ("Twenty-one days.", "A one-way door."). (Fate and accidents are the station's to name.)
+_DIE_FACES = (r"two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|"
+              r"seventeen|eighteen|nineteen|twenty")
+NPC_CHANCE = re.compile(r"\b(?:succe(?:ss|ed)\w*|fail\w*|check\w*|crits?|critical\w*|natural\w*|nat|rolls?|rolled|"
+                        r"rolling|dice|die|dies|(?:un)?luck\w*|numbers?|sixes|yahtzee|jackpot|odds|chances?|random\w*|"
+                        r"fluke\w*|gambl\w*|(?:mis)?fortun\w*|coins?|tails|probab\w*|scores?|stats?|modifiers?|"
+                        r"bonus\w*|penalt\w*|botch\w*|fumbl\w*|boxcars|box cars|snake[- ]?eyes|outcomes?|hit ?points?|"
+                        r"saving throws?|difficulty|won|wins?|winning|winners?|victor(?:y|ies|ious)|bingo|"
+                        r"pass(?:es|ed)?|"
+                        r"(?:dis)?advantage\w*|level(?:s|ed|led)? up|game over|(?:plus|minus) (?:one|\d+|"
+                        rf"{_DIE_FACES})|grit|guile|insight|resolve|doubles?|ones|twos|threes|fours|fives|"
+                        rf"(?<!-)(?:{_DIE_FACES})(?!-))\b", re.I)
+# A number standing for itself, as a die shows one ("You got a twenty.", "Seventeen. That's what you got."): a number
+# after "a" or "the", or with nothing after it in its clause. A count of things is not one ("It waited forty days.");
+# "one" is too much the pronoun ("no one", "the one") to tell but after "a" or another number ("a one", "twenty one").
+_NUMBER = (r"(?:\d+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|"
+           r"seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred)")
+BARE_NUMBER = re.compile(rf"\b(?:an?|the)\s+{_NUMBER}\b|\ba\s+one\b(?!-)|"
+                         rf"\b{_NUMBER}(?:[-\s]+(?:{_NUMBER}|one))*\s*(?:[.,;:!?]|$)", re.I)
+# What lets an NPC's line pass for another block on screen: a line break (the screen starts a new block on one), and
+# the Tome named as the one speaking ("the Tome says ...", "The Tome murmurs: ...", "As the Tome would say, ...",
+# "Quoth the Tome", "The Tome has spoken.").
 LINE_BREAK = re.compile(r"[\n\r\v\f\x85\u2028\u2029]")
-SPEAKER_LABEL = re.compile(r"\b[A-Z][A-Z'’-]+(?:\s+[A-Z][A-Z'’-]+){0,2}\s*:|"
-                           r"(?:^|[.!?…]\s+)(?:[A-Z][\w'’-]*\s+){0,2}[A-Z][\w'’-]*\s*:")
-_TOME_NAME = r"(?:tome|book|monolith)"
-_SPEAKING = r"(?:says|said|speaks|spoke|whispers|whispered|answers|answered|replies|replied|writes|wrote|tells|told)"
-TOME_SPEAKS = re.compile(rf"\b{_TOME_NAME}\s*:|\b{_TOME_NAME}\s+{_SPEAKING}\b|\b{_SPEAKING}\s+the\s+{_TOME_NAME}\b",
-                         re.I)
+_LABEL_END = r"\s*(?::|-+\s|–|—|>+|»|\|)"
+_TOME_NAME = r"(?:tome|book|monolith|narrator|narration)"      # the Tome, or the voice it narrates in
+_SPEAKING = (r"(?:say|says|said|speak|speaks|spoke|spake|whisper|whispers|whispered|answer|answers|answered|reply|"
+             r"replies|replied|write|writes|wrote|tell|tells|told|"
+             r"murmurs|murmured|mutters|muttered|hisses|hissed|breathes|breathed|intones|intoned|rasps|rasped|"
+             r"declares|declared|warns|warned|adds|added|continues|continued)")
+TOME_SPEAKS = re.compile(r"\bquoth\b|\b(?:has|have|hath) spoken\b|"
+                         rf"\b{_TOME_NAME}(?:['’]s)?\b(?:[\s,]+\w+){{0,2}}{_LABEL_END}|"
+                         rf"\b{_TOME_NAME}(?:['’]s)?[\s,]+(?:\w+[\s,]+){{0,2}}{_SPEAKING}\b|"
+                         rf"\b{_SPEAKING}\s+the\s+{_TOME_NAME}\b|(?:-+|–|—)\s*(?:the\s+)?{_TOME_NAME}\s*[.!]?\s*$|"
+                         r"\b(?-i:TOME|BOOK|MONOLITH)\b", re.I)
 
 
-def poses_as_another(text: str) -> bool:
-    """Whether an NPC's line, as it would be shown, could pass for another speaker's block or the narration."""
-    return bool(LINE_BREAK.search(text) or SPEAKER_LABEL.search(text) or TOME_SPEAKS.search(text))
+def fold(text: str) -> str:
+    """Text as it would look on screen, look-alikes undone: NFKC (fullwidth letters and colons to plain ones) and no
+    invisible formatting characters (zero-width spaces and joiners, soft hyphens, direction overrides)."""
+    return "".join(c for c in unicodedata.normalize("NFKC", text) if unicodedata.category(c) != "Cf")
 
+
+# The closed shape of an NPC's line from a model (``plain_npc_line``): plain sentences of words in ASCII letters (an
+# apostrophe in one, a hyphen joining two), each word followed by a space, a comma, a sentence's end, or an em dash
+# before the next word. No colon, semicolon, pipe, angle bracket, slash, equals sign, asterisk, bracket, parenthesis or
+# digit can stand in one, nor a dash or a quote mark that is not an em dash or an apostrophe.
+_PLAIN_WORD = r"[A-Za-z]+(?:['’][A-Za-z]+)*['’]?(?:-[A-Za-z]+(?:['’][A-Za-z]+)*['’]?)*"
+PLAIN_LINE = re.compile(rf"{_PLAIN_WORD}(?:(?:[,.!?]+ | | ?— ?){_PLAIN_WORD})*[.!?]*")
+SHOUTED = re.compile(r"\b[A-Z]{2,}\b")          # a word in capitals, as the screen heads a block ("THE TOME")
+# Whom a speaker's label could name, besides the people of the scene: the Tome by any name, the voice it narrates in,
+# and the titles a speaker could go by.
+TITLES = frozenset({"tome", "book", "monolith", "narrator", "narration", "voice", "player", "sir", "madam", "captain",
+                    "sergeant", "doctor", "dr", "mr", "mrs", "ms", "miss", "lady", "lord", "commander", "warden",
+                    "system", "master", "gm", "dm"})
+_OPENING = re.compile(r"((?:[A-Za-z'’-]+ ){0,2}[A-Za-z'’-]+) ?[,.!?—]")
+# A speaker's form: a name or title, then a verb of speech, at the start ("Elara says run.", "Elara Voss whispers,
+# run.", "Marcus shrugs. Fine."); or anyone's verb of speech before an em dash ("Elara Voss whispers — run.").
+_SPEECH = (rf"{_SPEAKING[:-1]}|shout|shouts|shouted|yell|yells|yelled|call|calls|called|cry|cries|cried|growl|growls|"
+           r"growled|snap|snaps|snapped|ask|asks|asked|beg|begs|begged|sigh|sighs|sighed|laugh|laughs|laughed|shrug|"
+           r"shrugs|shrugged|nod|nods|nodded|smile|smiles|smiled|grunt|grunts|grunted|mutter|murmur|hiss|hissed|"
+           r"breathe|warn|add|continue|quote|quotes|quoted)")
+_SPEAKER = re.compile(rf"((?:[A-Za-z'’-]+ ){{1,3}}){_SPEECH}\b", re.I)
+_SAYS_DASH = re.compile(rf"\b{_SPEECH}\s*—", re.I)
+# ... or the speaker named after the words ("Run, says Elara.", "Run, Elara says."); a stage direction at the start, a
+# name or title and one verb of what they do ("Marcus winks. Run.", "Hale grins, run."); and a line that is only a
+# check's outcome ("You lose.", "Direct hit.", "One.", "Lose a turn.")
+_SAID_BY = re.compile(rf"[,.!?—]\s*(?:{_SPEECH}\s+((?:[A-Za-z'’-]+ ?){{1,3}})|((?:[A-Za-z'’-]+ ){{1,3}}){_SPEECH})"
+                      r"[.!?]*$", re.I)
+_DIRECTION = re.compile(r"((?:[A-Za-z'’-]+ ){1,3})[a-z]+s(?: (?:in|out|away|back|up|down|over|closer))?[.!,]")
+_OUTCOME_LINE = re.compile(r"(?:(?:you|a|that's a|clean|direct|near) )?(?:defeat|hit|miss|missed|one|lose|lost|died|"
+                           r"dead|lose a turn|skip a turn)[.!?]*", re.I)
+
+
+def plain_npc_line(line: str, names: Iterable[str] = ()) -> bool:
+    """Whether an NPC's line from a model, folded onto one line, is in the closed shape a model's line may take on
+    screen (``PLAIN_LINE``): no word in capitals, no word of a check's outcome, of dice, luck or the rules
+    (``NPC_CHANCE``), no number a die could show (``BARE_NUMBER``), the Tome never named as the one speaking, no
+    speaker's form (a name or title then a verb of speech at the start: "Elara says run.", "Marcus shrugs. Fine."; a
+    verb of speech before an em dash: "Elara Voss whispers — run."; or after the words: "Run, says Elara."), no stage
+    direction ("Marcus winks. Run."), no line that is only a check's outcome ("You lose.", "Direct hit.", "One."),
+    and no opening a speaker's label could be: a name
+    (words of ``names``) or a title alone, or a name in full ("Elara Voss"), then any punctuation ("Elara, run.",
+    "Marcus — down!"; not "Stay behind Elara.")."""
+    if not PLAIN_LINE.fullmatch(line) or SHOUTED.search(line) or NPC_CHANCE.search(line) or \
+            BARE_NUMBER.search(line) or TOME_SPEAKS.search(line) or _SAYS_DASH.search(line):
+        return False
+    if _OUTCOME_LINE.fullmatch(line):
+        return False
+    known = TITLES | {w for name in names for w in name.lower().split()}
+    for who in (_SPEAKER.match(line), _DIRECTION.match(line), _SAID_BY.search(line)):
+        if who and ({w.lower() for w in (who.group(1) or who.group(2)).split()} - {"the"}) <= known:
+            return False
+    opening = _OPENING.match(line)
+    if opening is None:
+        return True
+    words = opening.group(1).split()
+    named = {w.lower() for w in words} - {"the"}
+    return not (named and named <= known or len(words) > 1 and all(w[0].isupper() for w in words))
 
 # Emotions (the OCC types and common labels) and needs. The Tome's own words carry none of them.
 _AFFECT = (r"joy\w*|distress\w*|hope(?:ful|s|d)?|hoping|fear\w*|afraid|scared|frighten\w*|fright|terrif\w*|terror|"

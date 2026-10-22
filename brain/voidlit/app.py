@@ -32,7 +32,8 @@ def build_engine(seed: int = 0, background: str | None = None, name: str = "Wand
     sc = load_scenario(scenario)
     offline = OfflineVoice(sc.narration, seed=seed)
     transducer = LocalTransducer(senses_llm) if senses_llm is not None else None
-    voice = LocalVoice(voice_llm, offline) if voice_llm is not None else offline
+    names = [n for spec in sc.npcs.values() for n in (spec.name, *spec.aliases)]
+    voice = LocalVoice(voice_llm, offline, names=names) if voice_llm is not None else offline
     if brain not in ("net", "director"):
         raise ValueError(f"unknown brain {brain!r}: use 'net' or 'director'")
     cls = TomeEngine

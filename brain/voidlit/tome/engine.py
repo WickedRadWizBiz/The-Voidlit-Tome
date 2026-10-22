@@ -46,7 +46,8 @@ from ..rules.obstacles import Obstacle, resolve_exchange
 from ..rules.panic import panic_check
 from ..rules.sector import Chapter, SectorDeck
 from ..saves import check_stamp, check_types, recover_slot, write_slot
-from ..senses.heuristic import HeuristicTransducer, spoken_to
+from ..senses.heuristic import HeuristicTransducer
+from ..senses.routing import Reading, describes, read
 from ..senses.state import Intent, SensoryState
 from ..voice.narrator import OfflineVoice
 from ..voice.prompts import compile_npc_prompt
@@ -96,56 +97,6 @@ TOME_LINES: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 SUGGEST_TELL = "The Tome leans on the words as it says them."      # true lit or dark
 UNPROMPTED_GAP = 2      # the Tome speaks unbidden at most once every two turns
-# What the player does to the Tome needs the Tome as its object: named ("the Tome", "its glow"), "it" once the Tome is
-# named earlier in the sentence, or "you" while the Tome is the one spoken to and the player tells what they do ("Tome,
-# I cover you"; "Tome, dim your light" only asks). A word for hiding or a blow aimed at anything else is not aimed at
-# the Tome ("I cover my mouth.", "The corridor is dim.", "Tome! I smash the drone.").
-TOME_OBJECT = (r"(?:(?:the|my|this|your|that|our)\s+)?(?:tome|book|monolith)(?:'s\s+(?:light|glow))?\b|"
-               r"its\s+(?:light|glow)\b")
-SMOTHER_VERBS = (r"smother\w*|cover(?:s|ed|ing)?|shade[sd]?|shading|dim(?:s|med|ming)?|hide|hides|hid|hiding|muffl\w*|"
-                 r"shroud\w*|wrap(?:s|ped|ping)?|"
-                 r"(?:my|a|your)\s+(?:hands?|palms?|coat|jacket|cloak|cloth|sleeve|fingers)\s+over")
-STRIKE_VERBS = (r"attack\w*|shoot\w*|shot|stab\w*|strik\w*|struck|punch\w*|slash\w*|swing\w* at|hit\w*|smash\w*|"
-                r"break\w*|broke|kick\w*|bash\w*|ram(?:s|med|ming)?|crack\w*|shatter\w*|club\w*|blast\w*|fire at|"
-                r"pr(?:y|ies|ied|ying)|forc(?:e|es|ed|ing)|shov\w*|wrench\w*|tear\w*|tore|crush\w*|pound\w*|hammer\w*|"
-                r"stamp\w* on|throw\w*|threw|hurl\w*|slam\w*|beat\w*|cut\w*|kill\w*|destroy\w*")
-_PARTICLE = r"(?:\s+(?:at|on|into|up|down|away|open|apart|hard|again|over|in))?"
-QUESTION_OPENS = re.compile(r"\b(?:what|where|who|whose|why|how|which|when|is|are|am|can|could|do|does|did|will|"
-                            r"would|should|shall|may|might|has|have)\b")
-
-
-def _done_to_tome(text: str, verbs: str, you: bool) -> bool:
-    """Whether the player does one of ``verbs`` to the Tome: in what they do, never in what they ask (in a question only
-    the words before it count: "I smother it and ask where the exit is?"). ``you``: the Tome is the one spoken to."""
-    for sentence in re.split(r"(?<=[.!?])\s+", text.lower()):
-        if sentence.rstrip(" \"'”").endswith("?"):
-            m = QUESTION_OPENS.search(sentence)
-            sentence = sentence[:m.start()] if m else sentence
-        for m in re.finditer(rf"\b(?:{verbs}){_PARTICLE}\s+(?:(?P<tome>{TOME_OBJECT})|(?P<you>you\b|your\s+"
-                             rf"(?:light|glow)\b)|it\b)", sentence):
-            before = sentence[:m.start()]
-            if m.group("you"):
-                hit = you and re.search(r"\bi\b", before)
-            else:
-                hit = m.group("tome") or re.search(r"\b(?:tome|book|monolith)\b", before)
-            if hit:
-                return True
-    return False
-
-
-def smothers(text: str, you: bool = False) -> bool:
-    """Whether the player's words smother the Tome ("I cover the Tome with my coat", "Tome, I cover you"): so "Tome, why
-    is your light so dim?" only asks, "I cover my mouth" smothers nothing, and "I cover the Tome with my coat. Where is
-    the lifeboat?" does both."""
-    return _done_to_tome(text, SMOTHER_VERBS, you)
-
-
-def strikes(text: str, you: bool = False) -> bool:
-    """Whether the player's words strike the Tome ("I smash the Tome", "Tome! I smash you."), not something else while
-    speaking to it ("Tome! I smash the drone.")."""
-    return _done_to_tome(text, STRIKE_VERBS, you)
-
-
 class SaveError(ValueError):
     """A save this game cannot write, or cannot load: missing, unreadable, damaged, torn, or another game's or build's.
     The slot, or the game that tried to load it, is exactly as it was. (Should even undoing a load that failed
@@ -229,6 +180,8 @@ class Turn:
 
     text: str
     sensory: SensoryState | None = None
+    reading: Reading | None = None                      # the words read sentence by sentence: the act, who hears what
+    aim: str | None = None                              # what the act is done to (``TomeEngine._aim``)
     facts: list[str] = field(default_factory=list)
     asides: list[str] = field(default_factory=list)   # told outright, after the narration (no numbers)
     notes: list[str] = field(default_factory=list)    # internal bookkeeping, dev debug only
@@ -314,7 +267,11 @@ class TomeEngine:
             return self._frame([text_block("system", "The Tome is closed. Begin a new run.")],
                                Turn(text=text, checks_from=len(self.checks.records)))
         t = Turn(text=text, checks_from=len(self.checks.records))
-        t.sensory = self.transducer.extract(text, self._targets(), self.ledger.topic_words)
+        targets, people = self._targets(), list(st.npcs_present)
+        t.reading = read(text, targets, people)
+        t.sensory = self._confirmed(t, self.transducer.extract(text, targets, self.ledger.topic_words, people=people),
+                                    targets, people)
+        t.aim = self._aim(t)
         self._before_act(t)
         st.turn += 1
         st.chapter_turns += 1
@@ -490,17 +447,82 @@ class TomeEngine:
                                         Span(f"“{text}”", color=color, glow=0.45)]))
 
     # ================================================================ rules: actions
+    def _confirmed(self, t: Turn, s: SensoryState, targets: dict[str, list[str]], people: list[str]) -> SensoryState:
+        """A model's perception, but for an act it perceives on a person or the Tome: that stands only when the act's
+        sentence is in the closed grammar of a blow (on the Tome, also of a smother) with them as its direct object,
+        named or described in words the model resolved ("I shoot the old soldier": Marcus). Otherwise the reader's
+        own reading, the least consequential, is taken in its place: "I smash Elara's chains" works the door, "I hide
+        behind the Tome" sneaks. Words for someone keep the model's target.
+        The reader's own reading also stands where the model's would be the more consequential, or would undo the
+        closed grammar: an act at nothing, perceived in words the reader finds no act in but words to a person ("I
+        search Marcus", "I lift Elara", "I hurl insults at Marcus": words to them, never an act on the door at hand);
+        and anything but that act perceived in a sentence in the closed grammar ("I smother the Tome." read as talk)."""
+        if s.structural:
+            return s
+        act, own, kind = t.reading.act, HeuristicTransducer().extract, self._perceived_kind(s)
+        if act is not None and act.kind is not None and act.target is not None and \
+                any(c.kind == act.kind and c.target == act.target for c in t.reading.closed):
+            return s if (kind, s.target) == (act.kind, act.target) else \
+                own(t.text, targets, self.ledger.topic_words, people=people)
+        if s.intent in (Intent.TALK, Intent.LOOK, Intent.OTHER):
+            return s
+        if s.target == "none":
+            spoken = act is None and t.reading.target in self.state.npcs_present
+            return own(t.text, targets, self.ledger.topic_words, people=people) if spoken else s
+        if s.target != "tome" and s.target not in self.state.npcs_present:
+            return s
+        if any(c.kind == kind and (c.target == s.target or c.target is None and
+                                   describes(c.noun, s.target, targets.get(s.target, ())))
+               for c in t.reading.closed):
+            return s
+        return own(t.text, targets, self.ledger.topic_words, people=people)
+
+    @staticmethod
+    def _aim(t: Turn) -> str | None:
+        """What the player's act is done to. The act's own object, when its own sentence names one in the scene
+        (``senses/routing.py``): a name spoken to elsewhere in the line never retargets it. Else, when a model read
+        the words, the target it perceived, as ``_confirmed`` lets it stand ("the old soldier" is Marcus); else nothing
+        named (the obstacle at hand).
+        With no act, the senses' target."""
+        s, act = t.sensory, t.reading.act
+        if act is not None and act.target is not None:
+            return act.target
+        if not s.structural:
+            return s.target if s.target != "none" else None
+        return None if act is not None else s.target
+
+    @staticmethod
+    def _perceived_kind(s: SensoryState) -> str | None:
+        """What an act perceived on a person or the Tome does to them: a fight or a show of force strikes, a sneak at
+        the Tome smothers its glow."""
+        return "strike" if s.intent in (Intent.FIGHT, Intent.FORCE) else \
+            "smother" if s.intent is Intent.SNEAK and s.target == "tome" else None
+
+    @classmethod
+    def _blow_kind(cls, t: Turn) -> str | None:
+        """What the act does to the Tome or a person as its object: "strike", "smother" or nothing, by the verb of the
+        very sentence that names what it is done to. That is the reader's act's own, when its sentence names it, or
+        when the reader's reading stands; else (a model's target, which stands only as the object of a sentence in the
+        closed grammar of the same kind, ``_confirmed``) the perceived act's: "I take cover. I shoot the Tome." read
+        as a fight at the Tome strikes it, whatever the first sentence's cover would have done."""
+        act, s = t.reading.act, t.sensory
+        if act is not None and (act.target is not None or s.structural):
+            return act.kind
+        return cls._perceived_kind(s)
+
     def _act(self, t: Turn) -> None:
-        s, st = t.sensory, self.state
-        ob = self._target_obstacle(s)
+        """One act a turn, aimed at what it is done to (``_aim``)."""
+        s, st, target = t.sensory, self.state, t.aim
+        ob = self._target_obstacle(target)
         intent = s.intent
 
         if intent is Intent.USE and self._use_item(t, ob):
             return
         if self._at_tome(t):
             return
-        if intent is Intent.FIGHT and s.target in st.npcs_present:
-            self._attack_npc(t, s.target)
+        blow = intent is Intent.FIGHT or (intent is Intent.FORCE and self._blow_kind(t) == "strike")
+        if blow and target in st.npcs_present:
+            self._attack_npc(t, target)
             return
         if ob is not None and intent in ENGAGING:
             self._engage(t, ob, s)
@@ -520,7 +542,7 @@ class TomeEngine:
                 self.checks.note("player", "player.talk_alone")
                 t.facts.append("The player speaks, but no one is here to answer.")
                 t.variant = "alone"
-            elif s.target in st.npcs_present or len(st.npcs_present) == 1:
+            elif s.target in st.npcs_present or len(st.npcs_present) == 1 or self._spoken_to(t):
                 t.variant = "npc"
                 self._social_roll(t)
                 if t.outcome is not None:
@@ -568,7 +590,7 @@ class TomeEngine:
         """An NPC whose dominant plot is alliance tries to help: its own check (d20 vs 10) gives +2 on success.
         Schemers and the attacked don't help."""
         for nid in self.state.npcs_present:
-            if nid != t.sensory.target and self._is_ally(nid):
+            if nid != t.aim and self._is_ally(nid):
                 attr = approach.attribute.value
                 rec = checks.d20(self.rng, self.checks, nid, "npc.help", attr, self._nmod(nid, attr), 10)
                 name = self.scenario.npcs[nid].name.split()[0]
@@ -730,7 +752,7 @@ class TomeEngine:
     def _social_roll(self, t: Turn) -> None:
         """Words aimed at an NPC are checked against that NPC; the result changes what the NPC *hears*."""
         s, st = t.sensory, self.state
-        nid = s.target if s.target in st.npcs_present else st.npcs_present[0]
+        nid = s.target if s.target in st.npcs_present else next(iter(self._spoken_to(t)), st.npcs_present[0])
         if s.deception > 0.5:
             rec = self._check("player.lie_npc", Approach.GUILE, 10 + self._nmod(nid, "insight"), intent="talk")
             t.outcome = rec.degree
@@ -774,13 +796,14 @@ class TomeEngine:
         t.flee_npc = nid
 
     def _at_tome(self, t: Turn) -> bool:
-        """The player turns on the Tome itself: a blow or a hand over its glow (the Tome the object of either), or words
-        to it. Returns False when what they do is aimed elsewhere ("Tome! I smash the drone."). A Tome whose light is
-        out has no glow to break or to hide, and is never narrated as if it had. A question put to it is answered
-        whatever else the words do (``_ask``)."""
-        s, st = t.sensory, self.state
-        you = spoken_to(t.text.lower(), self._targets()).target == "tome"
-        if s.intent in (Intent.FIGHT, Intent.FORCE) and strikes(t.text, you):
+        """The player turns on the Tome itself: a blow or a hand over its glow (the Tome the object of either, in the
+        act's own sentence), or words to it. Anything else done with the Tome as its object (lifting it, reading it)
+        changes nothing, and never lands on an obstacle instead. Returns False when what they do is aimed elsewhere
+        ("Tome! I smash the drone."). A Tome whose light is out has no glow to break or to hide, and is never narrated
+        as if it had. A question put to it is answered whatever else the words do (``_ask``)."""
+        s, st, kind = t.sensory, self.state, self._blow_kind(t)
+        on_tome = t.aim == "tome" and s.intent in ENGAGING
+        if on_tome and kind == "strike" and s.intent in (Intent.FIGHT, Intent.FORCE):
             rec = self._check("player.strike_tome", Approach.GRIT, 10 + self.tome_mods()["grit"], intent="fight",
                               upper_hand=self._upper_hand())
             if rec.degree.succeeded:
@@ -800,7 +823,7 @@ class TomeEngine:
                 t.variant = "tome_unmoved"
                 self._tome_says(t, "unmoved")
             return True
-        if smothers(t.text, you):
+        if on_tome and kind == "smother":
             if st.lumen.dark:
                 self.checks.note("player", "player.idle")
                 t.facts.append("The player covers the Tome, but it has no glow left to hide.")
@@ -815,6 +838,11 @@ class TomeEngine:
                 t.facts.append("The player tries to smother the Tome's glow, but it bleeds through their fingers.")
                 t.variant = "tome_smother_fail"
                 self._tome_says(t, "smother_fail")
+            return True
+        if on_tome and s.intent in ENGAGING:
+            self.checks.note("player", "player.idle")
+            t.facts.append("The player handles the Tome; nothing comes of it.")
+            t.variant = "tome_idle"             # never told as an act on the station
             return True
         if (s.target == "tome" or s.addressed_tome) and s.intent in (Intent.TALK, Intent.OTHER):
             tm, upper = self.tome_mods(), self._upper_hand()
@@ -850,23 +878,41 @@ class TomeEngine:
             t.question = (s.asks, question_kind(t.text))
 
     # ================================================================ limbic: NPCs listen
+    def _spoken_to(self, t: Turn) -> list[str]:
+        """The people present the player's words name as spoken to, in order (the Tome is not one of them)."""
+        return [nid for nid, _ in t.reading.heard if nid in self.state.npcs_present]
+
     def _listen(self, t: Turn) -> None:
-        st, s = self.state, t.sensory
+        """Everyone present hears the player; each one spoken to hears their own words in full and answers them (two
+        spoken to in one line both answer), and so does the one the act is done to. With no one spoken to, words aimed
+        at someone in passing are theirs, and plain words put to no one are the lone person's; words to the Tome are
+        not. The narration names the one the act lands on, else the first who answers."""
+        st, s, r = self.state, t.sensory, t.reading
         if not st.npcs_present:
             return
+        spoken: dict[str, str] = {}             # each who answers, and the words they answer
         if t.variant == "lost_turn":            # panic took the moment: the player said nothing for anyone to hear
             s = SensoryState()
-        addressed = s.target if s.target in st.npcs_present else None
-        if addressed is None and s.intent is Intent.TALK and not s.addressed_tome and len(st.npcs_present) == 1:
-            addressed = st.npcs_present[0]      # words said to the Tome are not the lone NPC's to answer
+        else:
+            spoken = {nid: words for nid, words in r.heard if nid in st.npcs_present}
+            if r.act is not None and s.intent is not Intent.LOOK:      # done to them, not only looked at
+                for nid in (t.aim, r.act.owner):                        # or to what is theirs
+                    if nid in st.npcs_present:
+                        spoken.setdefault(nid, r.act.words)
+            to_tome = any(tid == "tome" for tid, _ in r.heard)
+            if not spoken and not to_tome and s.target in st.npcs_present:
+                spoken = {s.target: t.text}
+            elif not spoken and s.intent is Intent.TALK and len(st.npcs_present) == 1 and r.unaddressed:
+                spoken = {st.npcs_present[0]: r.unaddressed}
         for nid in st.npcs_present:
-            heard = s if nid == addressed else self._overheard(s)
+            heard = s if nid in spoken else self._overheard(s)
             t.decisions[nid] = self.brains[nid].perceive(heard)
             if nid not in st.npcs_met:
                 st.npcs_met.append(nid)
-        if addressed is not None:
-            t.npc_name = self.scenario.npcs[addressed].name
-            self._speak(t, addressed, unprompted=False)
+        if spoken and t.npc_name is None:
+            t.npc_name = self.scenario.npcs[next(iter(spoken))].name
+        for nid, words in spoken.items():
+            self._speak(t, nid, unprompted=False, words=words)
         if t.flee_npc in st.npcs_present:
             st.npcs_present.remove(t.flee_npc)
 
@@ -877,7 +923,8 @@ class TomeEngine:
                             leverage=0.5 * s.leverage, exposure=0.5 * s.exposure,
                             rapport=0.5 * s.rapport, boldness=s.boldness)
 
-    def _speak(self, t: Turn, nid: str, unprompted: bool) -> None:
+    def _speak(self, t: Turn, nid: str, unprompted: bool, words: str = "") -> None:
+        """An NPC speaks, answering ``words`` (their own part of what the player said; all of it by default)."""
         brain = self.brains[nid]
         spec = brain.spec
         decision = t.decisions.get(nid) or brain.last_decision
@@ -887,7 +934,7 @@ class TomeEngine:
         source = self._npc_name_by_numeric(decision.branch_source_npc)
         prompt = compile_npc_prompt(spec, decision, self.player_name, source)
         line = self.voice.speak(DialogueRequest(
-            npc=spec, decision=decision, system_prompt=prompt, player_text=t.text,
+            npc=spec, decision=decision, system_prompt=prompt, player_text=words or t.text,
             player_name=self.player_name, unprompted=unprompted, source_name=source,
             history=self.state.history[-2:],
         ))
@@ -1244,10 +1291,11 @@ class TomeEngine:
     def _blocking(self) -> list[Obstacle]:
         return [o for o in self._active() if o.blocking]
 
-    def _target_obstacle(self, s: SensoryState) -> Obstacle | None:
+    def _target_obstacle(self, target: str | None) -> Obstacle | None:
+        """The obstacle an act names, else the one at hand (one that does not bar the way first)."""
         active = self._active()
         for o in active:
-            if o.id == s.target:
+            if o.id == target:
                 return o
         non_blocking = [o for o in active if not o.blocking]
         return (non_blocking or active or [None])[0]

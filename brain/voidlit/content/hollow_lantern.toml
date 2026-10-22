@@ -488,7 +488,7 @@ plot = "offering"
 directive = "Deflect suspicion coldly and steer them toward danger with confident, false directions."
 lines = [
     "Take the chapel route. It's quiet this time of cycle. Trust me.",
-    "Marcus? He's the one you should worry about. Go left at the spine. Don't look back.",
+    "You should worry about Marcus, not me. Go left at the spine. Don't look back.",
     "I don't owe you explanations. Go through the lounge if you want to live.",
 ]
 

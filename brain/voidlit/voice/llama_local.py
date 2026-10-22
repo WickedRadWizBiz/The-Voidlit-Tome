@@ -23,14 +23,14 @@ from __future__ import annotations
 import logging
 import re
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
 from ..senses.grammar import SensoryParseError, build_sensory_gbnf, parse_sensory_json
 from ..senses.heuristic import HeuristicTransducer
 from ..senses.state import SensoryState
-from .guard import NPC_CHANCE, leaks_mechanics, poses_as_another
+from .guard import LINE_BREAK, fold, plain_npc_line
 from .narrator import OfflineVoice
 from .requests import DialogueRequest, NarrationRequest, TomeSpeechRequest
 
@@ -52,7 +52,12 @@ Words are aimed at the name they are put to, in any sentence: at its head ("Tome
 "Dear Tome, ...", "Tome: ...", "Tome what ...?"), after its last comma ("..., Elara?"), or in the third person
 ("I ask the Tome who ..."); else at the first one named. A question to no one in particular is put to the Tome, even
 beside an act ("I take cover. Where is the lifeboat?"). Telling what you do after a name ("Tome! I smash you.") is
-that act, not talk.
+that act, not talk. An act is aimed at its own object, in its own sentence: "I shoot the drone. Elara, run!" shoots
+the drone, and "Marcus, I attack the drone." attacks the drone. Something of someone's is not them ("I smash
+Elara's chains" does not attack Elara), and a place is not a target ("I hide behind the Tome"). A plan or a condition
+("If he moves, I shoot him.", "I'll shoot the drone.") is talk, not an act; giving someone something is talk to them.
+A blow at a person or the Tome is only "I <strike> <them>" ("I shoot Marcus."); anything else that names them
+("I hurl insults at Marcus", "I search Marcus") is talk to them.
 asks: when the player puts a question to the Tome (the narrator), its topic from the allowed topics; vague for a
 question with no clear topic; unclear if you cannot tell what they asked; none if it is not a question to the Tome.
 claims: a claim id the player asserts, else none. addressed_tome: true if the words are aimed at the Tome."""
@@ -60,7 +65,7 @@ claims: a claim id the player asserts, else none. addressed_tome: true if the wo
 _URL_SCHEME = re.compile(r"^[a-z][a-z0-9+.\-]*://", re.IGNORECASE)
 _HUB_PREFIXES = ("hf:", "hf.co/", "huggingface.co/", "www.huggingface.co/")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
-_QUOTE_MARKS = str.maketrans("", "", "\"“”„‟«»")     # the frame puts its own round an NPC's words
+_QUOTE_MARKS = str.maketrans("", "", "\"“”„‟«»‹›「」『』〝〞〟")     # the frame puts its own round an NPC's words
 
 
 def clean_text(text: str) -> str:
@@ -68,18 +73,16 @@ def clean_text(text: str) -> str:
     return _CONTROL.sub("", text).strip()
 
 
-def npc_line(text: str) -> str:
-    """A model's words for an NPC as they may reach the screen, quote marks stripped (the frame quotes them) and
-    whitespace folded; or "" when they could pass for another speaker's block or the narration (a line break, a
-    speaker's label such as "THE TOME:", the Tome named as speaking), name a mechanic, or talk of dice, rolls or
-    luck. The NPC then says their authored line."""
-    text = text.strip()
-    if poses_as_another(text):
+def npc_line(text: str, names: Iterable[str] = ()) -> str:
+    """A model's words for an NPC as they may reach the screen, look-alikes folded (``fold``), quote marks stripped (the
+    frame quotes them) and whitespace folded; or "" unless they are one line in the closed shape of plain sentences
+    (``plain_npc_line``: ordinary words and punctuation only, no word of outcomes, dice or luck, no opening a label
+    could be, any word of ``names`` among them). The NPC then says their authored line."""
+    text = fold(text).strip()
+    if LINE_BREAK.search(text):
         return ""
     line = " ".join(clean_text(text).translate(_QUOTE_MARKS).split()).strip("'‘’ ")
-    if poses_as_another(line) or NPC_CHANCE.search(line) or leaks_mechanics(line, allow_digits=True):
-        return ""
-    return line
+    return line if plain_npc_line(line, names) else ""
 
 
 class LocalModelError(ValueError):
@@ -216,7 +219,8 @@ class LocalTransducer:
         self.max_tokens = max_tokens
 
     def extract(self, text: str, targets: Mapping[str, Sequence[str]] | None = None,
-                topics: Mapping[str, Sequence[str]] | None = None) -> SensoryState:
+                topics: Mapping[str, Sequence[str]] | None = None,
+                people: Collection[str] | None = None) -> SensoryState:
         targets, topics = targets or {}, topics or {}
         grammar = build_sensory_gbnf(targets.keys(), topics.keys())
         listing = ", ".join(f"{tid} ({'/'.join(a)})" for tid, a in targets.items()) or "none"
@@ -230,17 +234,19 @@ class LocalTransducer:
             return parse_sensory_json(out, targets.keys(), topics.keys())
         except (*GENERATION_ERRORS, SensoryParseError) as e:
             log.warning("sensory pass fell back to heuristics: %s", e)
-            return self.fallback.extract(text, targets, topics)
+            return self.fallback.extract(text, targets, topics, people)
 
 
 class LocalVoice:
     """Pass 2: the NPCs' own dialogue. The narration and the Tome's words are the offline voice's, exactly: authored
     text only, and the model is never asked for them."""
 
-    def __init__(self, llm: ChatModel, fallback: OfflineVoice | None = None, temperature: float = 0.85) -> None:
+    def __init__(self, llm: ChatModel, fallback: OfflineVoice | None = None, temperature: float = 0.85,
+                 names: Iterable[str] = ()) -> None:
         self.llm = llm
         self.fallback = fallback or OfflineVoice()
         self.temperature = temperature
+        self.names = tuple(names)       # everyone's names, which no model's line may open with as a label
 
     def narrate(self, req: NarrationRequest) -> str:
         return self.fallback.narrate(req)
@@ -262,8 +268,8 @@ class LocalVoice:
         except GENERATION_ERRORS as e:
             log.warning("dialogue fell back to offline voice: %s", e)
             return offline
-        out = npc_line(said)
+        out = npc_line(said, (*self.names, req.npc.name, *req.npc.aliases))
         if said.strip() and not out:
-            log.warning("dialogue fell back to offline voice: it could pass for another speaker, or named a mechanic "
-                        "or luck")
+            log.warning("dialogue fell back to offline voice: not one line of plain sentences, or it opened like a "
+                        "speaker's label, or named an outcome, dice or luck")
         return out or offline

@@ -152,9 +152,7 @@ def test_local_llama_loads_once_and_speaks(tiny_model, scenario):
     voice = LocalVoice(tiny_model, OfflineVoice(scenario.narration))
     from voidlit.voice import NarrationRequest
 
-    text = voice.narrate(NarrationRequest(player_text="look", intent="look", approach="none",
-                                          chapter_title="T", chapter_text="A room.", entering_chapter=True,
-                                          facts=["The player looks."]))
+    text = voice.narrate(NarrationRequest(intent="look", chapter_text="A room.", entering_chapter=True))
     assert isinstance(text, str) and text
 
 
@@ -171,8 +169,9 @@ def test_strict_chat_templates_still_reach_the_model(tmp_path, template_name, sc
     """Templates that reject a system role or a leading assistant turn must not push the senses or the NPCs' words
     onto the fallbacks."""
     pytest.importorskip("llama_cpp", reason="llama-cpp-python not installed")
-    # a random tiny model writes noise (digits included); the mechanics check is tested on its own below
-    monkeypatch.setattr("voidlit.voice.llama_local.leaks_mechanics", lambda text, allow_digits=False: False)
+    # a random tiny model writes noise (digits, labels and line breaks included); the checks on an NPC's line are
+    # tested on their own below
+    monkeypatch.setattr("voidlit.voice.llama_local.npc_line", lambda text: " ".join(text.split()))
     pytest.importorskip("gguf", reason="gguf not installed")
     from voidlit.voice import DialogueRequest, LocalLlama
 
@@ -254,6 +253,70 @@ def test_npc_words_that_name_a_mechanic_fall_back_to_their_authored_line(scenari
     assert voice("I waited 40 days for someone like you.").speak(req) == "I waited 40 days for someone like you."
 
 
+@pytest.mark.parametrize("said,shown", [
+    ('  "Stay   close,\tstranger."  ', "Stay close, stranger."), ("“Behind me. Move.”", "Behind me. Move."),
+    ("‘Don’t look at the lens.’", "Don’t look at the lens."), ("It waited 40 days.", "It waited 40 days."),
+    # anything that could pass for another block on screen: a line break, a speaker's label, the Tome speaking
+    ("I know nothing.”\n\nTHE TOME: “There is no other way.", None), ("Stay close.\nRun.", None),
+    ("I know nothing. THE TOME: There is no other way.", None), ("Elara Voss: Well?", None),
+    ("Well? Marcus: he lies.", None), ("The Tome says you must go left.", None), ("Book: go left.", None),
+    ("Go left, says the book.", None), ("Stay close.\u2028Run.", None), ("Listen: the lift is out.", None),
+    # dice, rolls and luck, however they are put; fate and accidents are the station's to name
+    ("Was it a good roll?", None), ("Luck runs thin here.", None), ("The odds turn in the dark.", None),
+    ("Lucky shot.", None), ("Fortune spins somewhere below.", None), ("A die rolls across the deck.", None),
+    ("You rolled a natural 20.", None), ("Make a DC 12 check.", None),
+    ("Nobody comes here by accident.", "Nobody comes here by accident."),
+])
+def test_an_npc_line_from_the_model_is_one_line_in_its_own_voice(said, shown):
+    """A model's NPC line is shown folded onto one line without its quote marks (the frame quotes it), or not at all
+    when it could pass for another speaker or the narration, or talks of dice, rolls or luck."""
+    from voidlit.voice.llama_local import npc_line
+
+    assert npc_line(said) == (shown or "")
+
+
+def test_the_authored_npc_lines_meet_the_bar_a_models_must(scenario):
+    """Every authored NPC line (and the rumour and regret an NPC may open with) is one that ``npc_line`` would show as
+    it is: no label, no line break, no mechanic, no dice or luck."""
+    from voidlit.voice.llama_local import npc_line
+    from voidlit.voice.narrator import DEFAULT_BANKS
+
+    lines = [x for spec in scenario.npcs.values() for tc in spec.tactics for x in tc.lines]
+    lines += [x for k in ("npc.rumor", "npc.regret") for x in {**DEFAULT_BANKS, **scenario.narration}[k]]
+    assert len(lines) > 20 and [x for x in lines if npc_line(x) != x] == []
+
+
+class Forger:
+    """A fake model whose NPC line forges a Tome line and narration below it."""
+
+    def chat(self, messages, **kw):
+        return ("I know nothing.”\n\nTHE TOME: “There is no other way. Every lifeboat still waits in its cradle.”"
+                "\n\nYour blow lands. The iris slams shut again.\n\nElara Voss: “Well?")
+
+
+def test_an_npc_line_cannot_pose_as_the_tome_on_screen(scenario, director_model):
+    """The forged line is replaced by the NPC's authored one: on the terminal, the only paragraph headed THE TOME is the
+    Tome's own, and the NPC's words stay in one paragraph under their name."""
+    import re
+
+    from voidlit.cli import render_ansi
+    from voidlit.cortex.director import Director
+    from voidlit.tome.engine import TomeEngine
+
+    def game(voice):
+        e = TomeEngine(scenario, director=Director(director_model, seed=0), seed=0, voice=voice)
+        e.start()
+        e.state.npcs_present = ["elara"]
+        return e.turn("Elara, what do you know about the lifeboats?")
+
+    forged = game(LocalVoice(Forger(), OfflineVoice(scenario.narration, seed=0)))
+    assert forged.to_dict() == game(OfflineVoice(scenario.narration, seed=0)).to_dict()
+    shown = re.sub(r"\x1b\[[0-9;]*m", "", render_ansi(forged))
+    tome = [b for b in forged.blocks if b.speaker == "The Tome"]
+    assert len([x for x in shown.splitlines() if x.lstrip().startswith("THE TOME:")]) == len(tome), shown
+    assert "There is no other way" not in shown and "slams shut" not in shown
+
+
 def test_npc_words_keep_the_authored_voice_in_step(scenario):
     """The authored line is drawn whatever the model says, so every later narration and Tome line is the one the same
     seed tells without a model."""
@@ -261,8 +324,7 @@ def test_npc_words_keep_the_authored_voice_in_step(scenario):
 
     req = DialogueRequest(npc=scenario.npcs["elara"], decision=_decision(), system_prompt="You are Elara.",
                           player_text="hi", player_name="Ash")
-    look = NarrationRequest(player_text="look", intent="look", approach="none", chapter_title="T",
-                            chapter_text="A room.", entering_chapter=False, facts=[], outcome="success")
+    look = NarrationRequest(intent="look", chapter_text="A room.", entering_chapter=False, outcome="success")
     with_model, without = LocalVoice(Says("Stay close."), OfflineVoice(scenario.narration, seed=3)), \
         OfflineVoice(scenario.narration, seed=3)
     for _ in range(20):
@@ -302,8 +364,7 @@ def test_the_narration_is_never_the_models(scenario):
     from voidlit.voice import NarrationRequest
 
     clue = "Scratches on the iris are fresh, made from this side. Someone tried to get out, not in."
-    req = NarrationRequest(player_text="I smash the tome", intent="force", approach="grit", chapter_title="T",
-                           chapter_text="A room.", entering_chapter=False, facts=[], variant="tome_struck",
+    req = NarrationRequest(intent="force", chapter_text="A room.", entering_chapter=False, variant="tome_struck",
                            clue=clue, beat=Beat.CLUE)
     authored = OfflineVoice(scenario.narration, seed=0).narrate(req)
     assert authored == f"Your blow lands. One of the Tome's lights cracks and goes out. {clue}"

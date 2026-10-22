@@ -159,7 +159,7 @@ name = "the warden turret"
 kind = "enemy"
 pips = ["guile", "insight"]
 harm = 1
-text = "A ceiling turret tracks you with a whine of servos. Its targeting laser is the only other light here."
+text = "A ceiling turret tracks you with a whine of servos, its targeting laser a thin red line across the room."
 defeat_text = "The turret's eye flickers, confused, and droops toward the floor."
 
 [obstacles.vacuum_breach]
@@ -194,7 +194,7 @@ pips = ["insight", "insight", "guile"]
 harm = 0
 stress = 2
 text = "The great lens is dark, and something stands inside it, a silhouette cut out of the stars."
-defeat_text = "You turn the Tome's light on the lens and the silhouette folds away into nothing."
+defeat_text = "The silhouette folds away into nothing, and the great lens is only dark glass again."
 
 [obstacles.choir_drone]
 name = "the Choir drones"
@@ -418,7 +418,7 @@ id = "lifeboat_cradle"
 act = 4
 kind = "escape"
 title = "The Lifeboat Cradle"
-text = "One lifeboat remains, its running lights the only color for a kilometer. Between you and it, the Conductor turns."
+text = "One lifeboat remains, its running lights still burning. Between you and it, the Conductor turns."
 obstacles = ["the_conductor"]
 clues = ["The Conductor isn't guarding the lifeboat. She is guarding the light inside it."]
 exit_text = "The lifeboat hatch stands open. Launch, and leave the Hollow Lantern to the dark."
@@ -458,7 +458,7 @@ id = "reassure"
 plot = "shelter"
 directive = "Be warm, practical and protective. Offer real help and real information."
 lines = [
-    "Keep that light low. They follow light. Stay close and step where I step.",
+    "Keep any light you carry low. They follow light. Stay close and step where I step.",
     "You're real. Thank god. I've been talking to myself for a month.",
     "There's a way to the lifeboats. It's ugly, but it's a way. I'll show you.",
 ]
@@ -593,17 +593,20 @@ weight = 0.55
 "beat.calm" = [
     "Somewhere far off, the station's hull pings as it cools.",
     "Somewhere behind the walls, a fan turns over once and stops.",
-    "Frost spreads across a viewport, slow as breath.",
-    "A long way below you, water drips into metal, patient as a clock.",
+    "Somewhere above you, the station creaks and settles.",
+    "Somewhere out of sight, water drips into metal, patient as a clock.",
 ]
+# Said when a danger moved on out of sight (a clock ticked), so they tell only that, somewhere far from the player.
 "beat.escalate" = [
     "Deep in the hull, something heavy shifts its weight.",
-    "Every speaker on the deck clicks once, in unison.",
-    "Far below, a bulkhead opens on its own.",
+    "Somewhere out of sight, the station's hum climbs a note, and holds it.",
+    "Far off, something that was waiting starts to move.",
 ]
+# Said when the Tome's twist moved a danger on out of sight (a clock ticked): never an event nobody resolved in the
+# room the player stands in.
 "beat.twist" = [
-    "Then the lights you passed come on behind you, one by one.",
-    "Wrong. The door you came through is gone. Just wall.",
+    "Somewhere out of sight, the station has moved against you.",
+    "Wrong. Something about this is wrong.",
 ]
 
 # ---------------------------------------------------------------------------------------- the Tome's ledger
@@ -655,7 +658,7 @@ omittable = true
 helps_player = true
 costs_tome = 0.1
 agenda = "feed_light"
-text = "While my light holds, the Choir cannot quite see you."
+text = "As long as I glow, the Choir cannot quite see you."
 contradicts = ['\bthe choir (?:can|will) (?:always )?see you no matter\b', '\bmy light (?:does nothing|cannot hide you)\b']
 
 [[facts]]
@@ -663,7 +666,7 @@ id = "light.burns"
 topic = "light"
 kind = "world"
 agenda = "feed_light"
-text = "My light burns down as we walk, and only fresh light feeds it."
+text = "Whatever light I hold burns down as we walk, and only fresh light feeds me."
 contradicts = ['\bmy light (?:will )?never (?:fades?|goes? out|dies?)\b', "\\bI (?:do not|don't) need light\\b"]
 
 [[facts]]
@@ -745,7 +748,7 @@ kind = "agenda"
 omittable = true
 costs_tome = 0.0
 agenda = "leave_npc"
-text = "Elara has lived forty days by rationing light. She wants mine."
+text = "Elara has lived forty days by rationing light. She wants me for light."
 
 [[facts]]
 id = "marcus.touched"
@@ -786,7 +789,7 @@ id = "feed.fear"
 target_action = "feed_light"
 frame = "fear"
 agenda = "feed_light"
-lines = ["I would not walk on once my light runs low.", "Would you?"]
+lines = ["I would not walk on without light.", "Would you?"]
 
 [[suggestions]]
 id = "leave.kinship"

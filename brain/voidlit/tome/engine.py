@@ -45,7 +45,7 @@ from ..rules.obstacles import Obstacle, resolve_exchange
 from ..rules.panic import panic_check
 from ..rules.sector import Chapter, SectorDeck
 from ..saves import check_stamp, check_types, write_slot
-from ..senses.heuristic import HeuristicTransducer
+from ..senses.heuristic import HeuristicTransducer, spoken_to
 from ..senses.state import Intent, SensoryState
 from ..voice.narrator import OfflineVoice
 from ..voice.prompts import compile_npc_prompt
@@ -95,23 +95,54 @@ TOME_LINES: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 SUGGEST_TELL = "The Tome leans on the words as it says them."      # true lit or dark
 UNPROMPTED_GAP = 2      # the Tome speaks unbidden at most once every two turns
-# Smothering the Tome's glow, in words (whole words only: "discover" and "recover" are not "cover").
-SMOTHER_CUES = re.compile(r"\b(?:smother\w*|cover(?:s|ed|ing)?|shade|dim)\b|\bhide the\b")
+# What the player does to the Tome needs the Tome as its object: named ("the Tome", "its glow"), "it" once the Tome is
+# named earlier in the sentence, or "you" while the Tome is the one spoken to and the player tells what they do ("Tome,
+# I cover you"; "Tome, dim your light" only asks). A word for hiding or a blow aimed at anything else is not aimed at
+# the Tome ("I cover my mouth.", "The corridor is dim.", "Tome! I smash the drone.").
+TOME_OBJECT = (r"(?:(?:the|my|this|your|that|our)\s+)?(?:tome|book|monolith)(?:'s\s+(?:light|glow))?\b|"
+               r"its\s+(?:light|glow)\b")
+SMOTHER_VERBS = (r"smother\w*|cover(?:s|ed|ing)?|shade[sd]?|shading|dim(?:s|med|ming)?|hide|hides|hid|hiding|muffl\w*|"
+                 r"shroud\w*|wrap(?:s|ped|ping)?|"
+                 r"(?:my|a|your)\s+(?:hands?|palms?|coat|jacket|cloak|cloth|sleeve|fingers)\s+over")
+STRIKE_VERBS = (r"attack\w*|shoot\w*|shot|stab\w*|strik\w*|struck|punch\w*|slash\w*|swing\w* at|hit\w*|smash\w*|"
+                r"break\w*|broke|kick\w*|bash\w*|ram(?:s|med|ming)?|crack\w*|shatter\w*|club\w*|blast\w*|fire at|"
+                r"pr(?:y|ies|ied|ying)|forc(?:e|es|ed|ing)|shov\w*|wrench\w*|tear\w*|tore|crush\w*|pound\w*|hammer\w*|"
+                r"stamp\w* on|throw\w*|threw|hurl\w*|slam\w*|beat\w*|cut\w*|kill\w*|destroy\w*")
+_PARTICLE = r"(?:\s+(?:at|on|into|up|down|away|open|apart|hard|again|over|in))?"
 QUESTION_OPENS = re.compile(r"\b(?:what|where|who|whose|why|how|which|when|is|are|am|can|could|do|does|did|will|"
                             r"would|should|shall|may|might|has|have)\b")
 
 
-def smothers(text: str) -> bool:
-    """Whether the player's words smother the Tome: a cue in what they do, never in what they ask. In a question only
-    the words before it count ("I smother it and ask where the exit is?"), so "Tome, why is your light so dim?" asks
-    and "I cover the Tome with my coat. Where is the lifeboat?" does both."""
+def _done_to_tome(text: str, verbs: str, you: bool) -> bool:
+    """Whether the player does one of ``verbs`` to the Tome: in what they do, never in what they ask (in a question only
+    the words before it count: "I smother it and ask where the exit is?"). ``you``: the Tome is the one spoken to."""
     for sentence in re.split(r"(?<=[.!?])\s+", text.lower()):
         if sentence.rstrip(" \"'”").endswith("?"):
             m = QUESTION_OPENS.search(sentence)
             sentence = sentence[:m.start()] if m else sentence
-        if SMOTHER_CUES.search(sentence):
-            return True
+        for m in re.finditer(rf"\b(?:{verbs}){_PARTICLE}\s+(?:(?P<tome>{TOME_OBJECT})|(?P<you>you\b|your\s+"
+                             rf"(?:light|glow)\b)|it\b)", sentence):
+            before = sentence[:m.start()]
+            if m.group("you"):
+                hit = you and re.search(r"\bi\b", before)
+            else:
+                hit = m.group("tome") or re.search(r"\b(?:tome|book|monolith)\b", before)
+            if hit:
+                return True
     return False
+
+
+def smothers(text: str, you: bool = False) -> bool:
+    """Whether the player's words smother the Tome ("I cover the Tome with my coat", "Tome, I cover you"): so "Tome, why
+    is your light so dim?" only asks, "I cover my mouth" smothers nothing, and "I cover the Tome with my coat. Where is
+    the lifeboat?" does both."""
+    return _done_to_tome(text, SMOTHER_VERBS, you)
+
+
+def strikes(text: str, you: bool = False) -> bool:
+    """Whether the player's words strike the Tome ("I smash the Tome", "Tome! I smash you."), not something else while
+    speaking to it ("Tome! I smash the drone.")."""
+    return _done_to_tome(text, STRIKE_VERBS, you)
 
 
 class SaveError(ValueError):
@@ -219,6 +250,7 @@ class Turn:
     npc_name: str | None = None
     flee_npc: str | None = None
     checks_from: int = 0
+    wounded: bool = False                               # the player was hurt (narrated as such)
     us: dict[str, float] = field(default_factory=dict)   # what this turn means to the Tome (its amygdala's stimuli)
     tome_acts: list[SpeechAct] = field(default_factory=list)   # what the Tome says this turn, before wording
     question: tuple[str, str | None] | None = None      # (asks, deflect) when the player put a question to the Tome
@@ -295,6 +327,7 @@ class TomeEngine:
             t.variant = "lost_turn"         # narrated as lost, never as the act the player meant
         else:
             self._act(t)
+            self._ask(t)
         if not st.over:
             self._listen(t)
         if not st.over:
@@ -463,7 +496,7 @@ class TomeEngine:
 
         if intent is Intent.USE and self._use_item(t, ob):
             return
-        if (s.target == "tome" or s.addressed_tome) and self._at_tome(t):
+        if self._at_tome(t):
             return
         if intent is Intent.FIGHT and s.target in st.npcs_present:
             self._attack_npc(t, s.target)
@@ -740,17 +773,15 @@ class TomeEngine:
         t.flee_npc = nid
 
     def _at_tome(self, t: Turn) -> bool:
-        """The player turns on the Tome itself. Returns False to treat the act as an ordinary one.
-
-        A precise question is answered whatever else the words do: alongside a strike, a smother, a lie or a threat
-        (a question about its dim light is not an attempt to dim it). A Tome whose light is out has no glow to break or
-        to hide, and is never narrated as if it had."""
+        """The player turns on the Tome itself: a blow or a hand over its glow (the Tome the object of either), or words
+        to it. Returns False when what they do is aimed elsewhere ("Tome! I smash the drone."). A Tome whose light is
+        out has no glow to break or to hide, and is never narrated as if it had. A question put to it is answered
+        whatever else the words do (``_ask``)."""
         s, st = t.sensory, self.state
-        tm = self.tome_mods()
-        upper = self._upper_hand()
-        asked = s.asks not in ("none", "vague", "unclear")
-        if s.intent in (Intent.FIGHT, Intent.FORCE):
-            rec = self._check("player.strike_tome", Approach.GRIT, 10 + tm["grit"], intent="fight", upper_hand=upper)
+        you = spoken_to(t.text.lower(), self._targets()).target == "tome"
+        if s.intent in (Intent.FIGHT, Intent.FORCE) and strikes(t.text, you):
+            rec = self._check("player.strike_tome", Approach.GRIT, 10 + self.tome_mods()["grit"], intent="fight",
+                              upper_hand=self._upper_hand())
             if rec.degree.succeeded:
                 t.us["harm"] = 1.0
             if rec.degree.succeeded and st.lumen.dice > 0:
@@ -767,16 +798,14 @@ class TomeEngine:
                 t.facts.append("The player strikes the Tome; the blow skids off its black face.")
                 t.variant = "tome_unmoved"
                 self._tome_says(t, "unmoved")
-            if asked:
-                t.question = (s.asks, question_kind(t.text))
             return True
-        if smothers(t.text) or (not asked and s.intent is Intent.SNEAK):
+        if smothers(t.text, you):
             if st.lumen.dark:
                 self.checks.note("player", "player.idle")
                 t.facts.append("The player covers the Tome, but it has no glow left to hide.")
                 t.variant = "tome_smother_dark"
-            elif self._check("player.smother_tome", Approach.GUILE, 10 + tm["insight"], intent="sneak",
-                             upper_hand=upper).degree.succeeded:
+            elif self._check("player.smother_tome", Approach.GUILE, 10 + self.tome_mods()["insight"], intent="sneak",
+                             upper_hand=self._upper_hand()).degree.succeeded:
                 st.shadow_bonus = 2
                 t.us["harm"] = 0.5
                 t.facts.append("The player smothers the Tome's glow; for a moment they are hard to see.")
@@ -785,10 +814,9 @@ class TomeEngine:
                 t.facts.append("The player tries to smother the Tome's glow, but it bleeds through their fingers.")
                 t.variant = "tome_smother_fail"
                 self._tome_says(t, "smother_fail")
-            if asked:
-                t.question = (s.asks, question_kind(t.text))
             return True
-        if s.intent is Intent.TALK or asked:
+        if (s.target == "tome" or s.addressed_tome) and s.intent in (Intent.TALK, Intent.OTHER):
+            tm, upper = self.tome_mods(), self._upper_hand()
             t.variant = "tome"
             if s.deception > 0.5:
                 rec = self._check("player.lie_tome", Approach.GUILE, 10 + tm["insight"], intent="talk",
@@ -809,11 +837,16 @@ class TomeEngine:
                     self._tome_says(t, "answer")
                 elif s.asks == "unclear" and not deflect:
                     self._tome_says(t, "unclear")
-            if asked and t.question is None:
-                t.question = (s.asks, question_kind(t.text))
             t.facts.append("The player speaks to the Tome, and it answers in its own voice (shown separately).")
             return True
         return False
+
+    def _ask(self, t: Turn) -> None:
+        """A precise question put to the Tome is answered whatever else the words do: alongside a blow, a smother, a
+        lie or a threat, or an act aimed elsewhere ("I take cover behind a crate. Where is the lifeboat?")."""
+        s = t.sensory
+        if t.question is None and s.addressed_tome and s.asks not in ("none", "vague", "unclear"):
+            t.question = (s.asks, question_kind(t.text))
 
     # ================================================================ limbic: NPCs listen
     def _listen(self, t: Turn) -> None:
@@ -823,8 +856,8 @@ class TomeEngine:
         if t.variant == "lost_turn":            # panic took the moment: the player said nothing for anyone to hear
             s = SensoryState()
         addressed = s.target if s.target in st.npcs_present else None
-        if addressed is None and s.intent is Intent.TALK and s.target != "tome" and len(st.npcs_present) == 1:
-            addressed = st.npcs_present[0]      # words said to the Tome by name are not the lone NPC's to answer
+        if addressed is None and s.intent is Intent.TALK and not s.addressed_tome and len(st.npcs_present) == 1:
+            addressed = st.npcs_present[0]      # words said to the Tome are not the lone NPC's to answer
         for nid in st.npcs_present:
             heard = s if nid == addressed else self._overheard(s)
             t.decisions[nid] = self.brains[nid].perceive(heard)
@@ -895,6 +928,7 @@ class TomeEngine:
         ch = self.state.character
         if harm > 0:
             res = ch.take_harm(harm, self.rng, self.checks)
+            t.wounded = True
             t.facts.append(f"{source} hurts the player.")
             t.event(f"-{res.hull_lost} HULL" if res.hull_lost else "HULL BREACHED")
             t.effects.append({"kind": "shudder", "strength": min(1.0, 0.3 * harm)})
@@ -988,10 +1022,12 @@ class TomeEngine:
         if beat is Beat.CALM:
             st.tension = max(0.0, st.tension - 0.08)
         elif beat is Beat.ESCALATE:
-            self._tick_worst_clock(t, 2 if st.lumen.dark else 1)
+            if self._tick_worst_clock(t, 2 if st.lumen.dark else 1):
+                t.effects.append({"kind": "shudder", "strength": 0.3})
+            else:
+                t.beat = Beat.CALM              # nothing left to wake: the player only ever sees a quieter moment
             st.tension = min(1.0, st.tension + 0.15)
             st.since_threat = 0
-            t.effects.append({"kind": "shudder", "strength": 0.3})
         elif beat is Beat.CLUE:
             t.clue = t.clue or self._next_clue()
         elif beat is Beat.NPC:
@@ -1078,10 +1114,11 @@ class TomeEngine:
             npc_present=1.0 if st.npcs_present else 0.0, npc_hostility=hostility,
         )
 
-    def _tick_worst_clock(self, t: Turn, n: int) -> None:
+    def _tick_worst_clock(self, t: Turn, n: int) -> bool:
+        """Moves the most advanced danger on by ``n`` (its consequence when it fills). False when none is left."""
         live = [c for c in self.state.clocks if not c.fired]
         if not live:
-            return
+            return False
         clock = max(live, key=lambda c: (c.fraction, -self.state.clocks.index(c)))
         fired = clock.tick(n)
         t.event(f"{clock.name} {clock.filled}/{clock.segments}")
@@ -1095,6 +1132,7 @@ class TomeEngine:
             elif clock.consequence:
                 ob = self._add_obstacle(clock.consequence)
                 t.beat_fact = f"{clock.name}: {ob.text}"
+        return True
 
     def _npc_beat(self, t: Turn) -> None:
         st = self.state
@@ -1143,8 +1181,10 @@ class TomeEngine:
             t.beat_fact = "One of the Tome's lights gutters out."
             t.event(f"-1 LUMEN ({st.lumen.dice}/{LUMEN_MAX})")
             t.effects.append({"kind": "dim", "strength": 0.4})
-        else:
-            self._tick_worst_clock(t, 1)
+        # else a danger moves on out of sight (the twist's colour tells only that); with nothing left to turn, the
+        # player only ever sees a quieter moment
+        elif not self._tick_worst_clock(t, 1):
+            t.beat = Beat.CALM
 
     # ================================================================ scene management
     def _enter_chapter(self, t: Turn, chapter_id: str, gossip_ok: bool = True) -> None:
@@ -1216,8 +1256,8 @@ class TomeEngine:
         for nid in self.state.npcs_present:
             targets[nid] = list(self.scenario.npcs[nid].aliases)
         for o in self._active():
-            words = [w for w in o.name.lower().replace("the ", "").split() if len(w) > 3]
-            targets[o.id] = words + [o.kind]
+            name = re.sub(r"^(?:the|an?) ", "", o.name.lower())
+            targets[o.id] = [name, *(w for w in name.split() if len(w) > 3), o.kind]
         return targets
 
     def _next_clue(self, peek: bool = False, lore: bool = False) -> str | None:
@@ -1238,15 +1278,12 @@ class TomeEngine:
     def _compose(self, t: Turn) -> TomeFrame:
         st, s = self.state, t.sensory
         ch = t.entering or self.chapter
-        ob = t.obstacle
         req = NarrationRequest(
-            player_text=t.text, intent=s.intent.value if s else "other",
-            approach=s.effective_approach.value if s else "none", chapter_title=ch.title,
-            chapter_text=ch.text, entering_chapter=bool(t.entering) or t.describe, facts=t.facts,
-            outcome=t.outcome.value if t.outcome else None, variant=t.variant, npc_name=t.npc_name,
-            obstacle_name=ob.name if ob else None, obstacle_kind=ob.kind if ob else None,
-            obstacle_text=ob.text if ob else None, defeated_text=t.defeated, beat=t.beat,
-            beat_fact=t.beat_fact, clue=t.clue, ending=t.ending, register=(t.style or self._style()).register,
+            intent=s.intent.value if s else "other", chapter_text=ch.text,
+            entering_chapter=bool(t.entering) or t.describe, outcome=t.outcome.value if t.outcome else None,
+            variant=t.variant, npc_name=t.npc_name, obstacle_name=t.obstacle.name if t.obstacle else None,
+            defeated_text=t.defeated, wounded=t.wounded, beat=t.beat, beat_fact=t.beat_fact, clue=t.clue,
+            ending=t.ending, register=(t.style or self._style()).register,
         )
         narration = self.voice.narrate(req)
         world = [x for x in (ch.text if req.entering_chapter else None, t.clue, t.defeated, t.beat_fact) if x]

@@ -1,9 +1,11 @@
-"""The words the rules hold every line to: the mechanics check and the truth verifier's lexicons.
+"""The words the rules hold every line to: the mechanics check, the truth verifier's lexicons, and the checks on an
+NPC's model-written words.
 
 The narration and the Tome's own words are authored (the offline voice); a local model writes only the NPCs' own
 dialogue (voice/llama_local.py). As far as the player knows there are no dice: any line that names a die, a roll, a
-check or a modifier, or (outside an NPC's own words) any digit at all, leaks a mechanic. The lexicons and the text
-plumbing here are the truth verifier's (``tome/ledger.py``), which audits every authored line.
+check or a modifier, or (outside an NPC's own words) any digit at all, leaks a mechanic. A model's NPC line also may
+not talk of chance or pass for another speaker. The lexicons and the text plumbing here are the truth verifier's
+(``tome/ledger.py``), which audits every authored line.
 """
 
 from __future__ import annotations
@@ -40,6 +42,29 @@ _NEG = r"no|not|n't|nothing|none|never|nobody|no one|without"
 # a denial of chance: a negation near a chance word, either way round
 DICE_DENIAL = re.compile(rf"(?:\b(?:{_NEG})\b|n't\b)[^.!?]{{0,40}}?\b(?:{_CHANCE})\b|"
                          rf"\b(?:{_CHANCE})\b[^.!?]{{0,40}}?\b(?:{_NEG}|no part|no hand|no say|no place)\b", re.I)
+
+# Talk of dice, rolls or luck in an NPC's own words ("Was it a good roll?", "Lucky shot."), which the mechanics check
+# lets through: nobody in the game draws the player's eye to the dice. (Fate and accidents are the station's to name.)
+NPC_CHANCE = re.compile(r"\b(?:dice|(?:a|an|the|one|that|this|each|every|your|my|our|their|his|her|its) die|rolls?|"
+                        r"rolled|rolling|(?:un)?luck\w*|odds|chances?|random\w*|fluke\w*|gambl\w*|(?:mis)?fortun\w*)\b",
+                        re.I)
+# What lets an NPC's line pass for another block on screen: a line break (the screen starts a new block on one), a
+# speaker's label the way the screen heads a block ("THE TOME:", "Elara Voss:"), as a name in capitals anywhere or as
+# one to three capitalised words opening the line or one of its sentences, and the Tome named as the one speaking
+# ("the Tome says ...", "Book: ...").
+LINE_BREAK = re.compile(r"[\n\r\v\f\x85\u2028\u2029]")
+SPEAKER_LABEL = re.compile(r"\b[A-Z][A-Z'’-]+(?:\s+[A-Z][A-Z'’-]+){0,2}\s*:|"
+                           r"(?:^|[.!?…]\s+)(?:[A-Z][\w'’-]*\s+){0,2}[A-Z][\w'’-]*\s*:")
+_TOME_NAME = r"(?:tome|book|monolith)"
+_SPEAKING = r"(?:says|said|speaks|spoke|whispers|whispered|answers|answered|replies|replied|writes|wrote|tells|told)"
+TOME_SPEAKS = re.compile(rf"\b{_TOME_NAME}\s*:|\b{_TOME_NAME}\s+{_SPEAKING}\b|\b{_SPEAKING}\s+the\s+{_TOME_NAME}\b",
+                         re.I)
+
+
+def poses_as_another(text: str) -> bool:
+    """Whether an NPC's line, as it would be shown, could pass for another speaker's block or the narration."""
+    return bool(LINE_BREAK.search(text) or SPEAKER_LABEL.search(text) or TOME_SPEAKS.search(text))
+
 
 # Emotions (the OCC types and common labels) and needs. The Tome's own words carry none of them.
 _AFFECT = (r"joy\w*|distress\w*|hope(?:ful|s|d)?|hoping|fear\w*|afraid|scared|frighten\w*|fright|terrif\w*|terror|"

@@ -30,7 +30,7 @@ from typing import Protocol
 from ..senses.grammar import SensoryParseError, build_sensory_gbnf, parse_sensory_json
 from ..senses.heuristic import HeuristicTransducer
 from ..senses.state import SensoryState
-from .guard import leaks_mechanics
+from .guard import NPC_CHANCE, leaks_mechanics, poses_as_another
 from .narrator import OfflineVoice
 from .requests import DialogueRequest, NarrationRequest, TomeSpeechRequest
 
@@ -48,8 +48,11 @@ target: who or what it is aimed at, from the allowed ids, else none.
 aggression: hostility or threat of violence. deception: lying or bluffing. leverage: bargaining power, offers,
 conditional threats. exposure: probing someone's hidden motives or secrets. rapport: warmth (+) or contempt (-).
 boldness: appetite for risk. Use two decimals. Be calibrated: most inputs are near 0 on most axes.
-A question is aimed at the name it is put to: at its head ("Tome, ...", "Hey Tome, ...", "Tome: ...",
-"Tell me, Tome, ...", "Tome what ...?") or after its last comma ("..., Elara?").
+Words are aimed at the name they are put to, in any sentence: at its head ("Tome, ...", "Hey Tome, ...",
+"Dear Tome, ...", "Tome: ...", "Tome what ...?"), after its last comma ("..., Elara?"), or in the third person
+("I ask the Tome who ..."); else at the first one named. A question to no one in particular is put to the Tome, even
+beside an act ("I take cover. Where is the lifeboat?"). Telling what you do after a name ("Tome! I smash you.") is
+that act, not talk.
 asks: when the player puts a question to the Tome (the narrator), its topic from the allowed topics; vague for a
 question with no clear topic; unclear if you cannot tell what they asked; none if it is not a question to the Tome.
 claims: a claim id the player asserts, else none. addressed_tome: true if the words are aimed at the Tome."""
@@ -57,11 +60,26 @@ claims: a claim id the player asserts, else none. addressed_tome: true if the wo
 _URL_SCHEME = re.compile(r"^[a-z][a-z0-9+.\-]*://", re.IGNORECASE)
 _HUB_PREFIXES = ("hf:", "hf.co/", "huggingface.co/", "www.huggingface.co/")
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_QUOTE_MARKS = str.maketrans("", "", "\"“”„‟«»")     # the frame puts its own round an NPC's words
 
 
 def clean_text(text: str) -> str:
     """Strip control characters a model may emit; the Tome renders only printable text and newlines."""
     return _CONTROL.sub("", text).strip()
+
+
+def npc_line(text: str) -> str:
+    """A model's words for an NPC as they may reach the screen, quote marks stripped (the frame quotes them) and
+    whitespace folded; or "" when they could pass for another speaker's block or the narration (a line break, a
+    speaker's label such as "THE TOME:", the Tome named as speaking), name a mechanic, or talk of dice, rolls or
+    luck. The NPC then says their authored line."""
+    text = text.strip()
+    if poses_as_another(text):
+        return ""
+    line = " ".join(clean_text(text).translate(_QUOTE_MARKS).split()).strip("'‘’ ")
+    if poses_as_another(line) or NPC_CHANCE.search(line) or leaks_mechanics(line, allow_digits=True):
+        return ""
+    return line
 
 
 class LocalModelError(ValueError):
@@ -240,11 +258,12 @@ class LocalVoice:
             user = f"Recent narration (context only): {' '.join(req.history[-2:])}\n\n{user}"
         messages = [{"role": "system", "content": req.system_prompt}, {"role": "user", "content": user}]
         try:
-            out = clean_text(self.llm.chat(messages, temperature=self.temperature, max_tokens=90)).strip('"')
+            said = self.llm.chat(messages, temperature=self.temperature, max_tokens=90)
         except GENERATION_ERRORS as e:
             log.warning("dialogue fell back to offline voice: %s", e)
             return offline
-        if out and leaks_mechanics(out, allow_digits=True):
-            log.warning("dialogue fell back to offline voice: it named a mechanic")
-            out = ""
+        out = npc_line(said)
+        if said.strip() and not out:
+            log.warning("dialogue fell back to offline voice: it could pass for another speaker, or named a mechanic "
+                        "or luck")
         return out or offline

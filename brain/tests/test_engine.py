@@ -6,6 +6,8 @@ import torch
 from voidlit.app import build_engine
 from voidlit.playtest import bot_command
 from voidlit.cortex.director import Director
+from voidlit.cortex.features import Beat
+from voidlit.rules.dice import Outcome
 from voidlit.senses import HeuristicTransducer
 from voidlit.saves import check_types
 from voidlit.tome.engine import CAMPAIGN_TYPES, TOME_LINES, TomeEngine, Turn
@@ -294,3 +296,126 @@ def test_a_power_lurch_in_the_dark_drags_no_light_down(scenario, director_model)
     t = Turn(text="")
     e._tick_worst_clock(t, 1)
     assert "the dark deepens" in t.beat_fact and "light" not in t.beat_fact, t.beat_fact
+
+
+def _acts(e):
+    return [r.action for r in e.checks.records if r.action.startswith("player.")]
+
+
+@pytest.mark.parametrize("text,action", [
+    # a name, then what the player does: that act, whatever follows the name
+    ("Tome! I smash you.", "player.strike_tome"), ("Tome: I smash you.", "player.strike_tome"),
+    ("Elara. I attack her.", "player.attack_npc"), ("Marcus - I attack him.", "player.attack_npc"),
+    ("Hey Marcus, I shoot you.", "player.attack_npc"), ("Marcus! I shoot him.", "player.attack_npc"),
+    ("Marcus, I attack you.", "player.attack_npc"),
+    # what the player does while speaking to the Tome is aimed at it only when the Tome is its object
+    ("Tome! I smash the door.", "player.engage"), ("Tome, I sneak past the door.", "player.engage"),
+    ("I hide the lamp.", "player.engage"), ("I cover my mouth.", "player.engage"),
+    ("I take the book and smash it.", "player.strike_tome"), ("I put my hand over the Tome.", "player.smother_tome"),
+    ("Tome, I cover you.", "player.smother_tome"), ("Tome, dim your light.", "player.ask_tome"),
+    ("The corridor is dim.", "player.idle"), ("I'm covered in blood.", "player.idle"),
+])
+def test_a_name_then_what_the_player_does_is_that_act(scenario, director_model, text, action):
+    e = make(scenario, director_model, seed=0)
+    e.start()
+    e.state.npcs_present = ["elara", "marcus"]
+    e.turn(text)
+    assert _acts(e) == [action], (text, _acts(e))
+
+
+def test_a_question_to_no_one_is_not_the_lone_npcs_to_answer(scenario, director_model):
+    """A question put to no one in particular is the Tome's, alongside whatever else the player does; a lone NPC does
+    not answer it as if it were theirs."""
+    for text in ("Where is the lifeboat?", "I take cover behind a crate. Where is the lifeboat?"):
+        e = make(scenario, director_model, seed=2)
+        e.voice = Ears(scenario.narration, seed=2)
+        e.start()
+        e.state.npcs_present = ["elara"]
+        f = e.turn(text)
+        assert not [r for r in e.voice.asked if not r.unprompted], text
+        assert "Every lifeboat but one was launched empty." in f.text, text
+
+
+def test_names_in_passing_go_to_the_first_one_named(scenario, director_model):
+    """Two people named in passing: the words are for the first ("..., then Marcus." is no one spoken to)."""
+    e = make(scenario, director_model, seed=2)
+    e.voice = Ears(scenario.narration, seed=2)
+    e.start()
+    e.state.npcs_present = ["elara", "marcus"]
+    e.turn("I give the lamp to Elara, then Marcus.")
+    assert [r.npc.id for r in e.voice.asked if not r.unprompted] == ["elara"]
+
+
+def test_the_warden_turret_is_not_the_warden(scenario, director_model):
+    """An obstacle's whole name outranks a shorter name inside it: shooting the warden turret is not shooting Marcus."""
+    e = make(scenario, director_model, seed=0)
+    e.start()
+    e.state.deck.order[e.state.deck.index] = "signal_room"
+    e._enter_chapter(Turn(text=""), "signal_room", gossip_ok=False)
+    assert "marcus" in e.state.npcs_present
+    e.turn("I shoot the warden turret")
+    assert _acts(e) == ["player.engage"] and "marcus" in e.state.npcs_present
+
+
+class Spy(TomeEngine):
+    def _compose(self, t):
+        self.last_turn = t
+        return super()._compose(t)
+
+
+def test_a_wound_is_told_and_only_a_wound(scenario, director_model):
+    """When the player is hurt the narration says so, in the bite bank's words; when they are not, it never does."""
+    seen = set()
+    for seed in range(30):
+        e = Spy(scenario, director=Director(director_model, seed=seed), seed=seed,
+                voice=OfflineVoice(scenario.narration, seed=seed))
+        e.start()
+        e.state.obstacles = [scenario.new_obstacle("scavenger_drone")]
+        f = e.turn("I force my way through it")
+        hurt = any(x.endswith("hurts the player.") for x in e.last_turn.facts)
+        told = any(x in f.text for x in e.voice.banks["bite"])
+        assert told == hurt, (seed, e.last_turn.facts, f.text)
+        seen.add(hurt)
+    assert seen == {True, False}
+
+
+def test_a_twist_with_nothing_left_to_turn_is_a_quiet_moment(scenario, director_model):
+    """With no obstacle to adapt, no light to spare and every clock run out, the Tome's twist changes nothing, and the
+    narration's colour must not say otherwise: the beat is a calm one."""
+    e = make(scenario, director_model, seed=0)
+    e.start()
+    e.state.obstacles.clear()
+    e.state.lumen.dice = 2
+    for c in e.state.clocks:
+        c.filled, c.fired = c.segments, True
+    t = Turn(text="")
+    t.beat = Beat.TWIST
+    e._twist_beat(t)
+    assert t.beat is Beat.CALM and not t.beat_fact
+
+
+class Escalating(Spy):
+    def _choose_beat(self, t, allowed):
+        return Beat.ESCALATE, {}
+
+
+def test_an_escalation_is_told_only_when_a_danger_moved(scenario, director_model):
+    """An escalation moves the worst danger on out of sight (its clock), and its colour says no more than that. With
+    every clock run out nothing moves: the player sees a quieter moment, never an escalation's line or shudder."""
+    seen = set()
+    for seed in range(16):
+        e = Escalating(scenario, director=Director(director_model, seed=seed), seed=seed,
+                       voice=OfflineVoice(scenario.narration, seed=seed))
+        e.start()
+        spent = seed % 2 == 0
+        for c in e.state.clocks if spent else ():
+            c.filled, c.fired = c.segments, True
+        f = e.turn("I wait")
+        if next(r for r in e.checks.records if r.action == "tome.escalate").degree is Outcome.FAIL:
+            continue                            # the Tome's reach fell short: a quiet moment either way
+        t = e.last_turn
+        assert t.beat is (Beat.CALM if spent else Beat.ESCALATE), seed
+        assert any(x in f.text for x in e.voice.banks["beat.escalate"]) == (not spent and not t.beat_fact), f.text
+        assert any(x["kind"] == "shudder" for x in f.effects) == (not spent), f.effects
+        seen.add(spent)
+    assert seen == {True, False}

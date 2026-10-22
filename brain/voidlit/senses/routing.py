@@ -235,7 +235,10 @@ _RETRACTS = (r"nope|nah|psych|psyche|sike|(?:ha){2,}|(?:he){2,}|lmao|rofl|yeah,?
              r"is (?:that|it|this) (?:okay|ok|alright|all right|fine|cool|allowed)|undo|tempting|"
              r"just (?:a thought|an idea|saying|thinking)|thinking about it|"
              r"(?:that's|that is) what i(?:'m| am) thinking|"
-             r"in (?:my|a|the|your) (?:story|tale|novel|game|dreams?|fantasy|version)")
+             r"in (?:my|a|the|your) (?:story|tale|novel|game|dreams?|fantasy|version)|"
+             r"(?:ignore|disregard|belay|erase|delete|unsay) (?:that|it|this)|disregard|forget about (?:it|that)|"
+             r"forget i said (?:that|it|anything)|let me rephrase|rewind|retract(?:ed|ion)?|"
+             r"n+o+p+e+|n+a+h+|no{3,}|gotcha|april fools?|then i wake up|(?:that's|that is) what she said")
 _RETRACTION = re.compile(rf"[\W\s]*(?:just\s+)?(?:{_RETRACTS})[\W\s]*")     # a sentence that only takes one back
 _MARKS = re.compile(
     r"\b(?:would|could|(?<!my )(?<!his )(?<!her )might|should|shall|must|may|(?<!as i )(?<!i possibly )can|cannot|"
@@ -652,7 +655,11 @@ class _Reader:
         "Tome, Marcus, ...", "Both of you, listen. Marcus, ...", "Elara and you"; no other name can stand in the closed
         grammar's sentence besides). Never one spoken to in another sentence ("You lied to me, Tome. I smash you.",
         "Tome! I smash you.")."""
-        return s.to if s.to is not None and s.own == {s.to} and not _JOINT.search(self.low) else None
+        if s.to is None or s.own != {s.to} or _JOINT.search(self.low):
+            return None
+        # and only when that sentence names them as such: "Book, I smash you." or "Warden, I shoot you." (with the
+        # warden turret here) speaks to them by a word that does not name them in the closed grammar
+        return s.to if any(t == s.to for *_, t in self._named_in(s)) else None
 
     # ------------------------------------------------------------------ the act
     def _act(self) -> tuple[Act | None, _Sentence | None, bool, bool, str | None]:
@@ -998,4 +1005,5 @@ def read(text: str, targets: Mapping[str, Sequence[str]], people: Collection[str
     """Read a line of player input. ``targets``: every one and everything in the scene, by id, with the names it goes
     by (the Tome's id is "tome"). ``people``: those present who can be spoken to, besides the Tome; None when unknown,
     and then anyone named may be."""
-    return _Reader(text.strip(), targets, people).read()
+    # phones type curly apostrophes: "didn’t" must void like "didn't" (same length, so offsets are unchanged)
+    return _Reader(text.strip().replace("’", "'").replace("‘", "'"), targets, people).read()

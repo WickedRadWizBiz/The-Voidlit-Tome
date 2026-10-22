@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import re
 from collections.abc import Mapping, Sequence
+from typing import NamedTuple
 
 from ..rules.character import Approach
 from .state import DEFAULT_APPROACH, Intent, SensoryState
@@ -67,9 +68,16 @@ BOLD = ("charge", "rush", "leap", "alone", "all in", "now", "fast", "headfirst",
 QUESTION_WORDS = {"what", "where", "who", "why", "how", "which", "when", "is", "are", "can", "could", "do", "does",
                   "did", "will", "would", "should", "tell", "explain"}
 # Words that may open an address before the name of the one spoken to ("Hey Tome, ...", "Tell me, Tome, ...",
-# "So, Tome, ...", "O Tome, ..."), and the question words that may follow a bare name ("Tome what does Elara want?").
-VOCATIVE_LEADS = r"(?:hey|hi|oi|oh|o|ah|so|well|now|then|listen|look|okay|ok|right|alright|please|and|but|say|tell me)"
+# "Dear Tome, ...", "Excuse me, Tome, ..."), the few that may come before a name said last ("..., O Tome?"), and the
+# question words that may follow a bare name ("Tome what does Elara want?").
+VOCATIVE_LEADS = (r"(?:hey|hi|oi|oh|o|ah|so|well|now|then|there|listen|look|okay|ok|right|alright|please|and|but|say|"
+                  r"tell me|dear|my|excuse me|pardon me|pardon|sorry)")
+TRAILING_LEADS = r"(?:hey|oh|o|my|dear)"
 WH_WORDS = r"(?:what|where|who|whose|why|how|which|when)"
+# Speaking to someone in the third person: "I ask the Tome who Marcus is", "I turn to the Tome and ask ...".
+ADDRESS_VERBS = r"(?:ask|asks|question|tell|tells|say to|whisper to|turn to|call to|beg|plead with)"
+ASKING = ("ask", "asks", "question")
+_SENTENCE = re.compile(r"[^.!?]*(?:[.!?]+|$)")
 
 INTENT_BOLDNESS = {
     Intent.FIGHT: 0.55, Intent.FORCE: 0.45, Intent.ADVANCE: 0.4, Intent.USE: 0.25, Intent.TALK: 0.2,
@@ -92,6 +100,83 @@ def _saturate(score: float, k: float = 0.7) -> float:
     return 1.0 - math.exp(-k * score)
 
 
+# The player telling what they do, right after naming someone ("Tome! I smash you.", "Marcus - I attack him."): an act,
+# not words to the one named.
+_ACT_CUES = sorted({c for i, cues in INTENT_CUES.items() if i is not Intent.TALK for c in cues}, key=len, reverse=True)
+ACT_OPENING = re.compile(rf"\W*(?:and\s+|then\s+)?i\s+(?:\w+ly\s+|then\s+|just\s+)?"
+                         rf"(?:{'|'.join(map(re.escape, _ACT_CUES))})\b")
+
+
+def sentences(low: str) -> list[tuple[int, str]]:
+    """The sentences of a line, each with where it starts (its closing punctuation kept)."""
+    return [(m.start(), m.group()) for m in _SENTENCE.finditer(low) if re.search(r"[a-z]", m.group())]
+
+
+def is_question(text: str) -> bool:
+    """A question mark, or a question word opening the words, or opening them after a short opener ("Listen, what are
+    you?")."""
+    body = text.lstrip("\"“' ")
+    if "?" in body:
+        return True
+    for part in (body, body.split(",", 1)[1] if "," in body[:24] else ""):
+        words = _WORD.findall(part)
+        if words and words[0] in QUESTION_WORDS:
+            return True
+    return False
+
+
+def _names(targets: Mapping[str, Sequence[str]]) -> dict[str, str]:
+    return {tid: "|".join(map(re.escape, sorted({tid, *(a.lower() for a in aliases)}, key=len, reverse=True)))
+            for tid, aliases in targets.items()}
+
+
+def _address(start: int, sent: str, names: Mapping[str, str]) -> tuple[str, int, bool, bool] | None:
+    """Whom one sentence names as the one spoken to, if anyone: (target, where the words to them start, named at its
+    head, asked in the third person)."""
+    lead = len(sent) - len(sent.lstrip("\"“”' "))
+    for tid, name in names.items():
+        # an opener takes the bare name ("Hey Tome"); "Look, the Tome!" points at it instead
+        m = re.match(rf"(?:(?:{VOCATIVE_LEADS}\W+)+(?:{name})|(?:the\s+)?(?:{name}))"
+                     rf"(?:\s*(?:[,:;!?.]|-+|–|—)|(?=\s+{WH_WORDS}\b)|\s*[\"”']*$)", sent[lead:])
+        if m:
+            return tid, start + lead + m.end(), True, False
+    for tid, name in names.items():
+        if re.search(rf",\s*(?:{TRAILING_LEADS}\s+)?(?:the\s+)?(?:{name})\s*[?!.]*[\"”']*\s*$", sent):
+            return tid, start, False, False
+    # in the third person, the first one named after a verb of speaking ("I tell Marcus to ask the Tome": Marcus)
+    hits = [(m, tid) for tid, name in names.items() if (m := re.search(
+        rf"\b({ADDRESS_VERBS})\s+(?:the\s+)?(?:{name})\b(?:\s*[,:]?\s*and\s+(ask|say|tell|whisper)\b)?", sent))]
+    if hits:
+        m, tid = min(hits, key=lambda h: h[0].start())
+        return tid, start + m.end(), False, m.group(1) in ASKING or m.group(2) == "ask"
+    return None
+
+
+class Address(NamedTuple):
+    """The one a line names as spoken to, and where the words to them are."""
+
+    target: str | None = None
+    start: int = 0              # where the words to them start
+    end: int = 0                # where they end: the next one spoken to hears the rest
+    words: bool = False         # named at the head of the line, and not followed by the player telling what they do
+    asked: bool = False         # something is asked of them, with or without a question ("I ask the Tome about ...")
+
+
+def spoken_to(low: str, targets: Mapping[str, Sequence[str]]) -> Address:
+    """The one named as spoken to, if anyone. In any sentence, a name is spoken to at its head, after any opener and
+    before a comma, colon, dash or question word ("Hey Tome, ...", "Tome: ...", "Tome what ...?"), last after a comma
+    ("..., Tome?"), or in the third person ("I ask the Tome who ..."). It outranks a name mentioned in passing; of
+    several, the first one a question is put to wins ("Elara, Marcus is armed. Tome, who is Marcus?")."""
+    sents, names = sentences(low), _names(targets)
+    found = [(i, a) for i, (start, sent) in enumerate(sents) if (a := _address(start, sent, names))]
+    heard = []                          # each one spoken to hears the sentences from theirs up to the next one's
+    for k, (i, (tid, rest, head, asking)) in enumerate(found):
+        end = sents[found[k + 1][0]][0] if k + 1 < len(found) else len(low)
+        asked = asking or any(is_question(low[max(rest, s):min(end, s + len(sent))]) for s, sent in sents[i:])
+        heard.append(Address(tid, rest, end, head and i == 0 and not ACT_OPENING.match(low[rest:]), asked))
+    return next((a for a in heard if a.asked), heard[0] if heard else Address())
+
+
 class HeuristicTransducer:
     """Maps raw player text to a SensoryState with keyword cues."""
 
@@ -101,16 +186,15 @@ class HeuristicTransducer:
         low = raw.lower()
         tokens = set(_WORD.findall(low))
         quoted = bool(re.search(r"[\"“].+[\"”]", raw))
+        targets = targets or {}
 
-        scores = {intent: float(_count(low, tokens, cues)) for intent, cues in INTENT_CUES.items()}
-        if quoted:
-            scores[Intent.TALK] += 2.0
-        # words are for the name they are spoken to ("Hey Tome, what does Elara want?"), however long another name is
-        spoken, rest, head = self._spoken_to(low, targets or {})
-        target = spoken or self._match_target(low, tokens, targets or {})
+        scores = self._scores(low, quoted)
+        # words are for the name they are spoken to ("Hey Tome, what does Elara want?"), whoever else is named
+        to = spoken_to(low, targets)
+        target = to.target or self._match_target(low, targets)
         if target != "none" and scores[Intent.TALK] > 0:
             scores[Intent.TALK] += 1.0
-        if head:
+        if to.words:
             scores[Intent.TALK] += 3.0  # "Elara, ..." / "Tome: ...": words addressed to someone
         best = max(scores.items(), key=lambda kv: kv[1])
         intent = best[0] if best[1] > 0 else (Intent.TALK if target != "none" else Intent.OTHER)
@@ -142,13 +226,13 @@ class HeuristicTransducer:
         if approach is Approach.NONE:
             approach = DEFAULT_APPROACH[intent]
 
-        question = self._is_question(low, rest)
-        # a question to no one in particular is put to the narrator, and the narrator is the Tome
-        addressed = target == "tome" or (target == "none" and question and (
-            intent is Intent.OTHER or (intent is Intent.TALK and bool(tokens & {"you", "your"}))))
+        question = "?" in low or to.asked or any(is_question(sent) for _, sent in sentences(low))
+        # a question to no one in particular is put to the narrator, and the narrator is the Tome, whatever else the
+        # line does ("I take cover behind a crate. Where is the lifeboat?")
+        addressed = target == "tome" or (to.target is None and self._to_the_narrator(low, targets))
         if addressed and intent is Intent.OTHER:
             intent = Intent.TALK
-        asks = self._asks(low, tokens, topics or {}) if addressed and question else "none"
+        asks = self._asks(low, self._questions(low, to), topics or {}) if addressed and question else "none"
 
         return SensoryState(
             intent=intent, approach=approach, target=target, aggression=aggression,
@@ -157,56 +241,60 @@ class HeuristicTransducer:
         ).clamped()
 
     @staticmethod
-    def _is_question(low: str, start: int = 0) -> bool:
-        """A question mark, or a question word opening the words after any address (from ``start``)."""
-        body = low[start:].lstrip("\"“' ")
-        if "," in body[:24]:                       # "Listen, what are you?" -> "what are you?"
-            body = body.split(",", 1)[1]
-        words = _WORD.findall(body)
-        return "?" in low or bool(words and words[0] in QUESTION_WORDS)
+    def _scores(low: str, quoted: bool) -> dict[Intent, float]:
+        tokens = set(_WORD.findall(low))
+        scores = {intent: float(_count(low, tokens, cues)) for intent, cues in INTENT_CUES.items()}
+        if quoted:
+            scores[Intent.TALK] += 2.0
+        return scores
+
+    def _to_the_narrator(self, low: str, targets: Mapping[str, Sequence[str]]) -> bool:
+        """Whether a sentence of the line is a question to no one in particular: it names no one and nothing but the
+        Tome, and is neither a look around ("where am I?") nor words said aloud for anyone to hear."""
+        for _, sent in sentences(low):
+            if not is_question(sent) or self._match_target(sent, targets) not in ("none", "tome"):
+                continue
+            best = max(self._scores(sent, bool(re.search(r"[\"“”]", sent))).items(), key=lambda kv: kv[1])
+            own = best[0] if best[1] > 0 else Intent.OTHER
+            if own is Intent.OTHER or (own is Intent.TALK and set(_WORD.findall(sent)) & {"you", "your"}):
+                return True
+        return False
 
     @staticmethod
-    def _asks(low: str, tokens: set[str], topics: Mapping[str, Sequence[str]]) -> str:
-        """The topic of a question put to the Tome: the longest matching topic word wins; a question with no topic
-        is vague, and one too short to read is unclear (the Tome asks again)."""
-        best, best_len = None, 0
-        for topic, words in topics.items():
-            for w in words:
-                w = w.lower()
-                hit = (w in low) if (" " in w or "'" in w) else (w in tokens)
-                if hit and len(w) > best_len:
-                    best, best_len = topic, len(w)
-        if best:
-            return best
-        return "unclear" if len(tokens - {"tome", "book", "monolith"}) < 2 else "vague"
+    def _questions(low: str, to: Address) -> str:
+        """The words of the line that ask something: the questions in the words the one spoken to hears (all of those
+        words when none is a question: "I ask the Tome about the lifeboat"), else every question in the line."""
+        if to.target is None:
+            return " ".join(sent for _, sent in sentences(low) if is_question(sent))
+        heard = [p for s, sent in sentences(low) if (p := low[max(to.start, s):min(to.end, s + len(sent))]).strip()]
+        return " ".join([p for p in heard if is_question(p)] or heard)
 
     @staticmethod
-    def _spoken_to(low: str, targets: Mapping[str, Sequence[str]]) -> tuple[str | None, int, bool]:
-        """(the target named as the one spoken to, where the words to them start, named at the head). The name is
-        spoken to at the head of the line, after any opener and before a comma, colon, dash or question word ("Hey
-        Tome, ...", "Tell me, Tome, ...", "Tome: ...", "Tome - ...", "Tome what ...?"), or after the last comma
-        ("..., Tome?"). It outranks a longer name mentioned in passing."""
-        body = low.rstrip()
-        lead = len(body) - len(body.lstrip("\"“”' "))
-        names = {tid: "|".join(map(re.escape, sorted({tid, *(a.lower() for a in aliases)}, key=len, reverse=True)))
-                 for tid, aliases in targets.items()}
-        for tid, name in names.items():
-            m = re.match(rf"(?:{VOCATIVE_LEADS}\W+)*(?:the\s+)?(?:{name})"
-                         rf"(?:\s*(?:[,:;!?.]|-+|–|—)|(?=\s+{WH_WORDS}\b)|\s*[\"”']*$)", body[lead:])
-            if m:
-                return tid, lead + m.end(), True
-        for tid, name in names.items():
-            if re.search(rf",\s*(?:{VOCATIVE_LEADS}\s+)?(?:the\s+)?(?:{name})\s*[?!.]*[\"”']*$", body):
-                return tid, 0, False
-        return None, 0, False
+    def _asks(low: str, questions: str, topics: Mapping[str, Sequence[str]]) -> str:
+        """The topic of a question put to the Tome: the longest topic word in the words that ask, else anywhere in the
+        line, wins; a question with no topic is vague, and one too short to read is unclear (the Tome asks again)."""
+        for text in (questions, low):
+            words = set(_WORD.findall(text))
+            best, best_len = None, 0
+            for topic, cues in topics.items():
+                for w in cues:
+                    w = w.lower()
+                    hit = (w in text) if (" " in w or "'" in w) else (w in words)
+                    if hit and len(w) > best_len:
+                        best, best_len = topic, len(w)
+            if best:
+                return best
+        return "unclear" if len(set(_WORD.findall(low)) - {"tome", "book", "monolith"}) < 2 else "vague"
 
     @staticmethod
-    def _match_target(low: str, tokens: set[str], targets: Mapping[str, Sequence[str]]) -> str:
-        best, best_len = "none", 0
+    def _match_target(low: str, targets: Mapping[str, Sequence[str]]) -> str:
+        """The first one or thing named in passing (of two names that start together, the longer: "the warden turret",
+        not the warden). The Tome, always at hand, is the target only when nothing else is named."""
+        best: tuple[tuple[bool, int, int], str] | None = None
         for tid, aliases in targets.items():
-            for alias in (tid, *aliases):
+            for alias in {tid, *aliases}:
                 a = alias.lower()
-                hit = (a in tokens) if " " not in a else (a in low)
-                if hit and len(a) > best_len:
-                    best, best_len = tid, len(a)
-        return best
+                m = re.search(rf"(?<![a-z']){re.escape(a)}(?![a-z])", low)
+                if m and (best is None or (tid == "tome", m.start(), -len(a)) < best[0]):
+                    best = ((tid == "tome", m.start(), -len(a)), tid)
+        return best[1] if best else "none"

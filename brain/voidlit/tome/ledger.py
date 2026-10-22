@@ -116,9 +116,12 @@ TOME_SUBJECT = re.compile(r"\b(?:the tome|your tome|this tome|the book|the glass
                           r"the slab|its light|its glow|its surface|its words|the light you carry)\b", re.I)
 RHETORICAL_END = re.compile(r"\?\s*$")
 ATTRIBUTION_WINDOW = 40          # characters after the Tome is named that narration may not pin a feeling on it
-# Where a necessity claim's clause ends: punctuation, or a conjunction that starts another claim ("The cargo lift is the
-# only way down, so you have to feed me"). "or" is not one: "feed me or die" is a single claim.
-_CLAUSE_BREAK = re.compile(r"[,;:]|\s-\s|\b(?:so|and|but|then|because|therefore|thus|hence|yet|while)\b", re.I)
+# Where a necessity claim's clause ends: punctuation, or a word that starts another claim, a conclusion drawn from the
+# last above all ("The cargo lift is the only way down, so you have to feed me", "... which means you have to feed
+# me"). "or" is not one: "feed me or die" is a single claim.
+_CLAUSE_BREAK = re.compile(r"[,;:]|\s-\s|\b(?:so|and|but|then|because|since|therefore|thus|hence|ergo|yet|while|unless|"
+                           r"until|which|who|whom|whose|where|meaning|means|meant|consequently|accordingly|whereby|"
+                           r"wherefore|as a result|in other words|that's why|that is why|i\.e)\b", re.I)
 
 
 def necessity_claims(sentence: str) -> list[str]:

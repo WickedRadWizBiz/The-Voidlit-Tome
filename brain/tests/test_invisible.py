@@ -171,6 +171,11 @@ def _dice_game(scenario, director_model, seed, llm=None):
 
 
 def test_g13_a_model_cannot_talk_dice_into_a_frame(scenario, director_model):
+    """Not into the narration or the Tome's lines (they are the offline frames exactly), and not into an NPC's mouth
+    either: an NPC line from the model that talks of dice, rolls or luck gives way to their authored line."""
+    from voidlit.voice.guard import NPC_CHANCE
+
+    npc_lines = 0
     for seed in range(3):
         modelled = _dice_game(scenario, director_model, seed, llm=DiceTalk())
         assert diverged(_dice_game(scenario, director_model, seed), modelled) == []
@@ -180,6 +185,10 @@ def test_g13_a_model_cannot_talk_dice_into_a_frame(scenario, director_model):
                     continue
                 shown = _npc_words(b) if _is_npc(b) else "".join(sp["text"] for sp in b["spans"])
                 assert not leaks_mechanics(shown, allow_digits=_is_npc(b)), shown
-                if not _is_npc(b):
+                if _is_npc(b):
+                    npc_lines += 1
+                    assert not NPC_CHANCE.search(shown), shown
+                else:
                     assert not [x for x in DiceTalk.LINES if x.rstrip(".?") in shown], shown
                     assert not WORDS.search(shown), shown
+    assert npc_lines

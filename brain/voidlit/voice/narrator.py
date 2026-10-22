@@ -2,15 +2,17 @@
 
 Scenario content can add or override any bank key. Keys look like
 ``action.<intent>.<outcome>`` (where outcome is fail, mixed, success,
-critical or ``none``), ``action.any.<outcome>``, ``beat.<beat>``, ``bite``,
-``npc.rumor`` and ``npc.regret``.
+critical or ``none``), ``action.any.<outcome>``, ``beat.<beat>``, ``bite``
+(the player was hurt), ``npc.rumor`` and ``npc.regret``.
 
 A narration is made of *core* parts, which say what the rules decided this
 turn (the scene on entering, the action's outcome line, a defeat, a clue, a
-beat's event, the ending), and *colour*. This voice is the only one that
-narrates or speaks for the Tome, with or without a local model: every word
-of it is authored (voice/llama_local.py gives a model the NPCs' dialogue
-only). Each line must be true in every state it can be said in.
+beat's event, a wound, the ending), and *colour*. This voice is the only one
+that narrates or speaks for the Tome, with or without a local model: every
+word of it is authored (voice/llama_local.py gives a model the NPCs'
+dialogue only). Each line must be true in every state it can be said in: lit
+or dark, whatever the obstacle is made of, and colour (a beat's ambience)
+says nothing of the place the player stands in that its scene does not.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from .requests import DialogueRequest, NarrationRequest, TomeSpeechRequest
 from .style import render
 
 DEFAULT_BANKS: dict[str, list[str]] = {
-    "action.any.fail": ["It goes wrong at once.", "The dark does not cooperate.", "Nothing gives except your nerve."],
+    "action.any.fail": ["It goes wrong at once.", "The dark does not cooperate.", "Nothing gives."],
     # An outcome line is said whether or not the obstacle falls and whether or not it bites back (a defeat and a wound
     # are told by their own lines), so none claims either.
     "action.any.mixed": ["It works, but only just.", "Something gives, though not cleanly."],
@@ -35,10 +37,10 @@ DEFAULT_BANKS: dict[str, list[str]] = {
     "action.fight.mixed": ["You hurt {obstacle}, but it is a near thing.", "Steel finds {obstacle}, and only just."],
     "action.fight.success": ["You drive into {obstacle}, and something gives.", "{obstacle} reels under the blow."],
     "action.fight.critical": ["You find the seam in {obstacle} and drive into it, hard."],
-    "action.force.fail": ["You strain against {obstacle}. Nothing moves, except something behind it."],
-    "action.force.mixed": ["{obstacle} groans and shifts, grudgingly."],
-    "action.force.success": ["{obstacle} shifts with a shriek of metal."],
-    "action.force.critical": ["{obstacle} buckles in your hands like wet paper."],
+    "action.force.fail": ["You strain against {obstacle}, and nothing moves."],
+    "action.force.mixed": ["{obstacle} gives a little, grudgingly."],
+    "action.force.success": ["{obstacle} gives under your weight."],
+    "action.force.critical": ["{obstacle} buckles before you like wet paper."],
     "action.sneak.fail": ["A boot scuffs. {obstacle} turns toward the sound."],
     "action.sneak.mixed": ["You slip close to {obstacle}, but it is a near thing."],
     "action.sneak.success": ["You become a shadow. {obstacle} never knows."],
@@ -93,18 +95,21 @@ DEFAULT_BANKS: dict[str, list[str]] = {
     "action.talk.success": ["Your words land exactly where you meant them to. {npc} goes still."],
     "action.talk.critical": ["You say it perfectly. {npc} has no answer ready."],
     "action.any.blocked": ["{obstacle} is still in the way."],
-    "bite": ["Pain arrives a half-second late.", "It costs you. It always costs you."],
+    "bite": ["Pain arrives a half-second late.", "A breath later, the hurt catches up with you."],
     "beat.calm": ["Somewhere far off, a pipe ticks as it cools.", "For a moment, only the hum of dying machines.",
-                  "Frost creeps across a viewport, slow as breath."],
+                  "Somewhere above you, the station creaks and settles."],
+    # an escalation or a twist moved a danger on out of sight (a clock ticked): told as just that, never as an event in
+    # the player's own scene
     "beat.escalate": ["Deep in the hull, something heavy shifts its weight.",
-                      "The station shudders. A low choir of static rises and falls.",
-                      "Far below, a bulkhead opens on its own."],
+                      "Somewhere out of sight, something that was waiting starts to move.",
+                      "Far off, the station stirs, and does not settle again."],
     "beat.clue": ["Something here wants to be understood."],
     "beat.npc": [""],
-    "beat.hazard": ["The station turns on you.", "Warning lights wake, red and silent."],
+    "beat.hazard": ["The station turns on you.", "The station presses in on you, and your nerves fray."],
     "beat.respite": ["The pressure eases. You can breathe here, briefly.",
-                     "A pocket of warmth: a vent still pushing air. Rest, while you can."],
-    "beat.twist": ["Then the floor changes its mind.", "Wrong. Something about this is wrong."],
+                     "For a moment nothing moves, and you get your breath back."],
+    "beat.twist": ["Somewhere out of sight, something has turned against you.",
+                   "Wrong. Something about this is wrong."],
     "beat.advance": ["The way onward stands open, and the dark behind you is growing patient.",
                      "Nothing stands between you and the way on now."],
     "npc.rumor": ["Funny. I heard a different story about you.", "People talk, even down here."],
@@ -138,7 +143,8 @@ class OfflineVoice:
 
     def narration_parts(self, req: NarrationRequest) -> list[tuple[str, bool]]:
         """This turn's narration as (text, core) parts, in order, chosen once. Core parts are what the rules decided;
-        the rest is colour. On the last turn the outcome, defeat, clue and beat event are told before the ending."""
+        the rest is colour. On the last turn the outcome, a wound, the defeat, clue and beat event are told before the
+        ending."""
         parts: list[tuple[str, bool]] = []
         if req.entering_chapter:
             parts.append((req.chapter_text, True))
@@ -150,6 +156,8 @@ class OfflineVoice:
             if line and not (req.entering_chapter and req.intent == "advance"):
                 line = line.replace("{obstacle}", req.obstacle_name or "the dark")
                 parts.append((line.replace("{npc}", req.npc_name or "They"), True))
+        if req.wounded:
+            parts.append((self._pick("bite"), True))
         parts += [(x, True) for x in (req.defeated_text, req.clue, req.beat_fact) if x]
         if req.ending:
             parts.append((self._pick(f"ending.{req.ending}"), True))

@@ -13,20 +13,15 @@ from ..limbic.npc_brain import BrainDecision, NPCSpec
 
 @dataclass
 class NarrationRequest:
-    player_text: str
     intent: str
-    approach: str
-    chapter_title: str
     chapter_text: str
-    entering_chapter: bool
-    facts: list[str]                   # mechanical truths, already resolved, in order
+    entering_chapter: bool             # the scene is told (on entering it, or on a look around)
     outcome: str | None = None         # fail | mixed | success | critical | None (no roll)
     variant: str | None = None         # special case of the intent: blocked, denied, light, heal, npc, ...
     npc_name: str | None = None        # who answered, when the player was talking to someone
     obstacle_name: str | None = None
-    obstacle_kind: str | None = None
-    obstacle_text: str | None = None
     defeated_text: str | None = None
+    wounded: bool = False              # the player was hurt this turn
     beat: Beat = Beat.CALM
     beat_fact: str = ""                # a concrete in-world event caused by the beat
     clue: str | None = None

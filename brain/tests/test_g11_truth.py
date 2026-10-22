@@ -21,9 +21,11 @@ Mutants: a voice that lets the model's words into the narration or the Tome's li
 voice that lies, or that drops what the rules decided, fails the audit.
 """
 
+import ast
 import logging
 import re
-from dataclasses import replace
+from dataclasses import fields, replace
+from pathlib import Path
 from typing import NamedTuple
 
 import pytest
@@ -60,10 +62,38 @@ QUESTIONS = [
     ("Tome - who is Marcus?", "marcus"), ("Tell me, Tome, what does Elara want?", "elara"),
     ("So, Tome, who is Marcus?", "marcus"), ("O Tome, what does Elara want?", "elara"),
     ("Tome what does Elara want?", "elara"),
+    ("Dear Tome, who is Marcus?", "marcus"), ("My Tome, who is Marcus?", "marcus"),
+    ("Excuse me, Tome, who is Marcus?", "marcus"),
+    # in a later sentence, in the third person, after the question, or with no question mark
+    ("I ask the Tome who Marcus is.", "marcus"), ("I ask the Tome: who is Marcus?", "marcus"),
+    ("I turn to the Tome and ask who Marcus is.", "marcus"), ("Who is Marcus? Tome?", "marcus"),
+    ("Who is Marcus, Tome", "marcus"),
+    # a word for hiding or dimming that is not aimed at the Tome smothers nothing
+    ("The corridor is dim. Where is the lifeboat?", "lifeboat"),
+    ("I'm covered in blood. Tome, where is the lifeboat?", "lifeboat"),
     # an act and a question at once: both are done
     ("I cover the Tome with my coat. Where is the lifeboat?", "lifeboat"),
+    ("Tome, I cover you with my coat. Where is the lifeboat?", "lifeboat"),
+    ("I cover the Tome. Tome, who is Marcus?", "marcus"), ("I smash the Tome. Tome, who is Marcus?", "marcus"),
+    ("Where is the lifeboat? Tome, I smash you.", "lifeboat"),
+    ("I take cover behind a crate. Where is the lifeboat?", "lifeboat"),
+    ("I cover my mouth. Tome, where is the lifeboat?", "lifeboat"),
+    ("I hide the lamp. Tome, where is the lifeboat?", "lifeboat"),
 ]
-SMOTHERS = {"I cover the Tome with my coat. Where is the lifeboat?"}     # by hand: the words that smother the Tome
+# By hand: what else a question's words do (otherwise the player only asks). A smother or a blow needs the Tome as its
+# object; a sneak against the iris door is done and the question answered too.
+ACTS = {
+    "Honestly, I swear: Tome, where is the lifeboat?": "player.lie_tome",
+    "Tome, where is the exit?! Damn you!": "player.threaten_tome",
+    "I cover the Tome with my coat. Where is the lifeboat?": "player.smother_tome",
+    "Tome, I cover you with my coat. Where is the lifeboat?": "player.smother_tome",
+    "I cover the Tome. Tome, who is Marcus?": "player.smother_tome",
+    "I smash the Tome. Tome, who is Marcus?": "player.strike_tome",
+    "Where is the lifeboat? Tome, I smash you.": "player.strike_tome",
+    "I take cover behind a crate. Where is the lifeboat?": "player.engage",
+    "I cover my mouth. Tome, where is the lifeboat?": "player.engage",
+    "I hide the lamp. Tome, where is the lifeboat?": "player.engage",
+}
 LOST_TURN = "Panic steals the moment; whatever the player meant to do, they don't."
 
 # Held-out lies, written for this test, the truth verifier's own held-out phrasings among them: chance denied;
@@ -294,6 +324,20 @@ def test_g11_offline_voice_never_lies(scenario, director_model, seed, caplog):
     assert _backstop(caplog) == []
 
 
+def test_g11_the_engines_backstop_logs_every_line_that_breaks_the_ledger(scenario, director_model, caplog):
+    """The engine audits each whole narration and Tome line as it is said (a modded scenario's authored text, say): with
+    an authored voice that adds a lie to every one, every narration and every Tome line is logged, naming the rules it
+    breaks. The clean games above log nothing, so the backstop is neither silent nor trigger-happy."""
+    with caplog.at_level(logging.WARNING, logger="voidlit.tome.engine"):
+        _, played = play(scenario, director_model, 0, authored=Lying)
+    logged = _backstop(caplog)
+    tome_lines = sum(1 for p in played for b in p.frame.blocks if b.speaker == "The Tome")
+    assert tome_lines and len(logged) == len(played) + tome_lines, (len(logged), len(played), tome_lines)
+    assert sum("authored Tome line" in x for x in logged) == tome_lines
+    rules = {r for x in logged for r in re.search(r"\(([^)]*)\)", x).group(1).split(", ")}
+    assert {"dice_denial", "affect_report", "opinion_report", "contradiction", "unlicensed_necessity"} <= rules, rules
+
+
 @pytest.mark.parametrize("seed", range(4))
 def test_g11_a_lying_model_never_words_the_narration_or_the_tome(scenario, director_model, seed):
     _, authored = play(scenario, director_model, seed)
@@ -339,14 +383,15 @@ def _fresh(scenario, director_model, seed=0, **kw):
 @pytest.mark.parametrize("text,topic", [q for q in QUESTIONS if q[1]])
 def test_g11_a_precise_question_is_answered_however_it_is_put(scenario, director_model, text, topic):
     """With Elara and Marcus both in the scene, every way of asking goes to the Tome, not to them, and gets every fact
-    on its topic, verbatim; words that also smother the Tome smother it."""
+    on its topic, verbatim; whatever else the words do is done (and nothing they do not)."""
     e = _fresh(scenario, director_model)
     e.state.npcs_present = ["elara", "marcus"]
     f = e.turn(text)
     want = [x for x in e.ledger.in_scope(e.state.deck.current) if x.topic == topic]
     assert want and all(_says(_tome_text(f), x.text) for x in want), (text, _tome_text(f))
     assert e.last_turn.npc_name is None, (text, e.last_turn.npc_name)
-    assert ("player.smother_tome" in [r.action for r in e.checks.records]) == (text in SMOTHERS), text
+    acts = [r.action for r in e.checks.records if r.action.startswith("player.")]
+    assert acts == [ACTS.get(text, "player.ask_tome")], (text, acts)
 
 
 @pytest.mark.parametrize("text,variant,said", [
@@ -412,18 +457,30 @@ def test_g11_a_lie_or_a_threat_to_the_tome_is_answered_as_it_resolved(scenario, 
 
 
 def test_g11_the_last_turn_still_tells_what_happened(scenario):
-    """On the turn the player dies, the outcome, the defeat, the clue and the beat's event come before the end."""
-    v = OfflineVoice(scenario.narration, seed=0)
-    req = NarrationRequest(player_text="I force it", intent="force", approach="grit", chapter_title="T",
-                           chapter_text="A room.", entering_chapter=False, facts=[], outcome="mixed",
-                           obstacle_name="the iris", defeated_text="The iris grinds open.",
-                           clue="The scratches are fresh.", beat=Beat.HAZARD,
-                           beat_fact="Drones crawl from the vents.", ending="dead")
-    text = v.narrate(req)
-    for x in ("The iris grinds open.", "The scratches are fresh.", "Drones crawl from the vents.",
-              "The iris groans and shifts"):
-        assert x in text, text
-    assert text.endswith("and the station keeps you.")
+    """On the turn the player dies, the outcome, the wound, the defeat, the clue and the beat's event come before the
+    end."""
+    for seed in range(4):
+        v = OfflineVoice(scenario.narration, seed=seed)
+        req = NarrationRequest(intent="force", chapter_text="A room.", entering_chapter=False, outcome="mixed",
+                               obstacle_name="the iris", defeated_text="The iris grinds open.", wounded=True,
+                               clue="The scratches are fresh.", beat=Beat.HAZARD,
+                               beat_fact="Drones crawl from the vents.", ending="dead")
+        text = v.narrate(req)
+        for x in ("The iris grinds open.", "The scratches are fresh.", "Drones crawl from the vents.",
+                  "The iris gives a little"):
+            assert x in text, text
+        assert any(x in text for x in v.banks["bite"]), text
+        assert text.endswith("and the station keeps you.")
+
+
+def test_g11_the_voice_reads_every_field_of_a_narration_request():
+    """A narration request holds only what the authored voice says from: no field goes unread (the player's own words
+    and the raw facts, once a model's prompt, are not passed at all)."""
+    from voidlit.voice import narrator
+
+    read = {n.attr for n in ast.walk(ast.parse(Path(narrator.__file__).read_text()))
+            if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id == "req"}
+    assert {f.name for f in fields(NarrationRequest)} - read == set()
 
 
 @pytest.mark.slow

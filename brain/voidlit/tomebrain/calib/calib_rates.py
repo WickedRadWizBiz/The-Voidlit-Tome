@@ -22,6 +22,10 @@ from ..jaxpart import network as NW
 from ..jaxpart import params as PR
 
 CALIBRATION_FILE = NW.CALIBRATION_FILE
+# The file's last section: the settled network's resting rates at Lumen 0..6, which the brain's quiet interval relaxes
+# toward (``brain.measure_rest_by_lumen`` and ``brain.write_rest_by_lumen``).
+REST_BY_LUMEN = "rates_rest_by_lumen"
+NOTE_BY_LUMEN = "# Resting rates at Lumen 0..6 (voidlit.tomebrain.brain.measure_rest_by_lumen). Regenerate; keep last."
 
 # (lo, hi) Hz in both conditions. Populations the design does not list get neighbouring bands.
 _BANDS = {
@@ -178,7 +182,22 @@ def _mu_vector(net: NW.Net, mu: dict) -> np.ndarray:
     return v
 
 
+def rest_by_lumen_section(path: Path) -> str:
+    """The file's resting-rates-by-Lumen section (its note, heading and table), or "" when it has none."""
+    text = path.read_text() if path.exists() else ""
+    head = f"[{REST_BY_LUMEN}]"
+    if head not in text:
+        return ""
+    start = text.index(head)
+    if text[:start].rstrip("\n").endswith(NOTE_BY_LUMEN):
+        start = text[:start].rstrip("\n").rindex(NOTE_BY_LUMEN)
+    return text[start:]
+
+
 def write(result: dict, path: Path = CALIBRATION_FILE) -> None:
+    """Write a calibration, keeping the file's resting rates by Lumen (measured on the network this calibration
+    replaces: ``main`` measures them again). Without them the brain would rest a starving network fed."""
+    keep = rest_by_lumen_section(path)
     lines = ["# G5 rate calibration (voidlit.tomebrain.calib.calib_rates). Regenerate; do not edit by hand.",
              f"score = {result['score']}", f"inhibitory_gain_onto_l23 = {result['inh_gain']:.4f}",
              f"background_sd_scale = {result['sd_scale']:.4f}", "", "[mu]"]
@@ -187,7 +206,7 @@ def write(result: dict, path: Path = CALIBRATION_FILE) -> None:
     lines += ["", "[rates_busy]"] + [f'"{k}" = {v:.3f}' for k, v in sorted(result["busy"]["rates"].items())]
     lines += ["", "[measures]", f"ei_rest = {result['rest']['ei']:.3f}", f"cv_rest = {result['rest']['cv']:.3f}",
               f"peak_spikes_per_ms = {result['busy']['peak']}", f"overflow = {result['busy']['overflow']}"]
-    path.write_text("\n".join(lines) + "\n")
+    path.write_text("\n".join(lines) + "\n" + ("\n" + keep if keep else ""))
 
 
 def main() -> None:
@@ -195,10 +214,16 @@ def main() -> None:
     ap.add_argument("--rounds", type=int, default=40)
     ap.add_argument("--out", type=Path, default=CALIBRATION_FILE)
     ap.add_argument("--fresh", action="store_true", help="start from params.py, not the current calibration")
+    ap.add_argument("--keep-rest-by-lumen", action="store_true",
+                    help="keep the old resting rates by Lumen instead of measuring them on the new calibration")
     args = ap.parse_args()
     res = calibrate(args.rounds, warm_start=not args.fresh)
     write(res, args.out)
     print(f"wrote {args.out} (score {res['score']})")
+    if args.out.resolve() == CALIBRATION_FILE.resolve() and not args.keep_rest_by_lumen:
+        from ..brain import measure_rest_by_lumen, write_rest_by_lumen     # (measures the network this file builds)
+        write_rest_by_lumen(measure_rest_by_lumen(), args.out)
+        print(f"measured the resting rates by Lumen into {args.out}")
 
 
 if __name__ == "__main__":

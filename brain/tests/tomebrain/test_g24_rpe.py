@@ -6,9 +6,11 @@ unpredicted gift must burst the VTA far above the same brain's turn without the 
 slow dopamine crosses PHASIC) within its own turn, while eventless turns teach nothing. The gift's fading is a
 negative reward: it must take the dopamine well below what the very same brain state does with no reward (mutant:
 the old negative current, proportional to the reward for 50 ms, barely does). And a realistic punishment must teach
-in play: tagged D1 and critic synapses weaken (the brain's D2 MSNs do not fire yet, so their synapses carry no tags;
-G2e tests that half of the rule), and the end of the pause pays nothing back on the next turn (before the fix, the
-VTA rebounded after a punishment and paid D1 and the critic).
+in play: tagged D1 and critic synapses weaken and D2 synapses strengthen, and the end of the pause pays nothing back
+on the next turn: the quiet returns the VTA's pacemakers to where the pause found them (without that they rebound
+together at the next Phase A) and the dopamine concentration to its resting level (without that a pause cut short by
+the turn's end goes on, and dips, in the next one). A starving brain, whose VTA nearly falls silent, teaches nothing
+without an event.
 
 Deferred, not yet met (design §15.4): the Schultz transfer clause (after 10 predicted gifts the burst at the gift
 falls >= 50%; omitting a predicted gift dips) and its VS -> RMTg-cut mutant. Measured on seed 11 with 12 cue -> gift
@@ -31,7 +33,8 @@ from voidlit.tomebrain.brain import REWARD_MS, TomeBrain  # noqa: E402
 from voidlit.tomebrain.sjpart import basal_ganglia as BG  # noqa: E402
 
 pytestmark = pytest.mark.slow
-PAID = ("ctx_d1", "ctx_vs")       # the plastic inputs that carry tags in the brain (D1 and the critic)
+PAID = ("ctx_d1", "ctx_vs", "ctx_d2")     # the cortical inputs that carry tags in the brain
+SIGN = {"ctx_d1": 1.0, "ctx_vs": 1.0, "ctx_d2": -1.0}    # what a burst does to each, and a dip the reverse
 
 
 def states() -> np.ndarray:
@@ -59,7 +62,7 @@ class Recorder:
             sj = self.brain.sj
             self.da.append(sj.da_mod)
             if sj.nm_ticks >= BG.WARMUP_MS:       # as the striatum reads it once the tonic level is known
-                self.conc.append(float(bus.read("J.nm", t0, W, 6)[:, 0].min()) / max(sj.da_tonic, 1e-3) - 1.0)
+                self.conc.append(sj.da_signal(float(bus.read("J.nm", t0, W, 6)[:, 0].min())))
             return out
         self.brain.sj.step = recorded
 
@@ -175,8 +178,9 @@ def test_g24_mutant_the_old_50ms_current_barely_dips(fading):
 
 @pytest.fixture(scope="module")
 def punishments(tmp_path_factory):
-    """Per seed, ten eventless turns, then from that one state: a turn that receives a punishment and the eventless
-    turn after it, for rewards of -0.06, -0.1 and -1, and for -0.1 injected the old way ("old")."""
+    """Per seed, ten eventless turns, then from that one state: a turn that receives a reward r and the turn after it,
+    which receives none (so whatever it learns is the punishment's leftover), for r = 0, -0.06, -0.1 and -1, and for
+    -0.1 injected the old way ("old")."""
     d, X, out = tmp_path_factory.mktemp("g24p"), states(), {}
     for seed in (4, 5, 7):
         rec = Recorder(seed)
@@ -184,7 +188,7 @@ def punishments(tmp_path_factory):
             rec.play(X[i])
         brain = rec.brain
         snap, mind, turn = persist.save(brain.cosim, d / f"{seed}.pt"), brain.mind.state_dict(), brain.turn
-        for r, old_way in ((-0.06, False), (-0.1, False), (-1.0, False), (-0.1, True)):
+        for r, old_way in ((0.0, False), (-0.06, False), (-0.1, False), (-1.0, False), (-0.1, True)):
             persist.load(brain.cosim, snap)
             brain.mind.load_state_dict(mind)
             brain.turn = turn
@@ -193,25 +197,30 @@ def punishments(tmp_path_factory):
                     mp.setattr(B, "PAUSE_PA", -B.REWARD_PA * r)
                     mp.setattr(B, "PAUSE_MS_PER_UNIT", B.REWARD_MS / -r)
                 dip = rec.play(X[10], reward=r)
-            out[seed, r, "old" if old_way else "pause"] = dip, rec.play(X[11])
+            out[seed, r, "old" if old_way else "pause"] = dip, rec.play(X[11], reward=0.0)
     return out
 
 
 def test_g24_a_punishment_teaches_in_play(punishments):
     """A negative reward of -0.06 or -0.1 (harm, a dying light, a gift's fading) pauses the VTA long enough that the
-    dopamine concentration halves in the turn it arrives, however short: tagged D1 and critic synapses weaken."""
+    dopamine concentration halves in the turn it arrives, however short: tagged D1 and critic synapses weaken, D2
+    synapses strengthen (Shen 2008; the D2 MSNs were silent before, so they carried no tags)."""
     for (seed, r, how), (dip, _) in punishments.items():
-        if how == "pause" and r > -1.0:
+        if how == "pause" and -1.0 < r < 0.0:
             assert dip["conc_min"] <= -BG.PAUSE, (seed, r, dip)
-            assert all(v < -1e-7 for v in dip["dw"].values()), (seed, r, dip)
+            assert all(SIGN[k] * v < -1e-7 for k, v in dip["dw"].items()), (seed, r, dip)
 
 
 def test_g24_the_pause_pays_nothing_back_on_the_next_turn(punishments):
-    """After the pause (and after a reward of -1, which before the fix was a -1500 pA current whose rebound took the
-    slow dopamine to +0.31..+0.50), the next turn's slow dopamine stays below PHASIC and no paid weight grows."""
+    """The turn after a punishment learns nothing, and its slow dopamine peaks no higher than after no reward at all.
+    Without the pacemakers' return over the quiet, a -0.1 pause's rebound took the next Phase A's VTA to 7-13 Hz and
+    the slow dopamine to +0.16..+0.27 (+0.00..+0.04 after no reward; seeds 4, 5, 7, 8); without the concentration's
+    return to rest, the pause went on into the next turn and dipped there (to -0.58..-0.68 on seeds 5 and 7)."""
     for (seed, r, how), (_, after) in punishments.items():
-        if how == "pause":
-            assert after["da_max"] < BG.PHASIC and all(v < 1e-9 for v in after["dw"].values()), (seed, r, after)
+        if how == "pause" and r < 0.0:
+            control = punishments[seed, 0.0, "pause"][1]
+            assert all(abs(v) < 1e-9 for v in after["dw"].values()), (seed, r, after)
+            assert after["da_max"] < control["da_max"] + 0.1, (seed, r, after, control)
 
 
 def test_g24_mutant_the_old_50ms_current_teaches_no_dip(punishments):
@@ -220,3 +229,23 @@ def test_g24_mutant_the_old_50ms_current_teaches_no_dip(punishments):
     for (seed, r, how), (dip, _) in punishments.items():
         if how == "old":
             assert dip["conc_min"] > -BG.PAUSE and all(abs(v) < 1e-9 for v in dip["dw"].values()), (seed, dip)
+
+
+def test_g24_a_starving_brain_teaches_nothing_without_an_event():
+    """Twelve fed turns, then thirty at Lumen 0 with no stimulus: the VTA falls to under 1 Hz, and the striatum's tonic
+    level follows it over the quiet instead of reading every starving turn as a pause (before: dips on 19 of the 30
+    turns, some with a positive reward)."""
+    brain, X = TomeBrain(0), sample_states(42, torch.Generator().manual_seed(3)).numpy()
+    learned = []
+    for i, x in enumerate(X):
+        lumen = 6 if i < 12 else 0
+        w = brain.sj.W["ctx_d1"].clone()
+        brain.set_us({})
+        brain.set_input(director_features=x, body=np.array([lumen / 6, 1.0, 0.0], np.float32),
+                        glucose=0.15 + 0.85 * lumen / 6)
+        brain.phase_a()
+        brain.phase_b(x)
+        dw = brain.sj.W["ctx_d1"] - w - BG.ANCHOR * (brain.sj.W0["ctx_d1"] - w)
+        if i >= 12 and float(dw.abs().max()) > 1e-8:          # (float32 rounding of the anchor's pull: about 1e-10)
+            learned.append(i)
+    assert not learned, learned

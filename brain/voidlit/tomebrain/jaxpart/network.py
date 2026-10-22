@@ -33,6 +33,7 @@ TM = dict(U=(0.5, 0.1), tau_d=(500.0, 100.0), tau_f=(20.0, 1000.0))  # depressin
 NEUROMOD = ("DA", "NE", "5HT", "ACh")
 NEUROMOD_SRC = ("VTA", "LC", "DRN", "NBM")
 NEUROMOD_TAU = (200.0, 500.0, 1000.0, 300.0)
+NM_RELEASE = 0.05  # concentration released per spike of a source nucleus (volume transmission)
 # De Pitta 2009 with v_ER = 2.0 uM/s (the AM set's 0.9 saturates; 2.0 puts the cortical drive range in the
 # frequency-coding regime: Ca2+ event frequency rises with neuronal activity, gate G3a).
 ASTRO = dict(rC=6.0, rL=0.11, CT=2.0, c1=0.185, vER=2.0, KER=0.1, d1=0.13, d2=1.049, d3=0.9434, d5=0.08234,
@@ -605,9 +606,9 @@ def make_window(net: Net, dt: float = 0.25, flags: dict | None = None, dcaap: di
             atp = jnp.clip(atp + datp, 0.0, 1.05)
             nad = st["nad"] + (jnp.mean(atp) - st["nad"]) / Ek["nad_tau"]
             st = dict(st, atp=atp, nad=nad)
-        # volume transmission: dM/dt = -M/tau + 0.05 * spikes of the source nucleus
+        # volume transmission: dM/dt = -M/tau + NM_RELEASE * spikes of the source nucleus
         src_spk = jax.ops.segment_sum(s * (nm_src >= 0), jnp.maximum(nm_src, 0), 4)
-        st = dict(st, nm=nm * nm_k + 0.05 * src_spk, t=t + 1)
+        st = dict(st, nm=nm * nm_k + NM_RELEASE * src_spk, t=t + 1)
         # probe: mean excitatory and inhibitory synaptic conductance on the L2/3 PCs (all compartments)
         G3 = G[o3:o2].reshape(n3, 3, PR.N_REC)
         # prediction error of the S and T L2/3 cells: basal (evidence) vs tuft (expectation) depolarisation,
@@ -667,6 +668,17 @@ def population_rates(net: Net, spikes: np.ndarray, ms: float) -> dict[str, float
     """Mean firing rate (Hz) per population from a [T, N] spike raster covering ``ms`` milliseconds."""
     total = np.asarray(spikes).sum(0)
     return {p.name: float(total[net.idx(p.name)].mean() * 1000.0 / ms) for p in net.pops}
+
+
+def nm_level(net: Net, rate: np.ndarray) -> np.ndarray:
+    """The concentration of each neuromodulator (DA, NE, 5-HT, ACh) that its source nucleus sustains firing at ``rate``
+    (Hz per cell): the steady state of the window's per-ms dM = -M (1 - exp(-1/tau)) + NM_RELEASE spikes."""
+    rate = np.asarray(rate, np.float64)
+    out = np.zeros(len(NEUROMOD))
+    for m, (src, tau) in enumerate(zip(NEUROMOD_SRC, NEUROMOD_TAU)):
+        if src in net.start:
+            out[m] = NM_RELEASE * rate[net.idx(src)].sum() * 1e-3 / -math.expm1(-1.0 / tau)
+    return out
 
 
 QUIET_MS = 20_000.0

@@ -51,9 +51,10 @@ def check_shapes(what: str, d, want: dict) -> None:
 
 
 def check_streams(what: str, d, partition: str) -> None:
-    """Raise ValueError unless ``d`` is the state of the ``partition`` partition's noise streams."""
+    """Raise ValueError unless ``d`` is the state of the ``partition`` partition's noise streams (an integer seed:
+    ``Streams`` would round any other number into another seed's noise)."""
     try:
-        ok = Streams.from_state(d).partition == partition
+        ok = Streams.from_state(d).partition == partition and np.asarray(d["seed"]).dtype.kind in "iu"
     except (KeyError, TypeError, ValueError):
         ok = False
     if not ok:

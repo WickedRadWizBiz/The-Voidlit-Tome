@@ -125,11 +125,22 @@ _CLAUSE_BREAK = re.compile(r"[,;:]|\s-\s|\b(?:so|and|but|then|because|since|ther
 
 
 def necessity_claims(sentence: str) -> list[str]:
-    """Each necessity claim in a sentence ("the only way", "you have to", "or die"), as the clause it stands in. A
-    licence covers its own claim, never another one riding in the same sentence."""
+    """Each necessity claim in a sentence ("the only way", "you have to", "or die"), as the words it stands in: its
+    clause, and within a clause that holds several, from its own words to the next claim's (the first keeps the words
+    before it). A licence covers its own claim, never another one riding in the same sentence or clause, joined by a
+    word or by none ("... the only way down to the lifeboats you must feed me.")."""
     breaks = [0, *(m.start() for m in _CLAUSE_BREAK.finditer(sentence)), len(sentence)]
-    return [sentence[max(b for b in breaks if b <= m.start()):min(b for b in breaks if b >= m.end())]
-            for m in NO_ALTERNATIVE.finditer(sentence)]
+    found = list(NO_ALTERNATIVE.finditer(sentence))
+    claims = []
+    for i, m in enumerate(found):
+        start = max(b for b in breaks if b <= m.start())
+        end = min(b for b in breaks if b >= m.end())
+        if i and found[i - 1].end() > start:              # another claim earlier in this clause: start at this one
+            start = m.start()
+        if i + 1 < len(found) and found[i + 1].start() < end:
+            end = found[i + 1].start()                    # and stop where the next one starts
+        claims.append(sentence[start:end])
+    return claims
 
 
 @dataclass

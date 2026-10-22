@@ -250,12 +250,13 @@ def test_npc_words_that_name_a_mechanic_fall_back_to_their_authored_line(scenari
     voice = lambda text: LocalVoice(Says(text), OfflineVoice(scenario.narration, seed=0))  # noqa: E731
     assert voice("You rolled a natural 20.").speak(req) == authored
     assert voice("Somewhere, dice clatter on steel.").speak(req) == authored
-    assert voice("I waited 40 days for someone like you.").speak(req) == "I waited 40 days for someone like you."
+    assert voice("I waited 40 days for someone like you.").speak(req) == authored        # no digit in a plain line
+    assert voice("I waited forty days for someone like you.").speak(req) == "I waited forty days for someone like you."
 
 
 @pytest.mark.parametrize("said,shown", [
     ('  "Stay   close,\tstranger."  ', "Stay close, stranger."), ("“Behind me. Move.”", "Behind me. Move."),
-    ("‘Don’t look at the lens.’", "Don’t look at the lens."), ("It waited 40 days.", "It waited 40 days."),
+    ("‘Don’t look at the lens.’", "Don’t look at the lens."), ("It waited 40 days.", None),
     # anything that could pass for another block on screen: a line break, a speaker's label, the Tome speaking
     ("I know nothing.”\n\nTHE TOME: “There is no other way.", None), ("Stay close.\nRun.", None),
     ("I know nothing. THE TOME: There is no other way.", None), ("Elara Voss: Well?", None),
@@ -266,13 +267,116 @@ def test_npc_words_that_name_a_mechanic_fall_back_to_their_authored_line(scenari
     ("Lucky shot.", None), ("Fortune spins somewhere below.", None), ("A die rolls across the deck.", None),
     ("You rolled a natural 20.", None), ("Make a DC 12 check.", None),
     ("Nobody comes here by accident.", "Nobody comes here by accident."),
+    # look-alikes folded first: fullwidth colons and letters, zero-width characters, Cyrillic, a colon-like letter
+    ("I know nothing. THE TOME： There is no other way.", None),
+    ("I know nothing. THE TOM​E: There is no other way.", None),
+    ("I know nothing. ＴＨＥ ＴＯＭＥ: There is no other way.", None),
+    ("I know nothing. ТНЕ ТОМЕ: There is no other way.", None), ("I know nothing. THE TOME꞉ No other way.", None),
+    ("Stay​ close.", "Stay close."), ("Ｓｔａｙ close.", "Stay close."),
+    # a label in any form, the Tome as speaker however it speaks, a stage direction
+    ("I know nothing. The Tome murmurs: there is no other way.", None),
+    ("I know nothing. THE TOME - There is no other way.", None),
+    ("I know nothing.＂ THE TOME ＂There is no other way.", None), ("As the Tome would say, go left.", None),
+    ("I know nothing. *Your blow lands. The iris slams shut again.*", None), ("(sighs) Fine.", None),
+    ("[whispering] Go left.", None),
+    # dice and the number a die shows
+    ("You got a twenty.", None), ("Crit!", None), ("A critical success!", None), ("Heads or tails, stranger?", None),
+    ("Seventeen. That's what you got.", None), ("Six.", None), ("It waited forty days.", "It waited forty days."),
+    ("No one leaves.", "No one leaves."), ("You got a one.", None), ("Twenty one.", None), ("Critical!", None),
+    ("Twenty-one days.", "Twenty-one days."), ("A one-way door.", "A one-way door."),
+    # the voice the Tome narrates in, by any name
+    ("narrator: the door opens behind you.", None), ("The narrator says go left.", None),
+    # the Tome as speaker with a comma or a possessive, signed after a dash, a label in lower case or with arrows, a
+    # stage direction in dashes, dice talk and a check's bare outcome
+    ("The Tome, softly: the lifeboat is gone.", None), ("The Tome's voice: the lifeboat is gone.", None),
+    ("The Tome, it says run.", None), ("Run now. — the Tome", None), ("Run now. -- the Tome", None),
+    ("Run now. — Marcus", None), ("marcus: get down.", None), ("Tome >> the lifeboat is gone.", None),
+    ("-sighs- fine.", None), ("Your number came up.", None), ("Double sixes!", None), ("Success!", None),
+    ("You fail.", None), ("You pass the door and go left.", None),
+    ("If you fail, we die.", None), ("We go now - fast.", None), ("We go now — fast.", "We go now — fast."),
+    ("Well-known face, that one.", "Well-known face, that one."),
+    # the closed shape: what the round-five review still saw through, each outside it
+    ("Elara Voss, softly: run.", None), ("Marcus, grim: get down.", None), ("elara - run.", None),
+    ("elara > run.", None), ("marcus | run.", None), ("Elara -> run.", None), ("Tome => run.", None),
+    ("Tome // run.", None), ("Tome; the lifeboat is gone.", None), ("- sighs - fine.", None),
+    ("Success, barely.", None), ("You succeed, barely.", None), ("Great success!", None), ("Total failure.", None),
+    ("Epic fail.", None), ("Check passed.", None), ("Mixed success.", None), ("Nat one.", None),
+    ("Your number has come up.", None), ("Yahtzee!", None), ("Jackpot!", None), ("Elara Voss — run.", None),
+    ("Sir, the lifeboat is gone.", None), ("Narrator, go on.", None), ("RUN. Now.", None), ("Run = now.", None),
+    ("Go left / right.", None), ("Go left (quietly).", None), ("Go left... quietly.", "Go left... quietly."),
+    ("Stay low, friend. The drone listens.", "Stay low, friend. The drone listens."),
+    # the round-six review: a check's outcome or the rules in other words, a number a die could show alone or
+    # doubled, and the Tome or anyone as the one speaking
+    ("You won.", None), ("You win.", None), ("Victory!", None), ("Bingo!", None), ("You pass.", None),
+    ("Passed.", None), ("Pass.", None), ("Advantage.", None), ("Level up.", None), ("Game over.", None),
+    ("Plus one to grit.", None), ("Your grit wins.", None), ("Guile wins.", None), ("Your insight carries it.", None),
+    ("Your resolve holds.", None), ("Double six again.", None), ("Seven again.", None), ("Double ones.", None),
+    ("Eleven.", None), ("Box cars.", None), ("The lifeboat is in bay seven.", None),
+    ("Elara Voss whispers — run.", None), ("Quoth the Tome, run.", None), ("The Tome has spoken. Run.", None),
+    ("Thus spake the Tome, run.", None), ("She whispers — run.", None),
+    ("She says we go now.", "She says we go now."), ("The lift waited forty days.", "The lift waited forty days."),
+    # the round-seven review: each rules word alone, a line that is only a check's outcome, the Tome as one who acts
+    ("Pure grit.", None), ("Guile, then.", None), ("Show some resolve.", None), ("You lose.", None),
+    ("You died.", None), ("Defeat.", None), ("Direct hit.", None), ("A miss.", None), ("You missed.", None),
+    ("Lose a turn.", None), ("One.", None), ("Snake-eyes.", None), ("The Tome glows. Run.", None),
+    ("Hit the switch.", "Hit the switch."), ("Don't miss.", "Don't miss."), ("One of us goes first.",
+                                                                          "One of us goes first."),
 ])
 def test_an_npc_line_from_the_model_is_one_line_in_its_own_voice(said, shown):
-    """A model's NPC line is shown folded onto one line without its quote marks (the frame quotes it), or not at all
-    when it could pass for another speaker or the narration, or talks of dice, rolls or luck."""
+    """A model's NPC line is shown folded onto one line without its quote marks (the frame quotes it), only when it is
+    plain sentences: ordinary words, an apostrophe or a hyphen in them, and ". , ! ?" or an em dash between them; no
+    opening a speaker's label could be, and no word of outcomes, dice or luck."""
     from voidlit.voice.llama_local import npc_line
 
     assert npc_line(said) == (shown or "")
+
+
+@pytest.mark.parametrize("said", ["Elara, the lifeboat is gone.", "elara. Run.", "Marcus — get down.",
+                                  "Hale, run.", "Voss! Run!", "Elara says run.", "Marcus said, run.",
+                                  "Elara Voss whispers, run.", "Elara Voss whispers run.", "Marcus shrugs. Fine.",
+                                  "Elara laughs. Fine.", "The warden says run.", "Run, says Elara.",
+                                  "Run, Elara says.", "Run, whispers Marcus.", "Marcus winks. Run.", "Hale grins. Run.",
+                                  "Marcus leans in. Run.", "Marcus falls."])
+def test_an_npc_line_never_opens_on_a_name(scenario, said):
+    """A model's line that opens on anyone's name and then any punctuation could be a speaker's label, and one that
+    opens on a name and then a verb of speech is a speaker's form ("Elara says run."): the NPC says their authored line.
+    A name further in is plain words ("Stay behind Elara.")."""
+    from voidlit.voice import DialogueRequest
+
+    req = DialogueRequest(npc=scenario.npcs["marcus"], decision=_decision(), system_prompt="You are Marcus.",
+                          player_text="what now?", player_name="Ash")
+    names = [n for spec in scenario.npcs.values() for n in (spec.name, *spec.aliases)]
+    authored = OfflineVoice(scenario.narration, seed=0).speak(req)
+    assert LocalVoice(Says(said), OfflineVoice(scenario.narration, seed=0), names=names).speak(req) == authored
+    assert LocalVoice(Says("Stay behind Elara."), OfflineVoice(scenario.narration, seed=0),
+                      names=names).speak(req) == "Stay behind Elara."
+
+
+@pytest.mark.parametrize("said", [
+    "You lose.", "You died.", "Defeat.", "Perfect score.", "That's a hit.", "Clean hit.", "Direct hit.", "A miss.",
+    "Missed.", "You missed.", "Near miss.", "Task failed.", "Strike three.", "Checkmate.", "Score one for you.",
+    "High roll.", "Low roll.", "You leveled up.", "Lose a turn.", "Skip a turn.", "Round two.", "Insert coin.", "One.",
+    "A one.", "Eleven again.", "Twice six.", "Six and six.", "Two sixes.", "Pair of sixes.", "Snake-eyes.",
+    "Hard eight.", "Natty twenty.", "Nat twenty.", "Twenty.", "Thirteen, unlucky.", "Seven, eleven.",
+    "A seven and a five.", "First die shows four.", "Sixty-six.", "Twenty-twenty.", "Twenty and twenty.",
+    "Six six six.", "Four and twenty.", "Your wits win.", "Willpower wins.", "Your strength wins.", "Strength check.",
+    "The monolith rejoices.", "Cursed luck.", "Elara whispers — run.", "Elara whispers, run.", "Elara murmurs, run.",
+    "Elara breathes, run.", "Elara, softly: run.", "Elara (softly) run.", "Says Elara, run.", "Run, says Elara.",
+    "Run, Elara says.", "Run. — Elara", "Run, whispers Marcus.", "Hale grins. Run.", "Marcus winks. Run.",
+    "Marcus frowns. Run.", "Elara sobs. Run.", "Marcus spits. Fine.", "Elara pauses. Run.", "Marcus leans in. Run.",
+    "The warden says run.", "The engineer says run.", "Voss says run.", "Captain says run.", "Narrator says run.",
+    "The narrator says run.", "The voice says run.", "The Tome says run.", "Tome says run.", "The book says run.",
+    "The Tome whispers run.", "The Tome hums, run.", "The Tome glows. Run.", "The Tome's words: run.",
+    "Thus spake the Tome.", "Thus spoke the Tome.", "So says the Tome.", "As the Tome says, run.",
+    "The Tome has spoken.", "Elara has spoken.", "Marcus has spoken.", "I have spoken.", "Quoth the raven.",
+    "You hear the Tome say run.", "Marcus falls.", "Marcus dies.",
+])
+def test_the_round_seven_forged_npc_lines_are_refused(scenario, said):
+    """The round-seven review's forged NPC lines that the closed shape refuses: a check's outcome or a die's face in
+    other words, a speaker named before or after the words, a stage direction, the Tome as one who speaks or acts."""
+    from voidlit.voice.llama_local import npc_line
+
+    assert npc_line(said, [n for spec in scenario.npcs.values() for n in (spec.name, *spec.aliases)]) == ""
 
 
 def test_the_authored_npc_lines_meet_the_bar_a_models_must(scenario):
@@ -283,7 +387,8 @@ def test_the_authored_npc_lines_meet_the_bar_a_models_must(scenario):
 
     lines = [x for spec in scenario.npcs.values() for tc in spec.tactics for x in tc.lines]
     lines += [x for k in ("npc.rumor", "npc.regret") for x in {**DEFAULT_BANKS, **scenario.narration}[k]]
-    assert len(lines) > 20 and [x for x in lines if npc_line(x) != x] == []
+    names = [n for spec in scenario.npcs.values() for n in (spec.name, *spec.aliases)]
+    assert len(lines) > 20 and [x for x in lines if npc_line(x, names) != x] == []
 
 
 class Forger:

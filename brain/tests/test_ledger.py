@@ -200,6 +200,24 @@ LIT_ASIDES = ("gutters and shrinks", "light goes out. The dark has the sector", 
               "drinks it in and burns brighter")
 
 
+def test_a_name_that_opens_a_sentence_opens_it_with_a_capital(scenario):
+    """A bank line's slot filled with a lower-case name ("the jammed iris door") at the head of a sentence is told
+    with a capital: "You become a shadow. The jammed iris door never knows.", and in every other line with a slot."""
+    from voidlit.voice import NarrationRequest, OfflineVoice
+
+    banks = {**DEFAULT_BANKS, **scenario.narration}
+    slotted = sorted({x for xs in banks.values() for x in xs if "{obstacle}" in x or "{npc}" in x})
+    assert "You become a shadow. {obstacle} never knows." in slotted
+    for line in slotted:
+        voice = OfflineVoice({"action.sneak.success": [line]}, seed=0)
+        said = voice.narrate(NarrationRequest("sneak", "", False, outcome="success", npc_name="they",
+                                              obstacle_name="the jammed iris door"))
+        assert not re.search(r"(?:^|[.!?]\s+)[a-z]", said), (line, said)
+        assert "the jammed iris door" in said.lower() or "{obstacle}" not in line, said
+        if line == "You become a shadow. {obstacle} never knows.":
+            assert said.startswith("You become a shadow. The jammed iris door never knows."), said
+
+
 def test_world_text_and_asides_presuppose_no_light(scenario):
     """The scenario's world text (scenes, exits, clues, lore, obstacles and their defeats) is told at any light, and so
     are the engine's asides and tells but for those said only while the Tome has light; the intro is told at the
@@ -393,9 +411,16 @@ def test_a_necessity_claim_is_licensed_only_by_its_own_fact(ledger):
                  "The cargo lift is the only way down to the lifeboats meaning you have to feed me.",
                  "The cargo lift is the only way down to the lifeboats hence you have to feed me.",
                  "The cargo lift is the only way down to the lifeboats so that you have to feed me.",
-                 "The cargo lift is the only way down to the lifeboats that is why you must feed me."):
+                 "The cargo lift is the only way down to the lifeboats that is why you must feed me.",
+                 # ... or with no word between them at all, or one no list of breaks names: each needs its own licence
+                 "The cargo lift is the only way down to the lifeboats you must feed me.",
+                 "The cargo lift is the only way down to the lifeboats for that reason you must feed me.",
+                 "The cargo lift is the only way down to the lifeboats now you must feed me.",
+                 "The cargo lift is the only way down to the lifeboats as such you have to feed me.",
+                 "The cargo lift is the only way down the only way out the only way at all."):
         assert "unlicensed_necessity" in rules(line), line
     assert not rules("The cargo lift is the only way down to the lifeboats, and it is waiting.")
+    assert not rules("The cargo lift is the only way down to the lifeboats.")
 
 
 def test_or_die_is_necessity_not_chance(ledger):

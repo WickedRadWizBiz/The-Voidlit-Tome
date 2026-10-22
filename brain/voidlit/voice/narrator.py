@@ -18,6 +18,7 @@ says nothing of the place the player stands in that its scene does not.
 from __future__ import annotations
 
 import random
+import re
 from collections.abc import Mapping, Sequence
 
 from ..cortex.features import Beat
@@ -69,10 +70,14 @@ DEFAULT_BANKS: dict[str, list[str]] = {
     "action.use.light": ["Light hisses alive in your hand and you feed it to the Tome. The words burn brighter."],
     "action.use.light_full": ["Light hisses alive in your hand and you feed it to the Tome, but it burns no brighter."],
     "action.use.heal": ["You patch what you can. It isn't pretty, but it holds."],
+    # a blow at a person, which they get clear of whether or not it lands (an aside tells a blow that lands)
     "action.fight.npc_attack": ["{npc} twists away from you, eyes wide, and the dark takes them."],
+    "action.force.npc_attack": ["You lunge at {npc}, who wrenches clear, eyes wide, and the dark takes them."],
     "action.fight.none": ["You lash out at shadows. Nothing here fights back, yet."],
     "action.force.none": ["You put your shoulder into the station. It doesn't notice."],
     "action.sneak.none": ["You move as quietly as you can, one careful step at a time."],
+    "action.use.none": ["You try it, but nothing here answers to it."],
+    "action.other.none": ["Nothing in the station answers to that."],
     "action.flee.none": ["You back away. Nothing follows. That's almost worse."],
     "action.talk.none": ["Your words hang in the stale air."],
     "action.talk.alone": ["You speak into the dark. The dark keeps its own counsel."],
@@ -88,6 +93,8 @@ DEFAULT_BANKS: dict[str, list[str]] = {
     "action.any.tome_smothered": ["You smother the Tome's glow. For a moment you are hard to see."],
     "action.any.tome_smother_fail": ["You try to smother the Tome's glow, but it bleeds through your fingers."],
     "action.any.tome_smother_dark": ["You cover the Tome, but there is no glow left in it to hide."],
+    # anything else done to the Tome (lifting it, reading it, using it): nothing comes of it
+    "action.any.tome_idle": ["The Tome lets you, and nothing comes of it."],
     "action.talk.npc": ["{npc} studies you before answering.", "{npc} takes a moment with your words.",
                         "{npc} glances at the Tome, then back to you."],
     "action.talk.fail": ["Your words come out wrong, and {npc} hears every crack in them."],
@@ -125,6 +132,13 @@ def _capitalize(s: str) -> str:
     return s[:1].upper() + s[1:]
 
 
+def _fill(line: str, slot: str, name: str) -> str:
+    """A bank line with a name in its slot, capitalised where the slot opens a sentence ("A boot scuffs. The jammed
+    iris door turns toward the sound.")."""
+    return re.sub(rf"(^|[.!?]\s+)?{re.escape(slot)}",
+                  lambda m: m.group(1) + _capitalize(name) if m.group(1) is not None else name, line)
+
+
 class OfflineVoice:
     def __init__(self, banks: Mapping[str, Sequence[str]] | None = None, seed: int = 0) -> None:
         self.banks: dict[str, list[str]] = {k: list(v) for k, v in DEFAULT_BANKS.items()}
@@ -154,8 +168,8 @@ class OfflineVoice:
             keys += [f"action.{req.intent}.{outcome}", f"action.any.{outcome}"]
             line = self._pick(*keys)
             if line and not (req.entering_chapter and req.intent == "advance"):
-                line = line.replace("{obstacle}", req.obstacle_name or "the dark")
-                parts.append((line.replace("{npc}", req.npc_name or "They"), True))
+                line = _fill(line, "{obstacle}", req.obstacle_name or "the dark")
+                parts.append((_fill(line, "{npc}", req.npc_name or "They"), True))
         if req.wounded:
             parts.append((self._pick("bite"), True))
         parts += [(x, True) for x in (req.defeated_text, req.clue, req.beat_fact) if x]

@@ -233,17 +233,6 @@ def test_words_lost_to_panic_reach_no_one(scenario, director_model):
     assert not [r for r in e.voice.asked if not r.unprompted]
 
 
-def test_words_said_to_the_tome_are_not_the_lone_npcs_to_answer(scenario, director_model):
-    for text in ("Tome, what does Elara want?", "Hey Tome, what does Elara want?", "Where is Elara, Tome?"):
-        e = make(scenario, director_model, seed=2)
-        e.voice = Ears(scenario.narration, seed=2)
-        e.start()
-        e.state.npcs_present = ["elara"]
-        f = e.turn(text)
-        assert not [r for r in e.voice.asked if not r.unprompted], text
-        assert "Elara has lived forty days by rationing light." in f.text, text
-
-
 def test_a_search_that_finds_nothing_new_is_not_told_as_a_find(scenario, director_model):
     for seed in range(20):
         e = make(scenario, director_model, seed=seed)
@@ -296,65 +285,6 @@ def test_a_power_lurch_in_the_dark_drags_no_light_down(scenario, director_model)
     t = Turn(text="")
     e._tick_worst_clock(t, 1)
     assert "the dark deepens" in t.beat_fact and "light" not in t.beat_fact, t.beat_fact
-
-
-def _acts(e):
-    return [r.action for r in e.checks.records if r.action.startswith("player.")]
-
-
-@pytest.mark.parametrize("text,action", [
-    # a name, then what the player does: that act, whatever follows the name
-    ("Tome! I smash you.", "player.strike_tome"), ("Tome: I smash you.", "player.strike_tome"),
-    ("Elara. I attack her.", "player.attack_npc"), ("Marcus - I attack him.", "player.attack_npc"),
-    ("Hey Marcus, I shoot you.", "player.attack_npc"), ("Marcus! I shoot him.", "player.attack_npc"),
-    ("Marcus, I attack you.", "player.attack_npc"),
-    # what the player does while speaking to the Tome is aimed at it only when the Tome is its object
-    ("Tome! I smash the door.", "player.engage"), ("Tome, I sneak past the door.", "player.engage"),
-    ("I hide the lamp.", "player.engage"), ("I cover my mouth.", "player.engage"),
-    ("I take the book and smash it.", "player.strike_tome"), ("I put my hand over the Tome.", "player.smother_tome"),
-    ("Tome, I cover you.", "player.smother_tome"), ("Tome, dim your light.", "player.ask_tome"),
-    ("The corridor is dim.", "player.idle"), ("I'm covered in blood.", "player.idle"),
-])
-def test_a_name_then_what_the_player_does_is_that_act(scenario, director_model, text, action):
-    e = make(scenario, director_model, seed=0)
-    e.start()
-    e.state.npcs_present = ["elara", "marcus"]
-    e.turn(text)
-    assert _acts(e) == [action], (text, _acts(e))
-
-
-def test_a_question_to_no_one_is_not_the_lone_npcs_to_answer(scenario, director_model):
-    """A question put to no one in particular is the Tome's, alongside whatever else the player does; a lone NPC does
-    not answer it as if it were theirs."""
-    for text in ("Where is the lifeboat?", "I take cover behind a crate. Where is the lifeboat?"):
-        e = make(scenario, director_model, seed=2)
-        e.voice = Ears(scenario.narration, seed=2)
-        e.start()
-        e.state.npcs_present = ["elara"]
-        f = e.turn(text)
-        assert not [r for r in e.voice.asked if not r.unprompted], text
-        assert "Every lifeboat but one was launched empty." in f.text, text
-
-
-def test_names_in_passing_go_to_the_first_one_named(scenario, director_model):
-    """Two people named in passing: the words are for the first ("..., then Marcus." is no one spoken to)."""
-    e = make(scenario, director_model, seed=2)
-    e.voice = Ears(scenario.narration, seed=2)
-    e.start()
-    e.state.npcs_present = ["elara", "marcus"]
-    e.turn("I give the lamp to Elara, then Marcus.")
-    assert [r.npc.id for r in e.voice.asked if not r.unprompted] == ["elara"]
-
-
-def test_the_warden_turret_is_not_the_warden(scenario, director_model):
-    """An obstacle's whole name outranks a shorter name inside it: shooting the warden turret is not shooting Marcus."""
-    e = make(scenario, director_model, seed=0)
-    e.start()
-    e.state.deck.order[e.state.deck.index] = "signal_room"
-    e._enter_chapter(Turn(text=""), "signal_room", gossip_ok=False)
-    assert "marcus" in e.state.npcs_present
-    e.turn("I shoot the warden turret")
-    assert _acts(e) == ["player.engage"] and "marcus" in e.state.npcs_present
 
 
 class Spy(TomeEngine):

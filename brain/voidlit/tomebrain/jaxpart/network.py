@@ -119,14 +119,16 @@ def load_calibration(path: Path = CALIBRATION_FILE) -> dict:
 
 
 def build(seed: int = 0, s_max: int = 96, mu: dict | None = None, gains: dict | None = None,
-          pops: list | None = None, projs: list | None = None, calibrated: bool = True) -> Net:
+          pops: list | None = None, projs: list | None = None, calibrated: bool = True,
+          calibration: Path | None = None) -> Net:
     """Compile the connectome. ``mu`` overrides population tonic currents; ``gains`` scales projections by
     their index in ``params.projections()`` (both are what G5 calibration fits). ``pops``/``projs`` build a
-    small custom network instead (cell-level gates)."""
+    small custom network instead (cell-level gates). ``calibration`` is the G5 file to load (the default one when
+    None)."""
     sd_scale = 1.0
     if calibrated and pops is None:
         # the calibration fills in whatever the caller did not set explicitly
-        cal = load_calibration()
+        cal = load_calibration(calibration or CALIBRATION_FILE)
         if mu is None:
             mu = cal["mu"] or None
         merged = {k: cal["inh_gain"] for k in inhibitory_onto_l23()} if cal["inh_gain"] != 1.0 else {}

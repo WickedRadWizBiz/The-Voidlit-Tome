@@ -70,6 +70,11 @@ TONIC_TAU_MS = 6_000.0   # tonic DA / 5-HT: running mean of the concentration (t
 # sustains about 1.0). A starving VTA paces at under 1 Hz: its 24 cells' spikes arrive about 50 ms apart and each one
 # moves the concentration by a quarter of its tonic level, so read against that level alone their shot noise was a
 # stream of pauses and bursts. Against the floor, eventless starving turns read neither; fed, the floor is never met.
+# So at Lumen 0 (tonic about 0.2) no dip teaches, a punishment's included: a silent VTA has no firing left to pause.
+# Its cells fire about 0.3 Hz during a turn, most turns not at all, and their own gaps take the concentration as low
+# as a punishment's 250-ms pause does (0.05 against a tonic of 0.2; 2 seeds x 16 eventless and 6 punished turns): read
+# against the tonic alone, 17 of the 32 eventless starving turns would cross the dip threshold, as all 12 punished
+# ones do. A starving Tome's punishments still teach its amygdala (the stimulus itself is the teacher there).
 DA_FLOOR = 0.5
 PHASIC = 0.3             # a dopamine burst: the slow dopamine at least 30% above tonic. Below that is the sparse VTA's
                          # shot noise and wobble, which must teach nothing: with no event it stays within -0.19..+0.23

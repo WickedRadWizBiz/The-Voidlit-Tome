@@ -134,6 +134,40 @@ def test_the_brain_rests_at_its_current_lumen():
         assert brain.sj.da_tonic == pytest.approx(NW.nm_level(brain.net, brain.rest_table[lumen])[0], rel=0.15), lumen
 
 
+def test_the_brain_is_born_at_rest():
+    """The Tome was alive before the game began: its neuromodulators start where its nuclei hold them at rest, and its
+    first eventless turns stay there. Born at zero, serotonin (tau 1 s, held over each quiet) read a fifth of its
+    resting level on the first turn and took 10-20 turns to climb there: the D2 cells fired at 20 Hz on the second
+    turn, and the mood read the climb as contentment (P +0.1 to +0.28 for a dozen turns)."""
+    import numpy as np
+
+    torch = pytest.importorskip("torch")
+    from voidlit.cortex.teacher import sample_states
+    from voidlit.tomebrain.brain import TomeBrain
+
+    brain = TomeBrain(61)
+    rest = NW.nm_level(brain.net, brain.rest_table[6])
+    assert np.allclose(np.asarray(brain.jax.state["nm"]), rest, rtol=1e-5)
+    serotonin = []
+    for x in sample_states(6, torch.Generator().manual_seed(61)).numpy():
+        brain.set_input(director_features=x)
+        brain.phase_a()
+        brain.phase_b(x)
+        serotonin.append(brain.last_signals.nm[2])
+    assert all(0.75 * rest[2] < ht < 1.33 * rest[2] for ht in serotonin), (serotonin, rest[2])
+
+
+def fake_calibration() -> dict:
+    """What ``calib_rates.calibrate`` returns, for the current calibration's populations."""
+    import tomllib
+
+    with open(NW.CALIBRATION_FILE, "rb") as fh:
+        cal = tomllib.load(fh)
+    rates = {p: 2.0 for p in cal["rates_rest"]}
+    return {"score": 0, "inh_gain": 1.0, "sd_scale": 1.0, "mu": cal["mu"],
+            "rest": {"rates": rates, "ei": 3.0, "cv": 1.0}, "busy": {"rates": rates, "peak": 10, "overflow": 0}}
+
+
 def test_recalibration_keeps_the_resting_rates_by_lumen(tmp_path):
     """A new G5 calibration replaces the file's rates and keeps its resting rates by Lumen (it dropped them, and the
     brain fell back to resting fed at every Lumen without a word)."""
@@ -145,12 +179,81 @@ def test_recalibration_keeps_the_resting_rates_by_lumen(tmp_path):
     path.write_text(NW.CALIBRATION_FILE.read_text())
     with open(path, "rb") as fh:
         before = tomllib.load(fh)
-    rates = {p: 2.0 for p in before["rates_rest"]}
-    result = {"score": 0, "inh_gain": 1.0, "sd_scale": 1.0, "mu": before["mu"],
-              "rest": {"rates": rates, "ei": 3.0, "cv": 1.0}, "busy": {"rates": rates, "peak": 10, "overflow": 0}}
+    result = fake_calibration()
+    rates = result["rest"]["rates"]
     for _ in range(2):
         CR.write(result, path)
         with open(path, "rb") as fh:
             after = tomllib.load(fh)
         assert after["rates_rest"] == rates and after[CR.REST_BY_LUMEN] == before[CR.REST_BY_LUMEN]
         assert path.read_text().count(CR.NOTE_BY_LUMEN) == 1
+
+
+def test_a_calibration_written_elsewhere_gets_its_own_resting_rates_by_lumen(tmp_path, monkeypatch):
+    """``--out`` anywhere measures the resting rates by Lumen on the network that file builds and writes them there.
+    Only the default file got them: a calibration written elsewhere had none, and a brain built on it (once it was
+    copied into place) rested a starving network fed."""
+    import sys
+    import tomllib
+
+    from voidlit.tomebrain import brain as B
+    from voidlit.tomebrain.calib import calib_rates as CR
+
+    out, measured = tmp_path / "elsewhere.toml", []
+    table = {p: [float(k) for k in range(7)] for p in fake_calibration()["rest"]["rates"]}
+
+    def measure(calibration=None):
+        measured.append(calibration)
+        return table
+    monkeypatch.setattr(CR, "calibrate", lambda rounds, warm_start: fake_calibration())
+    monkeypatch.setattr(B, "measure_rest_by_lumen", measure)
+    monkeypatch.setattr(sys, "argv", ["calib_rates", "--out", str(out)])
+    CR.main()
+    with open(out, "rb") as fh:
+        assert tomllib.load(fh)[CR.REST_BY_LUMEN] == table and measured == [out]
+
+
+def test_keeping_resting_rates_by_lumen_that_are_not_there_warns(tmp_path, monkeypatch):
+    """``--keep-rest-by-lumen`` on a file that has none keeps nothing: it says so, and how to measure them."""
+    import sys
+
+    from voidlit.tomebrain.calib import calib_rates as CR
+
+    monkeypatch.setattr(CR, "calibrate", lambda rounds, warm_start: fake_calibration())
+    monkeypatch.setattr(sys, "argv", ["calib_rates", "--out", str(tmp_path / "new.toml"), "--keep-rest-by-lumen"])
+    with pytest.warns(RuntimeWarning, match="no resting rates by Lumen"):
+        CR.main()
+
+
+def test_a_brain_without_resting_rates_by_lumen_says_so(tmp_path, monkeypatch):
+    """The brain rests a population the table lacks fed at every Lumen: never silently. The shipped calibration has
+    them all; a calibration without them warns, naming what is missing."""
+    import warnings
+
+    from voidlit.tomebrain.brain import TomeBrain
+    from voidlit.tomebrain.calib import calib_rates as CR
+
+    net = NW.build()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        TomeBrain._rest_rates(net)
+    bare = tmp_path / "bare.toml"
+    text = NW.CALIBRATION_FILE.read_text()
+    bare.write_text(text[:text.index(CR.NOTE_BY_LUMEN)])
+    monkeypatch.setattr(NW, "CALIBRATION_FILE", bare)
+    with pytest.warns(RuntimeWarning, match=f"no resting rates by Lumen.* {len(net.pops)} of {len(net.pops)} "):
+        table = TomeBrain._rest_rates(net)
+    assert (table == table[6]).all()
+
+
+def test_the_calibration_a_network_is_built_from_can_be_named(tmp_path):
+    """``measure_rest_by_lumen`` measures the network that the named calibration builds, not the default one's."""
+    import re
+
+    import numpy as np
+
+    other = tmp_path / "other.toml"
+    other.write_text(re.sub(r'^"VTA" = .*$', '"VTA" = 123.0', NW.CALIBRATION_FILE.read_text(), count=1,
+                            flags=re.MULTILINE))
+    vta = NW.build().idx("VTA")
+    assert np.all(NW.build(calibration=other).mu[vta] == 123.0) and np.all(NW.build().mu[vta] != 123.0)

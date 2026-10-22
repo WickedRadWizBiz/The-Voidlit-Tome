@@ -18,8 +18,9 @@ from voidlit.voice.style import style_from_mind
 # outputs (CeA, bond, contempt) are silent.
 EVENTLESS = {"LC": (1.90, 0.58), "ORX": (1.07, 0.58), "DA": (0.94, 0.10), "5HT": (1.30, 0.094), "ACh": (0.40, 0.057),
              "F": (39.4, 3.8), "ATP": (0.927, 0.0038), "VS": (9.5, 1.2)}
-# ... and on a dying light: orexin and P/I ATP at Lumen 4, 2 and 1 (the CeA and the BLA stay silent)
-DYING = ((7.0, 0.879), (15.0, 0.775), (20.0, 0.631))
+# ... and on a dying light: orexin, P/I ATP and the change in dopamine at Lumen 4, 2 and 1 (the CeA and the BLA stay
+# silent; the VTA starves with the cortex, its dopamine falling only below Lumen 2). Lumen 0 is EVENTS["starving"].
+DYING = ((7.0, 0.879, 0.0), (15.0, 0.775, 0.0), (20.0, 0.631, -0.18))
 # What genuine events do to them in the brain (each stimulus once in an eventless brain, 4 seeds; the mean change from
 # the eventless mean, the CeA and BLA in Hz): the amygdala drives LC, the NBM and (bond) the DRN, and acetylcholine
 # stays up into the next turn; a gift's dopamine burst and most of its serotonin arrive the turn after; a dying light
@@ -213,6 +214,20 @@ def test_the_modifier_bonuses_fire_on_genuine_events():
     assert mind.mods["guile"] == round(-1 + 6 * 0.4 - 2), mind.mods     # its dopamine down too: no bonus either
 
 
+def dim(seed: int, starving: int = 0) -> tuple[Mind, list[str]]:
+    """After 40 eventless turns the light dies: 8 turns each at Lumen 4, 2 and 1, then ``starving`` at Lumen 0. The
+    registers from Lumen 2 on."""
+    mind, rng, registers = calm(seed), np.random.default_rng(seed + 1), []
+    for orx, atp, da in DYING:
+        for _ in range(8):
+            mind.update(turn(rng, {"DA": da}, orx=orx, atp=atp))
+            registers.append(style_from_mind(mind).register)
+    for _ in range(starving):
+        mind.update(turn(rng, EVENTS["starving"]))
+        registers.append(style_from_mind(mind).register)
+    return mind, registers[8:]
+
+
 def test_real_events_still_move_the_mood():
     """After 40 eventless turns, a harm frightens it, a gift bonds it and a dying light makes it hungry."""
     mind = calm(4)
@@ -221,13 +236,39 @@ def test_real_events_still_move_the_mood():
     mind = calm(6)
     mind.update(turn(np.random.default_rng(7), EVENTS["gift"]))
     assert mind.affect["bond"] > 0.9
-    mind, rng, registers = calm(8), np.random.default_rng(9), []
-    for orx, atp in DYING:
-        for _ in range(8):
-            mind.update(turn(rng, orx=orx, atp=atp))
-            registers.append(style_from_mind(mind).register)
+    mind, registers = dim(8)
     assert mind.affect["hunger"] > 0.8 and mind.pad["P"] < -0.5 and mind.pad["D"] < -0.5, (mind.affect, mind.pad)
     assert Counter(registers).most_common(1)[0][0] == "hungry", Counter(registers)
+
+
+@pytest.mark.parametrize("seed", [8, 20, 21, 22])
+def test_a_dying_light_speaks_hungry_through_its_own_dopamine_fall(seed):
+    """At Lumen 0 the VTA starves with the cortex and its dopamine falls (the brain's own 0.79). Summed with hunger at
+    full weight that fall pinned P at -1, and the register (hungry reads hunger+, wounded reads P-) spoke wounded on
+    every Lumen 0 turn: hunger explains the fall, and the starving Tome asks for light."""
+    mind, registers = dim(seed, starving=12)
+    assert registers[-12:].count("hungry") >= 10 and registers.count("hungry") >= 0.85 * len(registers), registers
+    assert mind.pad["P"] < -0.25 and mind.affect["hunger"] > 0.5, (mind.pad, mind.affect)     # still displeased
+
+
+def test_mutant_without_hunger_explaining_the_fall_a_dying_light_speaks_wounded(monkeypatch):
+    """The test above fails on the readout that summed the dopamine fall and hunger at full weight."""
+    monkeypatch.setattr(RO, "HUNGER_EXPLAINS_DA", 0.0)
+    monkeypatch.setattr(RO, "P_HUNGER", 0.8)
+    assert dim(8, starving=12)[1][-12:].count("wounded") >= 8
+
+
+@pytest.mark.parametrize("seed", [30, 31, 32])
+def test_a_fall_that_hunger_does_not_explain_still_wounds(seed):
+    """Hunger explains only the fall it comes with: the same dopamine fall in a fed Tome is displeasure and reads as a
+    wound, and a harm frightens a starving Tome as it does a fed one. (The brain's own wound, the dopamine pause after
+    a defiance or a lie, is checked in the whole brain below.)"""
+    mind = calm(seed)
+    mind.update(turn(np.random.default_rng(seed), {"DA": EVENTS["starving"]["DA"]}))
+    assert mind.pad["P"] < -0.5 and style_from_mind(mind).register == "wounded", mind.pad
+    mind = dim(seed, starving=3)[0]
+    mind.update(turn(np.random.default_rng(seed), EVENTS["harm"] | EVENTS["starving"]))
+    assert mind.affect["fear"] > 0.8 and style_from_mind(mind).register == "wary", (mind.affect, mind.pad)
 
 
 @pytest.mark.slow
@@ -261,3 +302,35 @@ def test_the_brains_events_reach_arousal_attention_and_serotonin(tmp_path):
         turns = [play(X[15], {event: 1.0}), play(X[16])]
         rise = {k: max(t[k] for t in turns) - mean[k] for k in moved}
         assert all(rise[k] > 4 * EVENTLESS[k][1] for k in moved), (event, rise)
+
+
+@pytest.mark.slow
+def test_the_brain_starving_asks_for_light_and_a_defiance_still_wounds(tmp_path):
+    """In the whole brain, from one state after 15 fed eventless turns: the turn after a defiance (its dopamine pause)
+    reads wounded, and 8 turns at Lumen 0 read hungry. Before hunger explained the starving VTA's dopamine fall, the
+    dying light read wounded from its second or third turn on."""
+    torch = pytest.importorskip("torch")
+    from voidlit.cortex.teacher import sample_states
+    from voidlit.tomebrain import persist
+    from voidlit.tomebrain.brain import TomeBrain
+
+    brain, X = TomeBrain(22), sample_states(30, torch.Generator().manual_seed(522)).numpy()
+
+    def play(x, us=None, lumen=6) -> str:
+        brain.set_us({})
+        brain.set_input(director_features=x, body=np.array([lumen / 6, 1.0, 0.0], np.float32),
+                        glucose=0.15 + 0.85 * lumen / 6)
+        brain.phase_a()
+        brain.set_us(us or {})
+        brain.phase_b(x)
+        return style_from_mind(brain.mind).register
+    for x in X[:15]:
+        play(x)
+    snap, mind, turn = persist.save(brain.cosim, tmp_path / "s.pt"), brain.mind.state_dict(), brain.turn
+    defied = [play(X[15], {"defiance": 1.0}), play(X[16])]
+    assert defied[1] == "wounded", defied
+    persist.load(brain.cosim, snap)
+    brain.mind.load_state_dict(mind)
+    brain.turn = turn
+    starving = [play(x, lumen=0) for x in X[15:23]]
+    assert starving.count("hungry") >= 7, starving

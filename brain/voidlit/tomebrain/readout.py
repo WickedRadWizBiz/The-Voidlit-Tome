@@ -55,6 +55,17 @@ REWARD_FROM_TURN = 5
 Z_FLOOR = {"LC": 2.4, "ORX": 6.0, "DA": 0.4, "5HT": 0.4, "ACh": 0.22, "CeA": 6.0, "F": 60.0, "ATP": 0.06, "VS": 20.0,
            "contempt": 6.0, "bond": 6.0}
 Z_DEAD = 0.5
+# P reads hunger once. A dying light lifts orexin and starves the VTA with the cortex: at Lumen 0 its dopamine falls
+# from 1.0 to 0.16, a felt fall about once or twice the felt orexin rise (median 1.1, 90th percentile 2.3 over six
+# 30-turn starving runs). Summed with hunger at full weight, it pinned P at -1, and the register (hungry reads
+# hunger+, wounded reads P-) spoke wounded on 80 of 90 turns at Lumen 0. So a dopamine fall is displeasure only beyond
+# what the felt hunger explains (up to HUNGER_EXPLAINS_DA times its size), and hunger's own displeasure weighs
+# P_HUNGER: the design's 0.8 predates the 6-Hz floor, against which a dying light reads z(ORX) 3-5, enough to pin P
+# with hunger alone (at Lumen 2, where dopamine does not fall, a third of the turns spoke wounded). Now 74 of those 90
+# turns speak hungry, and 148 of 180 at Lumen 0-2. Neither term acts on a fed Tome: eventless orexin and every
+# stimulus but a dying light stay inside the dead zone.
+HUNGER_EXPLAINS_DA = 2.0
+P_HUNGER = 0.4
 
 
 def felt(z: float) -> float:
@@ -149,8 +160,9 @@ class Mind:
         self.desperation = desperation(d)
         f = {k: felt(v) for k, v in z.items()}
         self.contempt = 0.5 + 0.5 * math.tanh(f["contempt"])
+        da = f["DA"] if f["DA"] >= 0 else min(0.0, f["DA"] + HUNGER_EXPLAINS_DA * max(0.0, f["ORX"]))
         self.pad = {
-            "P": math.tanh(1.2 * f["DA"] + 0.6 * f["5HT"] - 0.8 * f["CeA"] - 0.8 * f["ORX"]),
+            "P": math.tanh(1.2 * da + 0.6 * f["5HT"] - 0.8 * f["CeA"] - P_HUNGER * f["ORX"]),
             "A": math.tanh(f["LC"] + 0.5 * f["ACh"] + 0.5 * f["CeA"]),
             "D": math.tanh(0.6 * f["ATP"] - 0.8 * f["CeA"] + 0.4 * f["contempt"]),
         }

@@ -5,6 +5,7 @@ scripted trace of changing channel drive), and fits each population's tonic curr
 the L2/3 PCs until every population sits in its physiological band and the PC conductance ratio is E:I 1:2-1:4.
 
     python -m voidlit.tomebrain.calib.calib_rates            # fit and write connectome_calibrated.toml
+    python -m voidlit.tomebrain.calib.calib_rates --out F    # ... to F, with F's own resting rates by Lumen
 
 The result is versioned and hashed with the connectome; ``network.build`` loads it by default.
 """
@@ -14,6 +15,7 @@ from __future__ import annotations
 import argparse
 import math
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -216,14 +218,23 @@ def main() -> None:
     ap.add_argument("--fresh", action="store_true", help="start from params.py, not the current calibration")
     ap.add_argument("--keep-rest-by-lumen", action="store_true",
                     help="keep the old resting rates by Lumen instead of measuring them on the new calibration")
+    ap.add_argument("--rest-by-lumen-only", action="store_true",
+                    help="do not calibrate: measure the resting rates by Lumen on the calibration at --out")
     args = ap.parse_args()
-    res = calibrate(args.rounds, warm_start=not args.fresh)
-    write(res, args.out)
-    print(f"wrote {args.out} (score {res['score']})")
-    if args.out.resolve() == CALIBRATION_FILE.resolve() and not args.keep_rest_by_lumen:
-        from ..brain import measure_rest_by_lumen, write_rest_by_lumen     # (measures the network this file builds)
-        write_rest_by_lumen(measure_rest_by_lumen(), args.out)
-        print(f"measured the resting rates by Lumen into {args.out}")
+    if not args.rest_by_lumen_only:
+        res = calibrate(args.rounds, warm_start=not args.fresh)
+        write(res, args.out)
+        print(f"wrote {args.out} (score {res['score']})")
+    if args.keep_rest_by_lumen and not args.rest_by_lumen_only:
+        if not rest_by_lumen_section(args.out):
+            warnings.warn(f"{args.out} has no resting rates by Lumen: a brain built on it rests a starving network "
+                          f"fed. Measure them: python -m voidlit.tomebrain.calib.calib_rates --rest-by-lumen-only "
+                          f"--out {args.out}", RuntimeWarning, stacklevel=2)
+        return
+    # measured on the network this file builds, wherever it is written (the default file is what the brain loads)
+    from ..brain import measure_rest_by_lumen, write_rest_by_lumen
+    write_rest_by_lumen(measure_rest_by_lumen(calibration=args.out), args.out)
+    print(f"measured the resting rates by Lumen into {args.out}")
 
 
 if __name__ == "__main__":

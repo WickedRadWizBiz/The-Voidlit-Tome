@@ -29,6 +29,7 @@ torch = pytest.importorskip("torch")
 from voidlit.cortex.teacher import sample_states  # noqa: E402
 from voidlit.tomebrain import brain as B  # noqa: E402
 from voidlit.tomebrain import persist  # noqa: E402
+from voidlit.tomebrain.bnpart import amygdala as AM  # noqa: E402
 from voidlit.tomebrain.brain import REWARD_MS, TomeBrain  # noqa: E402
 from voidlit.tomebrain.sjpart import basal_ganglia as BG  # noqa: E402
 
@@ -249,3 +250,54 @@ def test_g24_a_starving_brain_teaches_nothing_without_an_event():
         if i >= 12 and float(dw.abs().max()) > 1e-8:          # (float32 rounding of the anchor's pull: about 1e-10)
             learned.append(i)
     assert not learned, learned
+
+
+@pytest.mark.parametrize("seed", [3, 4])
+def test_g24_a_starving_brain_learns_a_harm_in_its_amygdala_not_its_striatum(seed, tmp_path):
+    """At Lumen 0 the VTA fires at about 0.3 Hz and its own gaps take the dopamine as low as a punishment's pause, so
+    the striatum reads both against DA_FLOOR and no dip teaches it, a punishment's included: a silent VTA has no
+    firing left to pause, and a floor that let the punishment through let the eventless gaps through too. The harm
+    still teaches the amygdala, whose teacher is the stimulus itself, about as much as it does a fed Tome's."""
+    brain, X = TomeBrain(seed), sample_states(30, torch.Generator().manual_seed(70 + seed)).numpy()
+
+    def play(x, lumen, us=None) -> float:
+        """One turn; how much the striatum's cortical D1 synapses learned (the anchor's pull taken out)."""
+        w = brain.sj.W["ctx_d1"].clone()
+        brain.set_us({})
+        brain.set_input(director_features=x, body=np.array([lumen / 6, 1.0, 0.0], np.float32),
+                        glucose=0.15 + 0.85 * lumen / 6)
+        brain.phase_a()
+        brain.set_us(us or {})
+        brain.phase_b(x)
+        return float((brain.sj.W["ctx_d1"] - w - BG.ANCHOR * (brain.sj.W0["ctx_d1"] - w)).abs().max())
+
+    def harm(lumen, i, punishment=None) -> tuple[float, float]:
+        """From this state, a harm (its turn's VTA paused by ``punishment``) and the turn after, against the same two
+        turns without either: how far the harm moves the threat assembly's cortical weights, and what the striatum
+        learns. The brain is left in this state."""
+        snap, mind, turn = persist.save(brain.cosim, tmp_path / f"{lumen}.pt"), brain.mind.state_dict(), brain.turn
+
+        def restore() -> None:
+            persist.load(brain.cosim, snap)
+            brain.mind.load_state_dict(mind)
+            brain.turn = turn
+        threat, learned = [], 0.0
+        for us in (None, {"harm": 1.0}):
+            restore()
+            if us and punishment is not None:
+                brain.mind.reward = punishment
+            learned = max(play(X[i], lumen, us), play(X[i + 1], lumen))
+            threat.append(brain.bn.net.connections[("ctx", "bla")].w[:, cells].clone())
+        restore()
+        return float((threat[1] - threat[0]).norm()), learned
+
+    k = AM.ASSEMBLY.index("threat")
+    cells = slice(k * AM.PER_ASM, (k + 1) * AM.PER_ASM)
+    for x in X[:12]:
+        play(x, 6)
+    fed, _ = harm(6, 12)
+    for x in X[12:18]:
+        play(x, 0)
+    starving, learned = harm(0, 18, punishment=-0.1)
+    assert learned < 1e-8, learned                        # (float32 rounding of the anchor's pull: about 1e-10)
+    assert starving > 0.5 * fed > 0, (starving, fed)

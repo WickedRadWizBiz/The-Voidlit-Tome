@@ -12,7 +12,9 @@ Rules-forbidden channels get a hard NOGO in GPi and are never counted, so a forb
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -152,7 +154,8 @@ class TomeBrain:
         """Resting rates per cell at Lumen 0..6 [7, N], what the quiet interval relaxes toward. A starving network
         rests starving (the cortex at a third, orexin twentyfold, the VTA nearly silent), so the G5 resting rates are
         scaled per population by how the settled network's resting rates change with the Lumen (REST_BY_LUMEN, which
-        ``measure_rest_by_lumen`` writes); without that table every level rests fed."""
+        ``measure_rest_by_lumen`` writes). A population the table lacks rests fed at every level, which a starving
+        network must not do without a word: that warns, naming the file and the populations."""
         try:
             import tomllib
             with open(NW.CALIBRATION_FILE, "rb") as fh:
@@ -160,6 +163,13 @@ class TomeBrain:
         except (OSError, ValueError):
             raw = {}
         rest, by_lumen = raw.get("rates_rest", {}), raw.get(REST_BY_LUMEN, {})
+        missing = [p.name for p in net.pops if p.name not in by_lumen]
+        if missing:
+            warnings.warn(f"{NW.CALIBRATION_FILE} has no resting rates by Lumen ([{REST_BY_LUMEN}]) for "
+                          f"{len(missing)} of {len(net.pops)} populations ({', '.join(missing[:4])}"
+                          f"{', ...' if len(missing) > 4 else ''}): they rest fed at every Lumen, so a starving Tome "
+                          f"recovers like a fed one. Measure them: python -m voidlit.tomebrain.calib.calib_rates "
+                          f"--rest-by-lumen-only", RuntimeWarning, stacklevel=2)
         rates = np.zeros((7, net.n), np.float32)
         for p in net.pops:
             levels = np.asarray(by_lumen.get(p.name, [1.0] * 7), np.float64)
@@ -334,14 +344,15 @@ class TomeBrain:
 
 
 # ---------------------------------------------------------------------- calibration
-def measure_rest_by_lumen(seeds: tuple[int, ...] = (0, 1), ms: int = 3000) -> dict[str, list[float]]:
-    """Resting population rates (Hz) of the network settled at each Lumen level 0..6, by gate G3b's protocol: the rest
-    drive, three 1-s turns each followed by a quiet interval at that glucose, then ``ms`` measured; mean over
-    ``seeds``. About 20 s per level and seed."""
+def measure_rest_by_lumen(seeds: tuple[int, ...] = (0, 1), ms: int = 3000,
+                          calibration: Path | None = None) -> dict[str, list[float]]:
+    """Resting population rates (Hz) of the network that ``calibration`` (the default G5 file when None) builds,
+    settled at each Lumen level 0..6, by gate G3b's protocol: the rest drive, three 1-s turns each followed by a quiet
+    interval at that glucose, then ``ms`` measured; mean over ``seeds``. About 20 s per level and seed."""
     import jax
     import jax.numpy as jnp
 
-    net = NW.build()
+    net = NW.build(calibration=calibration)
     window, quiet = NW.make_window(net), NW.make_quiet(net)
     table: dict[str, list[float]] = {p.name: [] for p in net.pops}
     for lumen in range(7):

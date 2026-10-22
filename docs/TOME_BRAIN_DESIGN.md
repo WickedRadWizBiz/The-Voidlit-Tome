@@ -2067,3 +2067,42 @@ without it.
 Open (accepted for now): at Lumen 1 a sudden drop still teaches 3-5 dip turns through the drive's own reward; a loss
 reads wary, not wounded; G24's Schultz transfer is deferred.
 
+
+### M6 stage A: the race commits, and the digest covers every saved value (2026-10-22)
+Plan steps 0-2 of the judged M6 plan, built and adversarially verified before the cerebellum.
+
+**Baseline (0c4fd46, smart bot, seeds 1-5, 30 turns, idle machine).** Median 308-316 ms, p90 431-436, p95 437-479,
+max 500-515. RHETORIC fell back on 43% of turns (31% of races at init) and FRAME on 52%; those turns ran Phase B to its
+240-ms cap (405 ms per turn against 271 ms). Per brain-ms: SJ 0.51, BN 0.40, JAX dispatch 0.165, join 0.028 ms.
+
+**Step 0: instrumentation, no dynamics change.** Fallbacks are counted per loop (PACE, RHETORIC, FRAME) and saved,
+strictly typed. Wall times per part are kept in memory only, never saved or digested, and reach the dev debug frame only
+with `TomeNetEngine(timing=True)`, since many tests compare debug frames bit for bit. Probe:
+`tomebrain/calib/latency_probe.py` (a game's first turn, about 2 s of JAX compile, counts as cold start).
+
+**Step 1: RHETORIC and FRAME race through their basal ganglia.** Their D1 cells, which have no habit prior, get the
+drive a PACE beat gets at the top of its prior, `FLAT_D1 = W_HABIT·PER_BEAT·RATE_MAX/(1 − e^(−1/20)) ≈ 0.0984`. It
+ramps in with the Gumbel term and sits inside the `(1 + 0.5·da_mod)` gain, so dopamine stays a gain on the whole D1
+drive (pinned by `test_dopamine_is_a_gain_on_the_flat_drive_and_the_gumbel`, which fails if the flat drive is added
+outside the gain). At init RHETORIC samples a flat prior: 0% fallback, 95% of winners its Gumbel argmax.
+- Turns: median 269-275 ms, p90 297-311, p95 312-329, max 345-378; no turn reaches the cap. The 440-ms gate and G17's
+  hard p95 pass; G17's soft p90 target (300 ms) is borderline (297-311). The cap and grace knobs were not needed.
+- Fallbacks: PACE 0, RHETORIC 0, FRAME 11%. Choice shares barely moved (PACE ≤ 0.01, RHETORIC ≤ 0.03; "hold" 0.22).
+- G10a 0.887 on its gate seed (was 0.947; limit 0.85); seeds 0, 2, 4, 6, 7 average 0.911 against 0.923 without the
+  flat drive, so this is seed spread, not a shift. G10b KL 0.007. `FLAT_D1 = 0` reproduces the old brain bit for bit.
+
+**Step 2: saves.** The basal ganglia's and the amygdala's scalars are saved by name and checked by kind (a count
+saved as 4.7 is refused, not truncated). `Partition.digest_arrays` now covers everything `state_dict` holds; the old
+digest missed 17 saved values (eligibility, NOGO, Gumbel, traces, habit drive and prior, the scalars, the amygdala's
+stimuli and reward, both noise seeds). `test_digest_coverage.py` nudges every saved value of every partition, the bus
+and the clock by one ulp. Brain save version 1 → 2, `SAVE_VERSION` 5 → 6. Because the slot version is checked first,
+a real older save is refused with the generic "does not match this scenario or engine version" message (SaveError,
+engine unchanged); the brain file's own "earlier version of the Tome" message shows only for a hand-edited slot.
+
+**Gates:** fast suite 2,913 passed; slow 43/43 (rhetoric race and its mutant, G10a ×3, G10b, G11 200 games, G11 and
+G12 network, G01, G03b/G23, G04-G07, G24), G10c passed; extra G11 network audit (seeds 20-27) 0 failures.
+
+Open: each engine's first turn compiles the JAX network (cold start median 2.5 s, max 3.8 s against G17's 5 s); the
+bus edges and basal-ganglia constants (`FLAT_D1` included) are in no save header, so a save made under other constants
+loads with only a library-version warning; the reserved `arb`/`cb` sub-dicts and a calibration hash header are left to
+the steps that need them (the exact key check makes them a version bump anyway).

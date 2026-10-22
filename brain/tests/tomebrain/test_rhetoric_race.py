@@ -50,3 +50,35 @@ def test_rhetoric_mutant_without_the_flat_drive_falls_back(monkeypatch):
     monkeypatch.setattr(BG, "FLAT_D1", 0.0)
     rows = rhetoric_races(100)
     assert np.mean([fell for *_, fell in rows]) > 0.10
+
+
+class _SilentBus:
+    """No cortex, thalamus, amygdala or neuromodulator input: the D1 cells get only the race's own drive."""
+    buf: dict = {}
+    WIDTH = {"J.ctx": BG.N_CTX, "J.pvt": BG.N_PVT, "J.nm": 4}
+
+    def read(self, src, t0, W, delay):
+        return np.zeros((W, self.WIDTH[src]), np.float32)
+
+
+def d1_input(da_mod: float) -> np.ndarray:
+    """The D1 cells' input on one Phase B tick, long after the ramp, with the slow dopamine at ``da_mod``."""
+    sj = BG.SJPartition(0)
+    sj.in_phase_b, sj.phase_b_tick, sj.da_mod = True, 0, da_mod
+    sj.gumbel = torch.linspace(-1.0, 2.0, BG.N_CH)
+    seen, pop = [], sj.pop
+    sj.pop = lambda I: (seen.append(I.clone()), pop(I))[1]
+    sj.step(_SilentBus(), 1000, 1)
+    lo, hi = sj.off["d1"]
+    return seen[0][lo:hi].numpy().astype(np.float64)
+
+
+def test_dopamine_is_a_gain_on_the_flat_drive_and_the_gumbel():
+    """The review rounds' rule: dopamine scales the D1 cells' whole drive, so the race keeps its temperature at any
+    dopamine level. With no other input, what dopamine adds is 0.5 x da_mod x (Gumbel + flat drive), on the RHETORIC
+    and FRAME cells (flat drive) as on the PACE cells (Gumbel only). A flat drive added outside the gain fails."""
+    a = 0.4
+    gain = 0.5 * a * (1.0 - 1.0 / BG.DA_MOD_TAU_MS)           # da_mod decays one tick toward 0 (no dopamine yet)
+    excite = (BG.BETA_G * torch.linspace(-1.0, 2.0, BG.N_CH).repeat_interleave(BG.M)).numpy() \
+        + BG.FLAT_D1 * BG.SJPartition(0).flat.numpy()
+    np.testing.assert_allclose(d1_input(a) - d1_input(0.0), gain * excite, rtol=1e-4, atol=1e-7)

@@ -170,16 +170,11 @@ fed only by a rules-side opposition code, on a Phase-A-local clock, so G20's bit
       low/medium phrasings are documented in scratchpad round8/r8_verify.md and design §20.
 
 ## Next immediate action
-Slow suite on 50f5c8f: 42/42 slow + balance gates pass (29 min, incl. G10c, G11 200 games). Now M6 per the judged plan in scratchpad
-`m6_design.json` (`final.steps`), staged: step 0 (baseline + latency probe), step 1 (RHETORIC commit reliability:
-34-37% fallback -> flat D1 drive; p95 latency <= 440 ms gate), step 2 (SJ persistence/digest hardening), then the
-cerebellum module (step 3) and onward. Run each stage as an isolated implementer + adversarial verifier workflow;
-keep a safety-net check-in armed against session limits.
-
-## Pause (2026-10-22)
-Stage A (steps 0-2) workflow running as run wf_33e6dbe2-1f7 (branch m6/stage-a, base 0c4fd46). On completion: review,
-merge only if no serious regression, suites, design §20, push. Then STOP: the user paused work until Tuesday night after
-their limit resets. Resume scheduled for 2026-10-28T04:00Z (trig_0194TY9WjtjFBPsCkCnG4Vu6) -> stage B (step 3, cerebellum).
-Stage A prep notes (from the first, aborted run): persist VERSION 1->2 (engine SAVE_VERSION is 5, bump only if campaign
-format changes); wall-clock timing must be opt-in (18 tests compare debug dicts); `fallbacks: int` in
-net_engine.BRAIN_EXTRA_TYPES needs a type change with the version bump for a RHETORIC count.
+M6 stage A (plan steps 0-2) merged at the commit after 83ead04 (verified: no correctness defects; fast 2,913, slow
+43/43, G10c). Latency p95 312-329 ms (was 437-479), RHETORIC fallback 0 (was 43%), FRAME 11% (was 52%), digest covers
+every saved value, brain save v2, SAVE_VERSION 6. Details: design §20 "M6 stage A"; reports in scratchpad m6a_report.md
+and m6a_verify.md.
+PAUSED until the user's limit resets (Tuesday night). Resume is scheduled for 2026-10-28T04:00Z
+(trig_0194TY9WjtjFBPsCkCnG4Vu6). Then stage B: plan step 3 (cerebellum module CB-U on a Phase-A-local clock) per
+scratchpad m6_design.json `final.steps`, isolated implementer + adversarial verifier, base = branch head. Keep a
+safety-net check-in armed. Watch: G17's soft p90 (300 ms) is borderline at 297-311 ms before the cerebellum is added.

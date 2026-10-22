@@ -166,9 +166,9 @@ Step 1 fixes RHETORIC commits (flat D1 drive) before the cerebellum. Zones 7-9 b
 fed only by a rules-side opposition code, on a Phase-A-local clock, so G20's bit-identity holds.
 
 ## Next immediate action
-Round 2 (fix2/*) merged at 7a7e05b: authored-only narration with a strong oracle (frames identical to the offline
-voice whatever the model says), atomic loads, dips that teach, z-score floors; fast suite 315 passed. Full slow suite
-on 7a7e05b: 37/37 slow + balance gates pass (35 min, incl. G10c and G11's 200 games). Round 3 workflow `fix-round3` (latest run wf_03e376ad-086; earlier runs cut by a container restart and a session limit; WIP kept on fix3/truth, fix3/persist) fixes the residuals on branches
-fix3/truth, fix3/persist, fix3/network (base 7a7e05b). Safety-net check-in scheduled (resumes after a session limit).
-When done: merge, fast + slow suites incl. G10c, update design §11/§20 from the agents' "Design log notes"
-(scratchpad followup/f2_*_report.md and round3 reports), push. Then M6 per `m6_design.json`.
+Round 3 merged at 4f925bd (fast suite 448 passed). Round 4 workflow `fix-round4` (run wf_ff0614db-75f) on branches
+fix4/routing (structural act/vocative routing + one regression corpus, NPC-line hardening, necessity licences),
+fix4/persist (stray files, NaN, saved text vs authored records, crash between renames), fix4/network (starving
+register hungry vs wounded, test gaps, calibration --out). Safety-net check-in at 05:15 UTC. When done: merge, fast +
+full slow suite incl. G10c, update design §11/§20 from all rounds' "Design log notes" (scratchpad followup/,
+round3/, round4/ reports), push. Then M6 per `m6_design.json`.

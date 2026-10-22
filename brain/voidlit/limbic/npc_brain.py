@@ -417,8 +417,8 @@ class NPCBrain:
         }
 
     def check_state_dict(self, d: dict) -> None:
-        """Raise ValueError unless ``d`` fits this NPC, changing nothing. The learning rules' traces are None in a
-        save from before the brain's first step."""
+        """Raise ValueError unless ``d`` fits this NPC, changing nothing: no number in it NaN or infinite. The learning
+        rules' traces are None in a save from before the brain's first step."""
         if not isinstance(d, dict) or d.get("version") != STATE_VERSION or d.get("npc_id") != self.spec.id:
             raise ValueError(f"not a v{STATE_VERSION} brain state for {self.spec.id!r}")
         check_types(f"{self.spec.id}'s brain state", d, STATE_TYPES)
@@ -435,6 +435,8 @@ class NPCBrain:
                 continue
             if v.shape != shape or not (v.dtype == dtype if dtype else v.is_floating_point()):
                 raise ValueError(f"{self.spec.id}'s brain state {key} is not a {dtype or 'float'} tensor of {shape}")
+            if v.is_floating_point() and not torch.isfinite(v).all():
+                raise ValueError(f"{self.spec.id}'s brain state {key} is not finite")
         try:
             torch.Generator().set_state(d["gen_state"])     # a state a generator takes
         except RuntimeError as e:

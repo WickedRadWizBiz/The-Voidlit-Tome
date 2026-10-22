@@ -27,6 +27,7 @@ import json
 import logging
 import random
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -44,7 +45,7 @@ from ..rules.lumen import LUMEN_MAX, Lumen
 from ..rules.obstacles import Obstacle, resolve_exchange
 from ..rules.panic import panic_check
 from ..rules.sector import Chapter, SectorDeck
-from ..saves import check_stamp, check_types, write_slot
+from ..saves import check_stamp, check_types, recover_slot, write_slot
 from ..senses.heuristic import HeuristicTransducer, spoken_to
 from ..senses.state import Intent, SensoryState
 from ..voice.narrator import OfflineVoice
@@ -297,7 +298,7 @@ class TomeEngine:
         return self.scenario.chapters[self.state.deck.current]
 
     def start(self) -> TomeFrame:
-        t = Turn(text="")
+        t = Turn(text="", checks_from=len(self.checks.records))     # (a used engine's log holds its old checks)
         self._enter_chapter(t, self.state.deck.current, gossip_ok=False)
         narration = f"{self.scenario.intro}\n\n{self.chapter.text}"
         self.ledger.reveal_from(narration)
@@ -1389,6 +1390,7 @@ class TomeEngine:
         even that fail, the run is closed."""
         d = Path(directory)
         try:
+            recover_slot(d)             # a save the process died in the middle of putting in place
             saved = self._read_save(d)
         except Exception as e:          # missing, unreadable, damaged or another game's: nothing has changed yet
             raise SaveError(f"{d.name}: {e}") from e
@@ -1434,7 +1436,7 @@ class TomeEngine:
 
         blob, sc = saved["campaign"], self.scenario
         check_types("campaign", blob, CAMPAIGN_TYPES)
-        state = GameState.from_dict(blob["state"])
+        state = GameState.from_dict(self._authored(blob["state"]))
         deck = state.deck
         if (not set(deck.order) <= set(sc.chapters) or not 0 <= deck.index < len(deck.order)
                 or not set(state.npcs_present) | set(state.npcs_met) <= set(sc.npcs)
@@ -1448,6 +1450,39 @@ class TomeEngine:
         for nid, brain in self.brains.items():
             brain.check_state_dict(saved["npcs"][nid])
 
+    def _authored(self, state: dict) -> dict:
+        """The campaign's game ``state`` with its obstacles, clocks and items taken from the scenario's own records,
+        found by id (an item's is its name in the character's background): of each, a save gives only what play
+        changes (an obstacle's pips, a clock's progress, an item's uses), so no text in a save reaches the narration.
+        Raises ValueError for a record the scenario does not author, or a change play cannot make."""
+        sc, ch = self.scenario, state["character"]
+        obstacles = []
+        for o in state["obstacles"]:
+            m = re.fullmatch(r"([^#]+)(#[0-9]+)?", o["id"])           # a second one of a kind is "id#2"
+            authored = sc.obstacles.get(m[1]) if m else None
+            if authored is None or not set(o["pips"]) <= {*authored.pips, *TWIST_PIPS}:
+                raise ValueError("the campaign's obstacles do not fit this scenario")
+            obstacles.append({**authored.to_dict(), "id": o["id"], "pips": o["pips"]})
+        if [c["id"] for c in state["clocks"]] != [c.id for c in sc.clocks] or not all(
+                0 <= c["filled"] <= a.segments and (c["filled"] == a.segments or not c["fired"])
+                for c, a in zip(state["clocks"], sc.clocks)):
+            raise ValueError("the campaign's clocks do not fit this scenario")
+        bg = next((b for b in sc.backgrounds.values() if b.name == ch["background"]), None)
+        items = {i.name: i for i in bg.items} if bg else {}
+
+        def uses_fit(i: dict) -> bool:      # no more than the item came with (None: it never runs out)
+            came = items[i["name"]].uses
+            return i["uses"] is None if came is None else i["uses"] is not None and 0 <= i["uses"] <= came
+
+        if (bg is None or not Counter(i["name"] for i in ch["inventory"]) <= Counter(i.name for i in bg.items)
+                or not all(map(uses_fit, ch["inventory"]))):
+            raise ValueError("the campaign's character does not fit this scenario")
+        return {**state, "obstacles": obstacles,
+                "clocks": [{**a.to_dict(), "filled": c["filled"], "fired": c["fired"]}
+                           for c, a in zip(state["clocks"], sc.clocks)],
+                "character": {**ch, "inventory": [{**items[i["name"]].to_dict(), "uses": i["uses"]}
+                                                  for i in ch["inventory"]]}}
+
     def _take_save(self, saved: dict) -> None:
         """Load what ``_read_save`` accepted, or what ``_snapshot`` kept."""
         import torch
@@ -1457,7 +1492,7 @@ class TomeEngine:
             brain.load_state_dict(saved["npcs"][nid])
         self.director.gen.set_state(torch.tensor(list(bytes.fromhex(blob["director_gen"])), dtype=torch.uint8))
         self.player_name, self.seq = blob["player_name"], blob["seq"]
-        self.state = GameState.from_dict(blob["state"])
+        self.state = GameState.from_dict(self._authored(blob["state"]))
         _set_rng(self.rng, blob["rng"])
         voice_rng = self._voice_rng()
         if voice_rng is not None:

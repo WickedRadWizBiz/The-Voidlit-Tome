@@ -103,14 +103,33 @@ def test_a_closed_run_lists_no_checks_and_loads_as_it_was(scenario, director_mod
         assert fa.to_dict(include_debug=True) == fb.to_dict(include_debug=True)
 
 
+def test_a_start_after_a_load_lists_only_its_own_checks(scenario, director_model, tmp_path):
+    """The start frame's debug lists the checks made since it began, as every frame's does: an engine that has played
+    on and then loads a save from before the start lists none of its old checks."""
+    a = make(scenario, director_model, seed=3)
+    a.save(tmp_path / "unstarted")
+    a.start()
+    for _ in range(6):
+        a.turn(bot_command(a))
+    assert a.checks.records
+    a.load(tmp_path / "unstarted")
+    b = make(scenario, director_model, seed=50)
+    b.load(tmp_path / "unstarted")
+    fa, fb = a.start(), b.start()
+    assert fa.debug["checks"] == [] and fa.to_dict(include_debug=True) == fb.to_dict(include_debug=True)
+
+
 def test_every_campaign_and_npc_brain_a_run_saves_fits_the_types_a_load_holds_it_to(scenario, director_model):
-    """A load refuses a value of the wrong type, so every value a game writes must have its declared type: from a
-    new engine to the end of a run, with the Tome asked about mood, chance and the way out."""
+    """A load refuses a value of the wrong type, or an obstacle, clock or item the scenario does not author, so every
+    campaign a game writes must hold none: from a new engine to the end of a run, with the Tome asked about mood,
+    chance and the way out. Each authored record it holds is the scenario's own, as a load takes it."""
     e = make(scenario, director_model, seed=1, background="engineer")
     talk = ["Tome, how do you feel?", "Tome, will I make it? What are my odds?", "Tome, where is the way out?"]
 
     def fits():
-        check_types("campaign", e._campaign(), CAMPAIGN_TYPES)
+        campaign = json.loads(json.dumps(e._campaign()))
+        check_types("campaign", campaign, CAMPAIGN_TYPES)
+        assert e._authored(campaign["state"]) == campaign["state"]
         for brain in e.brains.values():
             brain.check_state_dict(brain.state_dict())
 

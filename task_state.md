@@ -170,7 +170,7 @@ fed only by a rules-side opposition code, on a Phase-A-local clock, so G20's bit
       low/medium phrasings are documented in scratchpad round8/r8_verify.md and design §20.
 
 ## Next immediate action
-Full slow suite on fe82ea1 running (scratchpad slow4.log; includes G10c). Then M6 per the judged plan in scratchpad
+Slow suite on 50f5c8f: 42/42 slow + balance gates pass (29 min, incl. G10c, G11 200 games). Now M6 per the judged plan in scratchpad
 `m6_design.json` (`final.steps`), staged: step 0 (baseline + latency probe), step 1 (RHETORIC commit reliability:
 34-37% fallback -> flat D1 drive; p95 latency <= 440 ms gate), step 2 (SJ persistence/digest hardening), then the
 cerebellum module (step 3) and onward. Run each stage as an isolated implementer + adversarial verifier workflow;

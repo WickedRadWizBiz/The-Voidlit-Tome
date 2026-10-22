@@ -2061,8 +2061,8 @@ without it.
 - The quiet interval charges the synaptic ATP cost with a capped, population-driven resting conductance and rests by
   Lumen (`[rates_rest_by_lumen]`, preserved by `calib_rates`). K_ATP refit to 0.3 nS.
 - Bus: CeA → LC 8 nS, CeA → NBM 10 nS, bond → DRN 4 nS.
-- Gates after the rounds: G3b, G23, G24, G10a 0.947, G10b KL 0.02, G4-G7, and the full slow suite (37/37, including
-  G10c and G11's 200 games) pass.
+- Gates after the rounds: G3b, G23, G24, G10a 0.947, G10b KL 0.02, G4-G7, and the full slow suite pass (42/42 on the
+  final merge, including G10c and G11's 200 games; fast suite 2,908).
 
 Open (accepted for now): at Lumen 1 a sudden drop still teaches 3-5 dip turns through the drive's own reward; a loss
 reads wary, not wounded; G24's Schultz transfer is deferred.

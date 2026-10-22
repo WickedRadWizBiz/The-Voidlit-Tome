@@ -2024,9 +2024,18 @@ without it.
 **Truth and voice**
 - "Authored only" (§11.6), with a strong oracle: with a model that lies on every call, every narration and Tome block
   must be identical to the same seed played with the offline voice (G11, G12, G13). Only NPC lines may differ.
-- Question routing: a deflection no longer replaces forced answers; acts on the Tome need the Tome as their object;
-  routing is decided per sentence against one regression corpus (317+ cases), favouring the least consequential
-  reading when uncertain (round 5 in progress).
+- Question routing: a deflection no longer replaces forced answers; routing is decided per sentence against one
+  regression corpus (1,874 cases, each through the transducer and the engine). Eight rounds of patching an open-ended
+  English reader each let new phrasings through, so consequential acts were closed like the narration was:
+  - **Least consequential reading** when uncertain: talk before an act, an obstacle before a person or the Tome.
+  - **A closed grammar for consequential acts** (an attack on a person, a strike or smother of the Tome): "I" + a verb
+    of a short list + them as the direct object, named in that sentence ("the/this/my Tome|book|monolith" or "Tome",
+    with at most adjectives of a closed list; "you" only for the one that sentence names), + a trailing adverbial of a
+    closed list. Any plan, wish, condition, negation or retraction anywhere in the line, a preposition before them, a
+    possessive owner or any pronoun but "you" means no act on them: it is a threat or words to them.
+  - The local model's perceived target for such an act stands only when the closed grammar confirms it.
+  - Model-written NPC replies must fit a closed shape (plain sentences, no labels, stage directions, dice or outcome
+    words); otherwise the NPC's authored line is said.
 - Authored lines that assumed a lit Tome, invented events or claimed unresolved costs were rewritten, with a
   presupposition table that checks every bank line against the states it can be said in.
 

@@ -165,10 +165,13 @@ Key facts: p95 latency already 502-561 ms (> G17's 500); RHETORIC falls back on 
 Step 1 fixes RHETORIC commits (flat D1 drive) before the cerebellum. Zones 7-9 become an isolated microcomplex (CB-U)
 fed only by a rules-side opposition code, on a Phase-A-local clock, so G20's bit-identity holds.
 
+- [x] Review rounds complete (2026-10-22): rounds 2-4 + routing rounds 5-8 merged at fe82ea1 (fast suite 2,908
+      passed). Routing ends with a closed grammar for consequential acts and a 1,874-case corpus; residual
+      low/medium phrasings are documented in scratchpad round8/r8_verify.md and design §20.
+
 ## Next immediate action
-Round 3 merged at 4f925bd (fast suite 448 passed). Round 4 workflow `fix-round4` (run wf_ff0614db-75f) on branches
-fix4/routing (structural act/vocative routing + one regression corpus, NPC-line hardening, necessity licences),
-fix4/persist (stray files, NaN, saved text vs authored records, crash between renames), fix4/network (starving
-register hungry vs wounded, test gaps, calibration --out). Safety-net check-in at 05:15 UTC. When done: merge, fast +
-full slow suite incl. G10c, update design §11/§20 from all rounds' "Design log notes" (scratchpad followup/,
-round3/, round4/ reports), push. Then M6 per `m6_design.json`.
+Full slow suite on fe82ea1 running (scratchpad slow4.log; includes G10c). Then M6 per the judged plan in scratchpad
+`m6_design.json` (`final.steps`), staged: step 0 (baseline + latency probe), step 1 (RHETORIC commit reliability:
+34-37% fallback -> flat D1 drive; p95 latency <= 440 ms gate), step 2 (SJ persistence/digest hardening), then the
+cerebellum module (step 3) and onward. Run each stage as an isolated implementer + adversarial verifier workflow;
+keep a safety-net check-in armed against session limits.

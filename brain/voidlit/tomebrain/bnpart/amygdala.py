@@ -23,7 +23,7 @@ from bindsnet.network.monitors import Monitor
 from bindsnet.network.nodes import Input, LIFNodes
 from bindsnet.network.topology import Connection
 
-from ..partition import Partition, check_shapes, check_streams, shapes_of
+from ..partition import Partition, check_scalars, check_shapes, check_streams, shapes_of
 from ..rng import Streams
 
 US_NAMES = ("harm", "defiance", "gift", "loss", "bearer_near_death", "lie")
@@ -151,7 +151,8 @@ class BNPartition(Partition):
         t = {k: v.detach().cpu().numpy().copy() for k, v in self._tensors().items()}
         return {"tensors": t, "streams": self.streams.state_dict(), "us": self.us.copy(),
                 "reward": self._reward.numpy().copy(),
-                "scalars": np.array([self.da_tonic, self.nm_ticks], np.float64)}
+                "scalars": {"da_tonic": np.array(self.da_tonic, np.float64),
+                            "nm_ticks": np.array(self.nm_ticks, np.int64)}}
 
     def _rule_shapes(self) -> dict[str, tuple[int, ...]]:
         """The shape of every learning-rule trace this network has or will make at its first step."""
@@ -168,7 +169,8 @@ class BNPartition(Partition):
         """Every array this network holds, at its shape. A learning rule's traces may be absent (a save from before
         its first step), but only all together."""
         rules = self._rule_shapes()
-        want = shapes_of(self.state_dict())
+        state = self.state_dict()
+        want = shapes_of(state)
         want["tensors"] = {k: s for k, s in want["tensors"].items() if k not in rules}
         saved = d.get("tensors") if isinstance(d, dict) else None
         saved = saved if isinstance(saved, dict) else {}        # (check_shapes refuses a missing one)
@@ -180,14 +182,14 @@ class BNPartition(Partition):
                 want["tensors"].update({f"{rule}.{attr}": rules[f"{rule}.{attr}"] for attr in RULE_STATE})
         check_shapes("amygdala", d, want)
         check_streams("amygdala", d["streams"], "bn")
+        check_scalars("amygdala.scalars", d["scalars"], state["scalars"])
 
     def load_state_dict(self, d: dict) -> None:
         self.check_state_dict(d)
         self.streams = Streams.from_state(d["streams"])
         self.us = np.array(d["us"], np.float32)
         self._reward = torch.from_numpy(np.array(d["reward"], np.float32))
-        sc = np.array(d["scalars"], np.float64)
-        self.da_tonic, self.nm_ticks = float(sc[0]), int(sc[1])
+        self.da_tonic, self.nm_ticks = float(d["scalars"]["da_tonic"]), int(d["scalars"]["nm_ticks"])
         # A save from before the first step has no learning-rule traces yet: drop this instance's, so the rule starts
         # them afresh exactly as in a new instance instead of carrying on with an abandoned timeline's.
         for (a, b), conn in self.net.connections.items():
@@ -207,9 +209,6 @@ class BNPartition(Partition):
                 obj.w.data.copy_(val)
             else:
                 setattr(obj, attr, val)
-
-    def digest_arrays(self) -> list[np.ndarray]:
-        return [v.detach().cpu().numpy() for _, v in sorted(self._tensors().items())]
 
     def opinion(self) -> dict[str, float]:
         """Mean learned ctx -> BLA weight per assembly (dev telemetry only; the player never sees it)."""

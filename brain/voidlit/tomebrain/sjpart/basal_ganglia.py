@@ -24,9 +24,9 @@ import numpy as np
 import torch
 
 from ...cortex.features import BEATS
-from ..partition import Partition, check_shapes, check_streams, shapes_of
+from ..partition import Partition, check_scalars, check_shapes, check_streams, shapes_of
 from ..rng import Streams
-from .habit import PER_BEAT, Habit
+from .habit import PER_BEAT, RATE_MAX, Habit
 from .nodes import PerNeuronLIF
 
 LOOPS = {
@@ -65,6 +65,13 @@ ETA, K_TAG, ANCHOR = 2e-4, 0.05, 0.002
 TAG_TAU_MS = 60_000.0
 QUIET_MS = 20_000.0
 _K20 = math.exp(-1 / 20.0)
+# RHETORIC and FRAME have no habit prior: their D1 cells had only the cortex's weak, non-selective input and their
+# Gumbel excitability, so many of their races never released GPi (RHETORIC: 31% at init, 43% of bot-game turns), ran
+# Phase B to its cap and were decided by the fallback rule, outside the basal ganglia. In Phase B their D1 cells get the
+# drive a PACE beat gets at the top of its prior (habit cells at RATE_MAX, log p = log p_max), so they race as PACE does
+# with a flat prior: argmax(Gumbel), tilted only by what the cortex and the amygdala have taught them. At init RHETORIC
+# then commits in 100 of 100 races, 95 to its Gumbel argmax (FRAME: 90, 93); no Phase B reaches the cap.
+FLAT_D1 = W_HABIT * PER_BEAT * RATE_MAX / (1 - _K20)      # 0.0984
 TONIC_TAU_MS = 6_000.0   # tonic DA / 5-HT: running mean of the concentration (the DA's over the quiet interval too)
 # The striatum reads dopamine against its tonic level, but never finer than DA_FLOOR (concentration units; the fed VTA
 # sustains about 1.0). A starving VTA paces at under 1 Hz: its 24 cells' spikes arrive about 50 ms apart and each one
@@ -160,6 +167,8 @@ class SJPartition(Partition):
         self.nogo = torch.zeros(N_CH * I)
         self.nogo_d1 = torch.zeros(N_CH * M)
         self.gumbel = torch.zeros(N_CH)
+        no_habit = LOOP_OF != list(LOOPS).index("PACE")
+        self.flat = torch.from_numpy(np.repeat(no_habit, M).astype(np.float32))       # D1 cells without a habit prior
         self.kappa_h = 1.0
         self.prev = torch.zeros(self.n)
         self.habit_trace = torch.zeros(len(BEATS) * PER_BEAT)
@@ -251,7 +260,8 @@ class SJPartition(Partition):
         sl = {k: slice(*o[k]) for k in o}
         out_gpi = np.zeros((W, N_CH * I), np.float32)
         out_vs = np.zeros((W, N_VS), np.float32)
-        gumbel_d1 = BETA_G * self.gumbel.repeat_interleave(M)
+        # this turn's excitability, and the flat prior of the loops without a habit prior (both Phase B only)
+        excite = BETA_G * self.gumbel.repeat_interleave(M) + FLAT_D1 * self.flat
         with torch.no_grad():
             for i in range(W):
                 tick = t0 + i
@@ -274,9 +284,10 @@ class SJPartition(Partition):
                       + self.kappa_h * (self.habit_trace @ self.w_habit))
                 # the excitability shows in the response to the habit input, so it ramps with the habit trace
                 ramp = 1.0 - math.exp(-max(0, tick - self.phase_b_tick) / 20.0) if self.in_phase_b else 0.0
-                # dopamine is a gain on the D1 cells' whole drive, excitability included: it sets the race's vigour
-                # but not its temperature, so the race keeps sampling argmax(log p + Gumbel) at any dopamine level
-                d1 = (d1 + ramp * gumbel_d1) * (1 + 0.5 * self.da_mod) - self.nogo_d1
+                # dopamine is a gain on the D1 cells' whole drive, excitability and flat prior included: it sets the
+                # race's vigour but not its temperature, so the race keeps sampling argmax(log p + Gumbel) at any
+                # dopamine level
+                d1 = (d1 + ramp * excite) * (1 + 0.5 * self.da_mod) - self.nogo_d1
                 I_in[sl["d1"]] += d1
                 I_in[sl["d2"]] += sparse(self.W["ctx_d2"]) * (1 - 0.4 * self.da_mod) + 0.03 * ht
                 I_in[sl["fsi"]] += sparse(self.w_ctx_fsi)
@@ -318,14 +329,20 @@ class SJPartition(Partition):
             "gumbel": self.gumbel.numpy().copy(),
             "habit_trace": self.habit_trace.numpy().copy(), "ctx_trace": self.ctx_trace.numpy().copy(),
             "lim_trace": self.lim_trace.numpy().copy(),
-            "scalars": np.array([self.kappa_h, self.da_tonic, self.ht_tonic, float(self.in_phase_b), self.nm_ticks,
-                                 self.phase_b_tick, self.da_mod], np.float64),
+            "scalars": {"kappa_h": np.array(self.kappa_h, np.float64), "da_tonic": np.array(self.da_tonic, np.float64),
+                        "ht_tonic": np.array(self.ht_tonic, np.float64), "da_mod": np.array(self.da_mod, np.float64),
+                        "in_phase_b": np.array(self.in_phase_b, np.bool_),
+                        "nm_ticks": np.array(self.nm_ticks, np.int64),
+                        "phase_b_tick": np.array(self.phase_b_tick, np.int64)},
         }
 
     def check_state_dict(self, d: dict) -> None:
-        """Every array of the basal ganglia and the habit cortex, at its shape."""
-        check_shapes("basal ganglia", d, shapes_of(self.state_dict()))
+        """Every array of the basal ganglia and the habit cortex, at its shape, and every scalar by name, of its kind
+        (a tick count a whole number, the phase flag a bool)."""
+        want = self.state_dict()
+        check_shapes("basal ganglia", d, shapes_of(want))
         check_streams("basal ganglia", d["streams"], "sj")
+        check_scalars("basal ganglia.scalars", d["scalars"], want["scalars"])
 
     def load_state_dict(self, d: dict) -> None:
         self.check_state_dict(d)
@@ -341,11 +358,7 @@ class SJPartition(Partition):
         self.nogo, self.nogo_d1, self.gumbel = t(d["nogo"]), t(d["nogo_d1"]), t(d["gumbel"])
         self.habit_trace, self.ctx_trace = t(d["habit_trace"]), t(d["ctx_trace"])
         self.lim_trace = t(d["lim_trace"])
-        sc = np.array(d["scalars"], np.float64)
-        self.kappa_h, self.da_tonic, self.ht_tonic = float(sc[0]), float(sc[1]), float(sc[2])
-        self.in_phase_b, self.nm_ticks, self.phase_b_tick = bool(sc[3]), int(sc[4]), int(sc[5])
-        self.da_mod = float(sc[6])
-
-    def digest_arrays(self) -> list[np.ndarray]:
-        arrs = [self.pop.v.numpy(), self.prev.numpy(), self.habit.v.numpy(), self.habit_trace.numpy()]
-        return arrs + [self.W[k].numpy() for k in sorted(self.W)] + [self.tags[k].numpy() for k in sorted(self.tags)]
+        sc = d["scalars"]
+        self.kappa_h, self.da_tonic, self.ht_tonic = float(sc["kappa_h"]), float(sc["da_tonic"]), float(sc["ht_tonic"])
+        self.da_mod, self.in_phase_b = float(sc["da_mod"]), bool(sc["in_phase_b"])
+        self.nm_ticks, self.phase_b_tick = int(sc["nm_ticks"]), int(sc["phase_b_tick"])

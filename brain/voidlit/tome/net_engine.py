@@ -18,6 +18,7 @@ from ..cortex.features import BEATS, Beat
 from ..saves import check_stamp, check_types
 from ..tomebrain import persist
 from ..tomebrain.brain import TomeBrain
+from ..tomebrain.sjpart.basal_ganglia import LOOPS
 from ..tomebrain.readout import Mind
 from ..voice.style import VoiceStyle, style_from_mind
 from .engine import TomeEngine, Turn
@@ -39,15 +40,19 @@ def _mind_types() -> dict:
 
 
 # What the brain file holds beside the network itself: ``_brain_extra``, and the save id
-BRAIN_EXTRA_TYPES = {"turn": int, "fallbacks": int, "mind": _mind_types(), "late_us": dict[str, float],
-                     "save_id": str}
+BRAIN_EXTRA_TYPES = {"turn": int, "fallbacks": {loop: int for loop in LOOPS}, "mind": _mind_types(),
+                     "late_us": dict[str, float], "save_id": str}
 
 
 class TomeNetEngine(TomeEngine):
-    def __init__(self, *args, brain: TomeBrain | None = None, **kw) -> None:
+    def __init__(self, *args, brain: TomeBrain | None = None, timing: bool = False, **kw) -> None:
+        """``timing`` puts the brain's wall times into the debug frame (the latency probe's). Off by default: they
+        differ from run to run, and the same game must give the same frames."""
         super().__init__(*args, **kw)
         self.brain = brain or TomeBrain(run_seed=self.state.seed, director=self.director.model)
+        self.timing = timing
         self.last_commit = None
+        self._race_debug: dict = {}             # this turn's race telemetry, for the next debug frame only
         self._slot_ids: list[str] = []          # the fact each P.fact assembly was driven with at Phase B
         self._us_sent: dict[str, float] = {}    # the stimuli Phase B received
         self.late_us: dict[str, float] = {}     # stimuli set after Phase B, for the next Phase A (saved)
@@ -64,8 +69,9 @@ class TomeNetEngine(TomeEngine):
         return np.array([st.lumen.fraction, ch.hull / max(1, ch.hull_max), ch.stress / 10.0], np.float32)
 
     def _debug_extra(self) -> dict:
+        race, self._race_debug = self._race_debug, {}
         return {"mind": self.brain.mind.telemetry(), "opinion": self.brain.bn.opinion(),
-                "fallbacks": self.brain.fallbacks}
+                "fallbacks": dict(self.brain.fallbacks), **race}
 
     def tome_mods(self) -> dict[str, int]:
         """The Tome's own check modifiers come from its network (ATP, arousal, drive, serotonin; design §8.6)."""
@@ -117,6 +123,10 @@ class TomeNetEngine(TomeEngine):
                              glucose=0.15 + 0.85 * self.state.lumen.fraction, facts=self._fact_salience())
         out = self.brain.phase_b(feats, {b.value for b in allowed})
         self.last_commit = out
+        self._race_debug = {"commit_ms": {c.loop: c.at_ms for c in (out.pace, out.rhetoric, out.frame)},
+                            "phase_b_ms": out.ms}
+        if self.timing:
+            self._race_debug["timing"] = {k: round(v, 3) for k, v in self.brain.timing.items()}
         beat = Beat(out.pace.channel)
         assert beat in allowed, "the race committed a forbidden beat"
         return beat, {b.value: round(float(p), 4) for b, p in zip(BEATS, out.prior)}
@@ -129,8 +139,8 @@ class TomeNetEngine(TomeEngine):
 
     # ------------------------------------------------------------------ persistence
     def _brain_extra(self) -> dict:
-        return {"turn": self.brain.turn, "fallbacks": self.brain.fallbacks, "mind": self.brain.mind.state_dict(),
-                "late_us": dict(self.late_us)}
+        return {"turn": self.brain.turn, "fallbacks": dict(self.brain.fallbacks),
+                "mind": self.brain.mind.state_dict(), "late_us": dict(self.late_us)}
 
     def _write_save(self, d: Path, save_id: str) -> None:
         super()._write_save(d, save_id)
@@ -151,6 +161,7 @@ class TomeNetEngine(TomeEngine):
     def _take_save(self, saved: dict) -> None:
         super()._take_save(saved)
         extra = persist.apply(self.brain.cosim, saved["brain"])
-        self.brain.turn, self.brain.fallbacks = int(extra["turn"]), int(extra["fallbacks"])
+        self.brain.turn = int(extra["turn"])
+        self.brain.fallbacks = {loop: int(n) for loop, n in extra["fallbacks"].items()}
         self.brain.mind.load_state_dict(extra["mind"])
         self.late_us = {str(k): float(v) for k, v in extra["late_us"].items()}

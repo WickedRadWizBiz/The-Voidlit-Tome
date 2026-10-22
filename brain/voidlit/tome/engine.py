@@ -62,8 +62,8 @@ log = logging.getLogger(__name__)
 
 ENGAGING = {Intent.FIGHT, Intent.FORCE, Intent.SNEAK, Intent.SEARCH, Intent.USE}
 # 3: the Tome's amygdala and ledger (M4, M5), the Director's generator; 4: NPCs' last decisions; 5: one save id
-# stamped into every file of a slot
-SAVE_VERSION = 5
+# stamped into every file of a slot; 6: the Tome's brain file version 2 (M6)
+SAVE_VERSION = 6
 TWIST_PIPS = ("grit", "grit", "guile", "guile", "insight", "insight")
 APPROACH_WORDS = {"grit": "force", "guile": "stealth or a trick", "insight": "careful study"}
 TOME_ALIASES = ("tome", "book", "monolith")

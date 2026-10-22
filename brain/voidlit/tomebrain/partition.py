@@ -36,7 +36,8 @@ def shapes_of(d: dict) -> dict:
 
 def check_shapes(what: str, d, want: dict) -> None:
     """Raise ValueError unless ``d`` has exactly the keys of ``want``, each a number or an array of numbers of the
-    shape there (a nested dict for a nested one; None takes anything, for the caller to check)."""
+    shape there, NaN and infinity none of them (a nested dict for a nested one; None takes anything, for the caller to
+    check)."""
     if not isinstance(d, dict):
         raise ValueError(f"{what}: not a dict")
     if set(d) != set(want):
@@ -48,6 +49,8 @@ def check_shapes(what: str, d, want: dict) -> None:
             a = np.asarray(d[k])
             if a.dtype.kind not in "biuf" or a.shape != tuple(shape):
                 raise ValueError(f"{what}.{k}: {a.dtype} of shape {a.shape}, not numbers of shape {tuple(shape)}")
+            if not np.isfinite(a).all():
+                raise ValueError(f"{what}.{k}: not finite")
 
 
 def check_streams(what: str, d, partition: str) -> None:

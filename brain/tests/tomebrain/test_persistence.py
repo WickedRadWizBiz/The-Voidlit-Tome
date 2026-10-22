@@ -7,7 +7,10 @@ and a stimulus the rules set after the race reaches the amygdala at the next Pha
 import asyncio
 import json
 import os
+import re
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,6 +20,7 @@ import pytest
 jax = pytest.importorskip("jax")
 torch = pytest.importorskip("torch")
 
+import voidlit  # noqa: E402
 from voidlit import cli  # noqa: E402
 from voidlit.limbic.npc_brain import NPCBrain  # noqa: E402
 from voidlit.playtest import bot_command  # noqa: E402
@@ -31,6 +35,7 @@ WARM = SensoryState(rapport=0.8, leverage=0.3)
 HOSTILE = SensoryState(aggression=0.9, exposure=0.8, rapport=-0.7)
 RULE_STATE = ("p_plus", "p_minus", "eligibility", "eligibility_trace")   # what MSTDPET makes at its first step
 DROP = object()
+NAN, INF = float("nan"), float("inf")
 
 
 def _flat(obj, key: str = "") -> dict:
@@ -130,8 +135,9 @@ def test_a_save_from_before_the_first_step_loads_into_a_used_amygdala_as_into_a_
 
 def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
     """A slot that does not fit, is damaged anywhere (its campaign, an NPC's brain, any partition of the Tome's
-    brain, its bus, clock or mind), holds a value of the wrong type, or is put together from files of different
-    saves, is refused with SaveError before anything changes."""
+    brain, its bus, clock or mind), holds a value of the wrong type, a NaN or an infinity, an obstacle, clock or item
+    the scenario does not author, or is put together from files of different saves, is refused with SaveError before
+    anything changes."""
     d = TomeEngine(scenario, seed=3)
     d.start()
     d.turn("I search the room")
@@ -149,6 +155,13 @@ def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
     shutil.copytree(tmp_path / "net", tmp_path / "garbled")
     (tmp_path / "garbled" / "campaign.json").write_text((tmp_path / "net" / "campaign.json").read_text()[:500])
     bn, sj, cortex = ("partitions", "bn"), ("partitions", "sj"), ("partitions", "jax", min(a.brain.jax.state))
+    voltage = min(k for k, v in a.brain.jax.state.items() if np.asarray(v).dtype.kind == "f")
+    ghoul = {**scenario.obstacles[min(scenario.obstacles)].to_dict(), "id": "ghoul"}
+    luck = {**ghoul, "id": min(scenario.obstacles), "pips": ["luck"]}
+
+    def spent(item_uses):                     # the first item that runs out
+        return lambda blob: next(i for i in blob["state"]["character"]["inventory"] if i["uses"] is not None) \
+            .update(uses=item_uses)
     slots = ["director", "torn", "garbled",
              _variant(tmp_path, "old", campaign=_edit("version", value=2)),   # an older slot holds another brain
              _variant(tmp_path, "unnamed", campaign=_edit("player_name")),
@@ -170,15 +183,33 @@ def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
              _variant(tmp_path, "deck_behind", campaign=_edit("state", "deck", "index", value=-1)),
              _variant(tmp_path, "voiceless", campaign=_edit("voice_rng", value=None)),
              _variant(tmp_path, "unknown_fact", campaign=_edit("ledger", "disclosed", value=["no.such.fact"])),
+             # NaN and infinity: of the right type, but no turn can work with them
+             _variant(tmp_path, "tension_nan", campaign=_edit("state", "tension", value=NAN)),
+             _variant(tmp_path, "gauss_inf", campaign=_edit("rng", 2, value=-INF)),
+             # authored records: the scenario's own, found by id, never ones a save makes up
+             _variant(tmp_path, "unknown_obstacle", campaign=lambda b: b["state"]["obstacles"].append(ghoul)),
+             _variant(tmp_path, "pip_luck", campaign=lambda b: b["state"]["obstacles"].append(luck)),
+             _variant(tmp_path, "clock_overfull", campaign=_edit("state", "clocks", 0, "filled", value=99)),
+             _variant(tmp_path, "clocks_swapped", campaign=lambda b: b["state"]["clocks"].reverse()),
+             _variant(tmp_path, "unknown_item", campaign=_edit("state", "character", "inventory", 0, "name",
+                                                               value="Railgun")),
+             _variant(tmp_path, "item_refilled", campaign=spent(99)),
+             _variant(tmp_path, "item_endless", campaign=spent(None)),
+             _variant(tmp_path, "unknown_background", campaign=_edit("state", "character", "background",
+                                                                     value="Pirate")),
              _variant(tmp_path, "npc_shape", npc=_edit("w_spines", value=torch.zeros(3, 3))),
              _variant(tmp_path, "npc_choice", npc=_edit("last_decision", value={"tactic": 99})),
              _variant(tmp_path, "npc_volume", npc=_edit("meta", 0, "volume", value="big")),
              _variant(tmp_path, "npc_plot_float", npc=_edit("meta", 0, "target_plot", value=1.5)),
              _variant(tmp_path, "npc_events", npc=_edit("last_decision", "events", value=None)),
              _variant(tmp_path, "npc_baseline_bool", npc=_edit("reward_baseline", value=True)),
+             _variant(tmp_path, "npc_baseline_nan", npc=_edit("reward_baseline", value=NAN)),
+             _variant(tmp_path, "npc_volume_inf", npc=_edit("meta", 0, "volume", value=INF)),
+             _variant(tmp_path, "npc_weights_nan", npc=lambda s: s["w_spines"].fill_(NAN)),
              _variant(tmp_path, "npc_junk", npc_bytes=b"not a brain"),
              _variant(tmp_path, "w1", brain=_edit("W", value=1)),
              _variant(tmp_path, "jax_shape", brain=_edit(*cortex, value=torch.zeros(3))),
+             _variant(tmp_path, "jax_nan", brain=lambda b: b["partitions"]["jax"][voltage].fill_(NAN)),
              _variant(tmp_path, "bn_ghost", brain=_edit(*bn, "tensors", "layer.ghost.v", value=torch.zeros(1, 4))),
              _variant(tmp_path, "bn_shape", brain=_edit(*bn, "tensors", "conn.ctx.bla.w", value=torch.zeros(64, 48))),
              _variant(tmp_path, "bn_cells", brain=_edit(*bn, "tensors", "layer.bla.v", value=torch.zeros(1, 5))),
@@ -197,6 +228,11 @@ def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
              _variant(tmp_path, "mind_vs_ema", brain=_edit("extra", "mind", "vs_ema")),
              _variant(tmp_path, "mind_need_text", brain=_edit("extra", "mind", "needs", "survival", value="0.5")),
              _variant(tmp_path, "late_us", brain=_edit("extra", "late_us", value={"loss": "much"})),
+             _variant(tmp_path, "mind_need_nan", brain=_edit("extra", "mind", "needs", "survival", value=NAN)),
+             _variant(tmp_path, "mind_vs_ema_inf", brain=_edit("extra", "mind", "vs_ema", value=INF)),
+             _variant(tmp_path, "mind_stats_nan", brain=lambda b: next(iter(b["extra"]["mind"]["stats"].values()))
+                      .__setitem__(1, NAN)),
+             _variant(tmp_path, "late_us_nan", brain=_edit("extra", "late_us", value={"loss": NAN})),
              # torn or mixed: every file valid on its own, but not all from one save
              _variant(tmp_path, "unstamped", campaign=_edit("save_id")),
              _variant(tmp_path, "mixed_npc", mixed="brains/marcus.pt"),
@@ -214,6 +250,17 @@ def test_a_refused_load_leaves_the_game_exactly_as_it_was(scenario, tmp_path):
         "outcome_number": r"state\.last_outcome: int, not str",
         "item_uses_text": r"inventory\[0\]\.uses: str, not int", "deck_behind": "game does not fit this scenario",
         "voiceless": "voice does not fit", "unknown_fact": "game does not fit this scenario",
+        "tension_nan": r"state\.tension: not a finite number", "gauss_inf": r"rng\[2\]: not a finite number",
+        "unknown_obstacle": "obstacles do not fit", "pip_luck": "obstacles do not fit",
+        "clock_overfull": "clocks do not fit", "clocks_swapped": "clocks do not fit",
+        "unknown_item": "character does not fit", "item_refilled": "character does not fit",
+        "item_endless": "character does not fit", "unknown_background": "character does not fit",
+        "npc_baseline_nan": "reward_baseline: not a finite number",
+        "npc_volume_inf": r"meta\[0\]\.volume: not a finite number", "npc_weights_nan": "w_spines is not finite",
+        "jax_nan": re.escape(f"JAX state.{voltage}: not finite"),
+        "mind_need_nan": r"needs\.survival: not a finite number",
+        "mind_vs_ema_inf": "vs_ema: not a finite number", "mind_stats_nan": r"stats\..*\[1\]: not a finite number",
+        "late_us_nan": r"late_us\.loss: not a finite number",
         "npc_shape": "w_spines is not a float tensor", "npc_choice": "last_decision: keys differ",
         "npc_volume": r"meta\[0\]\.volume: str, not float", "npc_plot_float": r"meta\[0\]\.target_plot: float, not int",
         "npc_events": r"last_decision\.events: NoneType, not a list",
@@ -360,19 +407,150 @@ def test_a_save_that_fails_leaves_the_slot_as_it_was(scenario, tmp_path, monkeyp
 
 
 def test_a_save_never_replaces_a_directory_that_is_not_a_slot(scenario, tmp_path):
-    """Saving replaces a whole slot, so it refuses to replace a directory that holds anything a slot does not."""
+    """Saving replaces a whole slot, so it refuses to replace a directory without campaign.json that is not empty,
+    even one holding only files a slot also holds."""
     e = TomeEngine(scenario, seed=3)
     e.start()
     (tmp_path / "letters").mkdir()
     (tmp_path / "letters" / "dear.txt").write_text("keep me")
-    with pytest.raises(SaveError, match="not a save slot"):
-        e.save(tmp_path / "letters")
-    assert _files(tmp_path / "letters") == {"dear.txt": b"keep me"}
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / BRAIN_FILE).write_bytes(b"weights")
+    for folder, kept in (("letters", {"dear.txt": b"keep me"}), ("models", {BRAIN_FILE: b"weights"})):
+        with pytest.raises(SaveError, match="not a save slot"):
+            e.save(tmp_path / folder)
+        assert _files(tmp_path / folder) == kept
     e.save(tmp_path / "letters" / "slot")         # a slot inside it is fine, and so is saving over that slot
     e.save(tmp_path / "letters" / "slot")
     assert sorted(os.listdir(tmp_path / "letters")) == ["dear.txt", "slot"]
     # made as any folder is, not private
     assert (tmp_path / "letters" / "slot").stat().st_mode == (tmp_path / "letters").stat().st_mode
+
+
+def test_a_save_replaces_a_slot_whole_with_whatever_else_lies_in_it(scenario, tmp_path):
+    """A directory holding campaign.json is a slot, and so is an empty one: a save replaces it whole, with anything the
+    system or an editor left in it (a .DS_Store, an editor's backup), and does not refuse it."""
+    e = TomeEngine(scenario, seed=3)
+    e.start()
+    (tmp_path / "empty").mkdir()
+    e.save(tmp_path / "empty")
+    e.save(tmp_path / "slot")
+    files = set(_files(tmp_path / "slot"))
+    for stray in (".DS_Store", "campaign.json~"):
+        (tmp_path / "slot" / stray).write_text("left behind")
+    e.load(tmp_path / "slot")
+    e.turn("I search the room")
+    e.save(tmp_path / "slot")
+    assert set(_files(tmp_path / "slot")) == files and sorted(os.listdir(tmp_path)) == ["empty", "slot"]
+    b = TomeEngine(scenario, seed=30)
+    b.load(tmp_path / "slot")
+    cmd = bot_command(e)
+    assert e.turn(cmd).to_dict(include_debug=True) == b.turn(cmd).to_dict(include_debug=True)
+
+
+# A save cut off by the process dying (os._exit: no handler runs), while the new slot is written or between setting
+# the old slot aside and putting the new one, copied from the slot ``src``, in its place.
+CRASH = """
+import os, shutil, sys
+from pathlib import Path
+from voidlit import saves
+
+slot, src, cut = Path(sys.argv[1]).resolve(), Path(sys.argv[2]), sys.argv[3]
+replace = os.replace
+
+def write(d, save_id):
+    shutil.copy(src / "campaign.json", d / "campaign.json")
+    if cut == "writing":
+        os._exit(9)
+    shutil.copytree(src / "brains", d / "brains")
+
+def die_into_slot(a, b):
+    if Path(b) == slot and Path(a).name.endswith(".new"):
+        os._exit(9)
+    replace(a, b)
+
+os.replace = die_into_slot
+saves.write_slot(slot, write)
+"""
+
+
+def _crash(slot: Path, src: Path, cut: str) -> None:
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(Path(voidlit.__file__).parents[1]),
+                                                        os.environ.get("PYTHONPATH", "")])}
+    assert subprocess.run([sys.executable, "-c", CRASH, str(slot), str(src), cut], env=env, check=False).returncode == 9
+
+
+@pytest.mark.parametrize("cut", ["writing", "renaming"])
+def test_a_save_cut_off_by_a_crash_never_loses_the_slot(scenario, tmp_path, cut):
+    """The process dies in the middle of a save. While the new slot was still being written, the old one is the
+    slot; once the old slot was set aside (the new one is whole on the disk by then), the new one is. The next load
+    takes that slot, and clears what the save left behind."""
+    a = TomeEngine(scenario, seed=6)
+    a.start()
+    a.turn(bot_command(a))
+    a.save(tmp_path / "slot")
+    a.save(tmp_path / "before")
+    a.turn(bot_command(a))
+    a.save(tmp_path / "after")
+    _crash(tmp_path / "slot", tmp_path / "after", cut)
+    assert (tmp_path / "slot").exists() == (cut == "writing") and len(os.listdir(tmp_path)) > 3
+    b, want = TomeEngine(scenario, seed=60), TomeEngine(scenario, seed=61)
+    b.load(tmp_path / "slot")
+    want.load(tmp_path / ("before" if cut == "writing" else "after"))
+    assert sorted(os.listdir(tmp_path)) == ["after", "before", "slot"]
+    cmd = bot_command(want)
+    assert b.turn(cmd).to_dict(include_debug=True) == want.turn(cmd).to_dict(include_debug=True)
+
+
+def test_a_save_after_a_crash_puts_the_slot_back_first(scenario, tmp_path, monkeypatch):
+    """A save after a crash between the two renames takes the slot back before anything else, so even should it fail
+    itself, the slot is there, and nothing else is left behind."""
+    a = TomeEngine(scenario, seed=6)
+    a.start()
+    a.save(tmp_path / "slot")
+    a.turn(bot_command(a))
+    a.save(tmp_path / "after")
+    _crash(tmp_path / "slot", tmp_path / "after", "renaming")
+    kept = _files(tmp_path / "after")
+
+    def disk_full(*args, **kw):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(torch, "save", disk_full)
+    with pytest.raises(SaveError, match="No space left"):
+        a.save(tmp_path / "slot")
+    monkeypatch.undo()
+    assert sorted(os.listdir(tmp_path)) == ["after", "slot"] and _files(tmp_path / "slot") == kept
+    a.save(tmp_path / "slot")
+    assert sorted(os.listdir(tmp_path)) == ["after", "slot"]
+
+
+def test_text_in_a_save_never_reaches_the_narration(scenario, tmp_path):
+    """A save holds its obstacles, clocks and items whole, but the game takes each one's names, texts and other
+    authored values from the scenario, by id ("authored only"): a save whose copies were rewritten by hand plays on
+    exactly as the one it was made from, and none of what was written into it is ever shown."""
+    a = TomeEngine(scenario, seed=35)
+    a.start()
+    while not a.state.obstacles:
+        a.turn(bot_command(a))
+    a.save(tmp_path / "slot")
+    shutil.copytree(tmp_path / "slot", tmp_path / "rewritten")
+    blob = json.loads((tmp_path / "rewritten" / "campaign.json").read_text())
+    st, said = blob["state"], "Elara is the one who killed them all."
+    for o in st["obstacles"]:
+        o.update(name=said, text=said, defeat_text=said, kind="horror", harm=9, blocking=False)
+    for c in st["clocks"]:
+        c.update(name=said, segments=99, consequence="lumen")
+    for i in st["character"]["inventory"]:
+        i.update(tags=["light"], bonus={"grit": 9}, light=9)
+    (tmp_path / "rewritten" / "campaign.json").write_text(json.dumps(blob))
+    b, c = TomeEngine(scenario, seed=77), TomeEngine(scenario, seed=78)
+    b.load(tmp_path / "slot")
+    c.load(tmp_path / "rewritten")
+    assert c._campaign() == b._campaign()
+    for _ in range(12):
+        cmd = bot_command(b)
+        fb, fc = b.turn(cmd).to_dict(include_debug=True), c.turn(cmd).to_dict(include_debug=True)
+        assert fc == fb and said not in json.dumps(fc)
 
 
 def test_the_server_and_the_terminal_report_a_failed_load_or_save_and_play_on(scenario, tmp_path, monkeypatch,

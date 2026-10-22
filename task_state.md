@@ -178,3 +178,6 @@ PAUSED until the user's limit resets (Tuesday night). Resume is scheduled for 20
 (trig_0194TY9WjtjFBPsCkCnG4Vu6). Then stage B: plan step 3 (cerebellum module CB-U on a Phase-A-local clock) per
 scratchpad m6_design.json `final.steps`, isolated implementer + adversarial verifier, base = branch head. Keep a
 safety-net check-in armed. Watch: G17's soft p90 (300 ms) is borderline at 297-311 ms before the cerebellum is added.
+Bug found in play (2026-10-22, user demo): "Put ear against door and listen" reads as TALK (target iris) with Elara
+present, so Elara answers; "I listen at the door" reads correctly as SEARCH/INSIGHT. Fix in routing.py and add the
+phrasing (and "press my ear to the door", "put my ear to it") to tests/routing_corpus.py.
